@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-platform"
+version = "0.2.0"
+description = "A-share research, backtest, and paper-trading platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "akshare",
+  "pandas>=2.0",
+  "pyarrow",
+  "PyYAML",
+  "streamlit",
+]
+
+[project.optional-dependencies]
+tushare = ["tushare"]
+dev = ["pytest>=8", "ruff", "mypy", "pandas-stubs", "types-PyYAML"]
+
+[project.scripts]
+quant-platform = "quant_platform.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "quant_platform.data.akshare_backfill",
+  "quant_platform.data.providers.akshare_provider",
+  "quant_platform.data.providers.tushare_provider",
+]
+warn_return_any = false

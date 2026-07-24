@@ -1,0 +1,27 @@
+app:
+  name: quant-platform
+  runtime_dir: runtime
+  log_dir: logs
+
+data:
+  repository: runtime/market_akshare
+  source_config: configs/data_sources.yaml
+
+universe:
+  config: configs/universes/a_share_demo.yaml
+
+strategy:
+  config: configs/strategies/momentum.yaml
+
+portfolio:
+  plugin: equal_weight
+  top_n: 5
+
+execution:
+  config: configs/execution/paper.yaml
+
+backtest:
+  start_date: "2023-01-03"
+  end_date: "2024-12-31"
+  initial_cash: 1000000.0
+  benchmark: 000300.SH

@@ -1,0 +1,1 @@
+"""Canonical strategy signal models."""

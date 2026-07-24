@@ -1,0 +1,29 @@
+{
+  "provider": "akshare",
+  "dataset": "daily_range_raw",
+  "trade_date": "2023-12-31",
+  "captured_at": "2026-07-20T02:00:56.271202+00:00",
+  "request": {
+    "symbol": "600276",
+    "period": "daily",
+    "start_date": "20220101",
+    "end_date": "20231231",
+    "adjust": ""
+  },
+  "rows": 484,
+  "columns": [
+    "日期",
+    "股票代码",
+    "开盘",
+    "收盘",
+    "最高",
+    "最低",
+    "成交量",
+    "成交额",
+    "振幅",
+    "涨跌幅",
+    "涨跌额",
+    "换手率"
+  ],
+  "sha256": "63a923bdf9b8d942d333964ceb5b37b4664ab81eba19832c5e915cdcc0701dca"
+}

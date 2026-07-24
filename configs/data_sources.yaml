@@ -1,0 +1,22 @@
+providers:
+  tushare:
+    enabled: false
+    priority: 1
+    token_env: TUSHARE_TOKEN
+  akshare:
+    enabled: true
+    priority: 2
+
+routing:
+  security_master: [akshare]
+  trade_calendar: [akshare]
+  daily_bars: [akshare]
+  adjustment_factors: []
+  price_limits: []
+  suspensions: [akshare]
+
+quality:
+  unknown_status_policy: allow_trade
+  fail_on_missing_adjustment_factor: false
+  allow_fallback_provider: true
+

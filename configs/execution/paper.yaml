@@ -1,0 +1,9 @@
+execution:
+  model: next_open
+  lot_size: 100
+  commission_rate: 0.0003
+  minimum_commission: 5.0
+  stamp_tax_rate: 0.0005
+  slippage_rate: 0.0005
+  unknown_status_policy: allow_trade
+

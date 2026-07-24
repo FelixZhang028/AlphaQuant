@@ -1,0 +1,49 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Python 虚拟环境
+venv/
+.venv/
+env/
+
+# 环境变量和密钥
+.env
+.env.*
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志和临时文件
+*.log
+tmp/
+temp/
+
+# 数据和模型
+data/
+datasets/
+outputs/
+checkpoints/
+weights/
+runs/
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# 压缩包
+*.zip
+*.rar
+*.7z
+
+CLAUDE.md
+.claude-summary.md

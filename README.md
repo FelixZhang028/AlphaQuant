@@ -1,0 +1,95 @@
+# A股个人量化工作台
+
+这是一个本地运行的 A 股日频研究和回测平台。当前版本提供：
+
+- AkShare 数据回填、原始快照、标准化和本地 Parquet 存储；
+- 策略自动发现、声明式参数和 `StrategyContext`；
+- T 日收盘信号、T+1 开盘成交、费用、滑点和 A 股交易单位；
+- 账户、持仓、净值和可复现的回测结果目录；
+- CLI 与 Streamlit 共用的统一回测服务；
+- 在网页中选择策略、修改参数、运行回测和查看结果。
+
+当前版本仅用于研究和模拟，不连接真实券商，不构成投资建议。
+
+## 安装
+
+推荐 Python 3.11 或 3.12：
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+Tushare 已改为可选依赖；只有需要该适配器时才安装：
+
+```powershell
+python -m pip install -e ".[tushare]"
+```
+
+## 运行
+
+生成本地示例数据并回测：
+
+```powershell
+python -m quant_platform.cli sample-data --config configs/app.sample.yaml
+python -m quant_platform.cli backtest --config configs/app.sample.yaml
+```
+
+从 AkShare 回填配置股票池：
+
+```powershell
+python -m quant_platform.cli data-backfill --start-date 20230101 --end-date 20231231
+```
+
+查看自动发现的策略：
+
+```powershell
+python -m quant_platform.cli strategies
+```
+
+启动网页工作台：
+
+```powershell
+streamlit run src/quant_platform/web/app.py
+```
+
+## 新增策略
+
+在 `src/quant_platform/strategies` 新建一个 `.py` 文件，实现 `Strategy`：
+
+```python
+class MyStrategy(Strategy):
+    plugin_name = "my_strategy"
+    display_name = "我的策略"
+    parameters = (...)
+    required_fields = frozenset({"symbol", "trade_date", "adjusted_close"})
+
+    @classmethod
+    def from_parameters(cls, strategy_id, parameters):
+        return cls(...)
+
+    def generate_signals(self, context):
+        history = context.history(["adjusted_close"], lookback=20)
+        ...
+```
+
+不需要修改 `plugins.py`、CLI 或网页。平台会自动发现策略，并根据
+`StrategyParameter` 在网页生成参数输入控件。
+
+策略只能通过 `StrategyContext` 读取时间截面数据，只输出信号；组合、订单、
+成交和账户由平台处理。
+
+## 测试
+
+```powershell
+python -m pytest
+python -m compileall -q src tests
+ruff check .
+mypy src
+```
+
+## 当前数据边界
+
+- 股票池仍是配置文件中的固定列表，正式研究需要历史时点股票池；
+- AkShare 当前回填不能稳定提供完整历史 ST、停牌和涨跌停信息；
+- `UNKNOWN_STATUS` 适合工程验证，不适合作为高精度交易结论；
+- 基准、超额收益、公司行为和完整实验数据库将在后续阶段实现。

@@ -1,0 +1,2 @@
+[console_scripts]
+quant-platform = quant_platform.cli:main

@@ -1,0 +1,15 @@
+akshare
+pandas>=2.0
+pyarrow
+PyYAML
+streamlit
+
+[dev]
+pytest>=8
+ruff
+mypy
+pandas-stubs
+types-PyYAML
+
+[tushare]
+tushare

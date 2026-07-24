@@ -1,0 +1,9 @@
+strategy:
+  id: a_share_momentum_v1
+  plugin: a_share_momentum
+  rebalance: weekly
+  parameters:
+    short_window: 20
+    long_window: 60
+    minimum_average_amount: 20000000
+

@@ -1,0 +1,18 @@
+universe:
+  id: a_share_demo
+  symbols:
+    - 600519.SH
+    - 600036.SH
+    - 601318.SH
+    - 000858.SZ
+    - 000333.SZ
+    - 000001.SZ
+    - 600276.SH
+    - 601398.SH
+  filters:
+    exclude_st: true
+    exclude_suspended: true
+    minimum_listing_days: 120
+    minimum_history_days: 61
+    minimum_average_amount: 20000000
+
