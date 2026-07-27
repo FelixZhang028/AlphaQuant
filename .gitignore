@@ -3,15 +3,20 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 
-# Python 虚拟环境
+# Python 虚拟环境与构建产物
 venv/
 .venv/
 env/
+build/
+dist/
+*.egg-info/
 
 # 环境变量和密钥
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 
@@ -25,16 +30,22 @@ Thumbs.db
 
 # 日志和临时文件
 *.log
-tmp/
-temp/
+/tmp/
+/temp/
 
-# 数据和模型
-data/
-datasets/
-outputs/
-checkpoints/
-weights/
-runs/
+# 本地数据、模型和运行结果
+/data/
+/datasets/
+/outputs/
+/checkpoints/
+/weights/
+/runs/
+/runtime/raw/
+/runtime/market/
+/runtime/market_akshare/
+/runtime/sample_market/
+/runtime/runs/
+/runtime/state/
 *.pt
 *.pth
 *.onnx
