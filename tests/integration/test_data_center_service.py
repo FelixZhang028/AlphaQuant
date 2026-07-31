@@ -8,9 +8,7 @@ from quant_platform.application.data_service import DataCenterService
 
 class FakeAkShareDataCenter:
     def stock_info_a_code_name(self) -> pd.DataFrame:
-        return pd.DataFrame(
-            {"code": ["000001", "600000"], "name": ["平安银行", "浦发银行"]}
-        )
+        return pd.DataFrame({"code": ["000001", "600000"], "name": ["平安银行", "浦发银行"]})
 
     def stock_zh_a_hist(self, **parameters: object) -> pd.DataFrame:
         adjusted = parameters["adjust"] == "qfq"
@@ -43,9 +41,7 @@ class FakeAkShareDataCenter:
 
 
 def _write_yaml(path: Path, value: object) -> None:
-    path.write_text(
-        yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def test_data_center_updates_versions_and_reports_coverage(tmp_path: Path) -> None:

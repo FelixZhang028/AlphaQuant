@@ -41,9 +41,7 @@ class DataManifest:
     error: str | None = None
 
     @classmethod
-    def start(
-        cls, dataset: str, source: str, parameters: dict[str, Any]
-    ) -> DataManifest:
+    def start(cls, dataset: str, source: str, parameters: dict[str, Any]) -> DataManifest:
         """Create a running manifest with a sortable unique identifier."""
 
         now = datetime.now(UTC)
@@ -125,9 +123,7 @@ class DataManifest:
         )
 
 
-def save_manifest(
-    repository: MarketDataRepository, manifest: DataManifest
-) -> DataManifest:
+def save_manifest(repository: MarketDataRepository, manifest: DataManifest) -> DataManifest:
     """Append one final manifest and return it for fluent orchestration."""
 
     repository.save_table("data_manifests", manifest.to_frame())

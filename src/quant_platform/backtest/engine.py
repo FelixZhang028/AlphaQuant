@@ -17,11 +17,23 @@ from quant_platform.execution.next_open import NextOpenExecutionModel
 from quant_platform.execution.order_generator import OrderGenerator
 from quant_platform.portfolio.equal_weight import EqualWeightPortfolio
 from quant_platform.portfolio.models import TargetPosition
-from quant_platform.risk.basic_rules import RiskDecision, validate_target_weights
+from quant_platform.risk.basic_rules import RiskDecision, evaluate_target_risk
+from quant_platform.risk.config import RiskLimits
 from quant_platform.signals.models import Signal
 from quant_platform.strategies.base import Strategy
 from quant_platform.strategies.context import StrategyContext
 from quant_platform.universe.base import Universe
+
+RISK_EVENT_COLUMNS = [
+    "trade_date",
+    "strategy_id",
+    "decision",
+    "reason",
+    "target_count",
+    "total_weight",
+    "max_weight",
+    "current_drawdown",
+]
 
 
 class BacktestEngine:
@@ -37,6 +49,7 @@ class BacktestEngine:
         execution_model: NextOpenExecutionModel,
         rebalance: str = "weekly",
         risk_free_rate: float = 0.0,
+        risk_limits: RiskLimits | None = None,
     ) -> None:
         self.repository = repository
         self.universe = universe
@@ -46,9 +59,15 @@ class BacktestEngine:
         self.execution_model = execution_model
         self.rebalance = rebalance
         self.risk_free_rate = risk_free_rate
+        self.risk_limits = risk_limits or RiskLimits()
 
     def run(
-        self, start_date: date, end_date: date, initial_cash: float
+        self,
+        start_date: date,
+        end_date: date,
+        initial_cash: float,
+        *,
+        run_id: str | None = None,
     ) -> BacktestResult:
         """Execute a deterministic long-only backtest over the requested dates."""
 
@@ -62,14 +81,10 @@ class BacktestEngine:
         bars["trade_date"] = pd.to_datetime(bars["trade_date"]).dt.normalize()
         missing_fields = sorted(self.strategy.required_fields.difference(bars.columns))
         if missing_fields:
-            raise ValueError(
-                f"Market data does not satisfy strategy fields: {missing_fields}"
-            )
+            raise ValueError(f"Market data does not satisfy strategy fields: {missing_fields}")
         rebalance_dates = self._rebalance_dates(dates)
 
-        account = Account(
-            account_id=self.strategy.strategy_id, initial_cash=initial_cash
-        )
+        account = Account(account_id=self.strategy.strategy_id, initial_cash=initial_cash)
         last_closing_prices: dict[str, float] = {}
 
         pending: dict[date, list[Order]] = {}
@@ -79,6 +94,7 @@ class BacktestEngine:
         all_fills: list[Fill] = []
         nav_rows: list[dict[str, object]] = []
         position_rows: list[dict[str, object]] = []
+        risk_rows: list[dict[str, object]] = []
 
         for index, trade_date in enumerate(dates):
             account.start_day()
@@ -120,7 +136,26 @@ class BacktestEngine:
             context.require_fields(self.strategy.required_fields)
             signals = self.strategy.generate_signals(context)
             targets = self.portfolio.construct(signals)
-            if validate_target_weights(targets) != RiskDecision.PASS:
+            all_signals.extend(signals)
+            all_targets.extend(targets)
+            evaluation = evaluate_target_risk(
+                targets,
+                self.risk_limits,
+                current_drawdown=snapshot.drawdown,
+            )
+            risk_rows.append(
+                {
+                    "trade_date": trade_date,
+                    "strategy_id": self.strategy.strategy_id,
+                    "decision": evaluation.decision.value,
+                    "reason": "；".join(evaluation.reasons),
+                    "target_count": evaluation.target_count,
+                    "total_weight": evaluation.total_weight,
+                    "max_weight": evaluation.max_weight,
+                    "current_drawdown": evaluation.current_drawdown,
+                }
+            )
+            if evaluation.decision != RiskDecision.PASS:
                 continue
             next_date = dates[index + 1]
             orders = self.order_generator.generate(
@@ -131,8 +166,6 @@ class BacktestEngine:
                 closing_prices=last_closing_prices,
             )
             pending.setdefault(next_date, []).extend(orders)
-            all_signals.extend(signals)
-            all_targets.extend(targets)
 
         nav = pd.DataFrame(nav_rows)
         signals_frame = pd.DataFrame([signal.to_dict() for signal in all_signals])
@@ -140,6 +173,7 @@ class BacktestEngine:
         orders_frame = pd.DataFrame([asdict(order) for order in all_orders])
         fills_frame = pd.DataFrame([asdict(fill) for fill in all_fills])
         positions_frame = pd.DataFrame(position_rows)
+        risk_frame = pd.DataFrame(risk_rows, columns=RISK_EVENT_COLUMNS)
         analytics = analyze_backtest(
             nav,
             orders_frame,
@@ -148,8 +182,18 @@ class BacktestEngine:
             initial_cash=initial_cash,
             risk_free_rate=self.risk_free_rate,
         )
+        analytics.summary.update(
+            {
+                "risk_checks": len(risk_frame),
+                "risk_rejections": (
+                    int(risk_frame["decision"].eq(RiskDecision.REJECT.value).sum())
+                    if not risk_frame.empty
+                    else 0
+                ),
+            }
+        )
         return BacktestResult(
-            run_id=str(uuid4()),
+            run_id=run_id or str(uuid4()),
             nav=nav,
             signals=signals_frame,
             targets=targets_frame,
@@ -157,6 +201,7 @@ class BacktestEngine:
             fills=fills_frame,
             trades=analytics.trades,
             positions=positions_frame,
+            risk_events=risk_frame,
             summary=analytics.summary,
         )
 

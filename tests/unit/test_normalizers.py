@@ -25,9 +25,7 @@ def test_tushare_units_and_standard_composition() -> None:
     bars = normalize_tushare_daily(raw)
     standard = compose_standard_daily(
         bars,
-        pd.DataFrame(
-            [{"ts_code": "000001.SZ", "trade_date": "20240102", "adj_factor": 2.0}]
-        ),
+        pd.DataFrame([{"ts_code": "000001.SZ", "trade_date": "20240102", "adj_factor": 2.0}]),
         pd.DataFrame(
             [
                 {

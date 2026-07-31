@@ -28,9 +28,7 @@ class PartiallyFailingAkShare:
 
 
 def _write_yaml(path: Path, value: object) -> None:
-    path.write_text(
-        yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def test_one_failed_dataset_does_not_stop_remaining_updates(

@@ -4,9 +4,7 @@ from quant_platform.data.coverage import calculate_daily_coverage
 
 
 def test_coverage_reports_missing_symbol_dates_and_unknown_status() -> None:
-    calendar = pd.DataFrame(
-        {"cal_date": pd.to_datetime(["2024-01-02", "2024-01-03"])}
-    )
+    calendar = pd.DataFrame({"cal_date": pd.to_datetime(["2024-01-02", "2024-01-03"])})
     bars = pd.DataFrame(
         [
             {
@@ -19,9 +17,7 @@ def test_coverage_reports_missing_symbol_dates_and_unknown_status() -> None:
         ]
     )
 
-    coverage, per_symbol = calculate_daily_coverage(
-        bars, calendar, ["000001.SZ"]
-    )
+    coverage, per_symbol = calculate_daily_coverage(bars, calendar, ["000001.SZ"])
 
     assert coverage.expected_rows == 1
     assert coverage.coverage_ratio == 1.0

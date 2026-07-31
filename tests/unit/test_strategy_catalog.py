@@ -9,9 +9,7 @@ def test_catalog_discovers_strategy_and_validates_parameters() -> None:
 
     assert "a_share_momentum" in catalog.names()
     metadata = catalog.get_metadata("a_share_momentum")
-    strategy = catalog.create(
-        "a_share_momentum", "demo", metadata.defaults()
-    )
+    strategy = catalog.create("a_share_momentum", "demo", metadata.defaults())
 
     assert strategy.strategy_id == "demo"
     assert metadata.display_name == "A股动量策略"

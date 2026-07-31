@@ -17,9 +17,7 @@ class EqualWeightPortfolio:
     def construct(self, signals: list[Signal]) -> list[TargetPosition]:
         """Build equal-weight targets; an empty signal set means all cash."""
 
-        selected = sorted(signals, key=lambda signal: (-signal.score, signal.symbol))[
-            : self.top_n
-        ]
+        selected = sorted(signals, key=lambda signal: (-signal.score, signal.symbol))[: self.top_n]
         if not selected:
             return []
         weight = 1.0 / len(selected)

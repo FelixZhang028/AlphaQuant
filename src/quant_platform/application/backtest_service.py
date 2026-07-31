@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from quant_platform.backtest.engine import BacktestEngine
 from quant_platform.backtest.result import BacktestResult
+from quant_platform.backtest.run_store import BacktestRunStore
 from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
@@ -17,6 +19,7 @@ from quant_platform.data.repositories.parquet_repository import (
 from quant_platform.execution.next_open import ExecutionConfig, NextOpenExecutionModel
 from quant_platform.execution.order_generator import OrderGenerator
 from quant_platform.plugins import default_registry
+from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.discovery import StrategyCatalog
 from quant_platform.strategies.spec import StrategyMetadata
 from quant_platform.universe.a_share import AShareUniverse, AShareUniverseConfig
@@ -42,6 +45,7 @@ class BacktestRequest:
     initial_cash: float
     top_n: int
     rebalance: str
+    risk_limits: RiskLimits = field(default_factory=RiskLimits)
 
 
 @dataclass(frozen=True)
@@ -69,10 +73,14 @@ class BacktestService:
     def runs_root(self) -> Path:
         """Return the configured artifact root."""
 
-        runtime_dir = require_mapping(self.configs["app"], "app").get(
-            "runtime_dir", "runtime"
-        )
+        runtime_dir = require_mapping(self.configs["app"], "app").get("runtime_dir", "runtime")
         return Path(str(runtime_dir)) / "runs"
+
+    @property
+    def run_store(self) -> BacktestRunStore:
+        """Return lifecycle-aware access to persisted runs."""
+
+        return BacktestRunStore(self.runs_root)
 
     def available_strategies(self) -> tuple[StrategyMetadata, ...]:
         """List automatically discovered strategies."""
@@ -90,6 +98,7 @@ class BacktestService:
         metadata = self.catalog.get_metadata(plugin)
         configured_parameters = require_mapping(strategy_section, "parameters")
         parameters = metadata.validate_parameters(configured_parameters)
+        risk_section = self.configs.get("risk", {}).get("risk", {})
         return BacktestRequest(
             strategy_plugin=plugin,
             strategy_id=str(strategy_section.get("id", plugin)),
@@ -99,6 +108,9 @@ class BacktestService:
             initial_cash=float(backtest["initial_cash"]),
             top_n=int(portfolio.get("top_n", 5)),
             rebalance=str(strategy_section.get("rebalance", "weekly")),
+            risk_limits=RiskLimits.from_mapping(
+                risk_section if isinstance(risk_section, dict) else {}
+            ),
         )
 
     def build_engine(
@@ -118,9 +130,7 @@ class BacktestService:
                 exclude_suspended=bool(filters.get("exclude_suspended", True)),
                 minimum_listing_days=int(filters.get("minimum_listing_days", 0)),
                 minimum_history_days=int(filters.get("minimum_history_days", 61)),
-                minimum_average_amount=float(
-                    filters.get("minimum_average_amount", 0)
-                ),
+                minimum_average_amount=float(filters.get("minimum_average_amount", 0)),
             )
         )
         strategy = self.catalog.create(
@@ -132,14 +142,10 @@ class BacktestService:
         execution_config = ExecutionConfig(
             lot_size=int(execution_section.get("lot_size", 100)),
             commission_rate=float(execution_section.get("commission_rate", 0.0003)),
-            minimum_commission=float(
-                execution_section.get("minimum_commission", 5.0)
-            ),
+            minimum_commission=float(execution_section.get("minimum_commission", 5.0)),
             stamp_tax_rate=float(execution_section.get("stamp_tax_rate", 0.0005)),
             slippage_rate=float(execution_section.get("slippage_rate", 0.0005)),
-            reject_unknown_status=execution_section.get(
-                "unknown_status_policy", "reject_trade"
-            )
+            reject_unknown_status=execution_section.get("unknown_status_policy", "reject_trade")
             == "reject_trade",
         )
         repository_path = require_mapping(app, "data")["repository"]
@@ -157,30 +163,52 @@ class BacktestService:
             order_generator=OrderGenerator(execution_config.lot_size),
             execution_model=NextOpenExecutionModel(execution_config),
             rebalance=effective.rebalance,
+            risk_limits=effective.risk_limits,
         )
         return engine, self._config_snapshot(effective)
 
     def run(self, request: BacktestRequest | None = None) -> BacktestRun:
-        """Run and persist one backtest."""
+        """Run and persist one lifecycle-tracked backtest."""
 
         effective = request or self.default_request()
-        engine, snapshot = self.build_engine(effective)
-        result = engine.run(
-            effective.start_date, effective.end_date, effective.initial_cash
-        )
-        output = result.save(self.runs_root, snapshot)
-        return BacktestRun(result=result, output_dir=output, config_snapshot=snapshot)
+        snapshot = self._config_snapshot(effective)
+        run_id = str(uuid4())
+        store = self.run_store
+        store.start(run_id, snapshot)
+        try:
+            store.mark_running(run_id)
+            engine, _ = self.build_engine(effective)
+            result = engine.run(
+                effective.start_date,
+                effective.end_date,
+                effective.initial_cash,
+                run_id=run_id,
+            )
+            output = result.save(self.runs_root, snapshot)
+            store.complete(run_id)
+            return BacktestRun(result=result, output_dir=output, config_snapshot=snapshot)
+        except Exception as exc:
+            store.fail(run_id, exc)
+            raise
 
     def _load_component_configs(self) -> dict[str, Any]:
         app = load_yaml(self.app_config_path)
         universe = load_yaml(require_mapping(app, "universe")["config"])
         strategy = load_yaml(require_mapping(app, "strategy")["config"])
         execution = load_yaml(require_mapping(app, "execution")["config"])
+        risk_reference = app.get("risk", {})
+        if isinstance(risk_reference, dict) and risk_reference.get("config"):
+            risk = load_yaml(risk_reference["config"])
+        elif isinstance(risk_reference, dict):
+            risk = {"risk": risk_reference}
+        else:
+            risk = {"risk": {}}
         return {
             "app": app,
             "universe": universe,
             "strategy": strategy,
             "execution": execution,
+            "risk": risk,
         }
 
     @staticmethod
@@ -193,6 +221,7 @@ class BacktestService:
             raise ValueError("top_n must be positive")
         if request.rebalance not in {"daily", "weekly", "monthly"}:
             raise ValueError(f"Unsupported rebalance frequency: {request.rebalance}")
+        request.risk_limits.validate()
 
     def _config_snapshot(self, request: BacktestRequest) -> dict[str, Any]:
         snapshot = deepcopy(self.configs)
@@ -214,4 +243,5 @@ class BacktestService:
             }
         )
         require_mapping(snapshot["app"], "portfolio")["top_n"] = request.top_n
+        snapshot["risk"] = {"risk": request.risk_limits.to_dict()}
         return snapshot

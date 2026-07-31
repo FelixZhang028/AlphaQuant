@@ -22,12 +22,8 @@ class TushareDataProvider(DataProvider):
         self._pro = ts.pro_api(token)
 
     def get_security_master(self) -> pd.DataFrame:
-        frames = [
-            self._pro.stock_basic(list_status=status) for status in ("L", "D", "P")
-        ]
-        return pd.concat(frames, ignore_index=True).drop_duplicates(
-            "ts_code", keep="last"
-        )
+        frames = [self._pro.stock_basic(list_status=status) for status in ("L", "D", "P")]
+        return pd.concat(frames, ignore_index=True).drop_duplicates("ts_code", keep="last")
 
     def get_trade_calendar(self, start_date: date, end_date: date) -> pd.DataFrame:
         return self._pro.trade_cal(
@@ -36,33 +32,21 @@ class TushareDataProvider(DataProvider):
             end_date=end_date.strftime("%Y%m%d"),
         )
 
-    def get_daily_bars(
-        self, trade_date: date, symbols: list[str] | None = None
-    ) -> pd.DataFrame:
+    def get_daily_bars(self, trade_date: date, symbols: list[str] | None = None) -> pd.DataFrame:
         symbol_arg = ",".join(symbols) if symbols else None
-        return self._pro.daily(
-            ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d")
-        )
+        return self._pro.daily(ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d"))
 
     def get_adjustment_factors(
         self, trade_date: date, symbols: list[str] | None = None
     ) -> pd.DataFrame:
         symbol_arg = ",".join(symbols) if symbols else None
-        return self._pro.adj_factor(
-            ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d")
-        )
+        return self._pro.adj_factor(ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d"))
 
-    def get_price_limits(
-        self, trade_date: date, symbols: list[str] | None = None
-    ) -> pd.DataFrame:
+    def get_price_limits(self, trade_date: date, symbols: list[str] | None = None) -> pd.DataFrame:
         symbol_arg = ",".join(symbols) if symbols else None
-        return self._pro.stk_limit(
-            ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d")
-        )
+        return self._pro.stk_limit(ts_code=symbol_arg, trade_date=trade_date.strftime("%Y%m%d"))
 
-    def get_suspensions(
-        self, trade_date: date, symbols: list[str] | None = None
-    ) -> pd.DataFrame:
+    def get_suspensions(self, trade_date: date, symbols: list[str] | None = None) -> pd.DataFrame:
         symbol_arg = ",".join(symbols) if symbols else None
         return self._pro.suspend_d(
             ts_code=symbol_arg,

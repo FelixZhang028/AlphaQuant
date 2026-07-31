@@ -103,9 +103,7 @@ class DataCenterService:
 
         bars = self.repository.read_table("daily_bars")
         calendar = self.repository.read_table("trade_calendar")
-        market, per_symbol = calculate_daily_coverage(
-            bars, calendar, self.configured_symbols
-        )
+        market, per_symbol = calculate_daily_coverage(bars, calendar, self.configured_symbols)
         benchmark_bars = self.repository.read_table("benchmark_bars")
         if not benchmark_bars.empty:
             benchmark_bars["trade_date"] = pd.to_datetime(
@@ -195,9 +193,7 @@ class DataCenterService:
             save_manifest(self.repository, manifest.fail(exc))
             raise
 
-    def update_benchmark(
-        self, start_date: date, end_date: date
-    ) -> DataUpdateResult:
+    def update_benchmark(self, start_date: date, end_date: date) -> DataUpdateResult:
         """Refresh and version the configured benchmark index."""
 
         parameters = {
@@ -207,9 +203,7 @@ class DataCenterService:
         }
         manifest = DataManifest.start("benchmark_bars", "akshare", parameters)
         try:
-            frame = self._catalog().update_benchmark(
-                self.benchmark_symbol, start_date, end_date
-            )
+            frame = self._catalog().update_benchmark(self.benchmark_symbol, start_date, end_date)
             completed = manifest.succeed(
                 row_count=len(frame),
                 symbol_count=1,
@@ -241,9 +235,7 @@ class DataCenterService:
 
         results: list[DataUpdateResult] = []
         if include_security_master:
-            results.append(
-                self._capture_failure("security_master", self.update_security_master)
-            )
+            results.append(self._capture_failure("security_master", self.update_security_master))
         if include_market:
             results.append(
                 self._capture_failure(
@@ -291,13 +283,10 @@ class DataCenterService:
             required = {"dataset", "status", "completed_at", "version_id"}
             if not manifests.empty and required.issubset(manifests.columns):
                 failed = manifests[
-                    manifests["dataset"].eq(dataset)
-                    & manifests["status"].eq("FAILED")
+                    manifests["dataset"].eq(dataset) & manifests["status"].eq("FAILED")
                 ]
                 if not failed.empty:
-                    version_id = str(
-                        failed.sort_values("completed_at").iloc[-1]["version_id"]
-                    )
+                    version_id = str(failed.sort_values("completed_at").iloc[-1]["version_id"])
             return DataUpdateResult(
                 dataset=dataset,
                 version_id=version_id,

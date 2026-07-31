@@ -54,9 +54,7 @@ def calculate_daily_coverage(
 
     frame = bars.copy()
     frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
-    selected_symbols = sorted(
-        set(symbols) if symbols else set(frame["symbol"].astype(str))
-    )
+    selected_symbols = sorted(set(symbols) if symbols else set(frame["symbol"].astype(str)))
     frame = frame[frame["symbol"].isin(selected_symbols)]
     if frame.empty:
         empty = DatasetCoverage(0, len(selected_symbols), None, None, 0, 0, 0.0, 0, 0, 0)
@@ -80,9 +78,7 @@ def calculate_daily_coverage(
         else pd.Series("OK", index=frame.index)
     )
     unknown_rows = int(quality.ne("OK").sum())
-    missing_prices = int(
-        frame.reindex(columns=["raw_open", "raw_close"]).isna().any(axis=1).sum()
-    )
+    missing_prices = int(frame.reindex(columns=["raw_open", "raw_close"]).isna().any(axis=1).sum())
 
     per_symbol_rows: list[dict[str, Any]] = []
     for symbol in selected_symbols:
@@ -101,9 +97,7 @@ def calculate_daily_coverage(
                 "end_date": group["trade_date"].max().date() if not group.empty else None,
                 "expected_rows": expected_per_symbol,
                 "missing_rows": max(expected_per_symbol - rows, 0),
-                "coverage_ratio": (
-                    rows / expected_per_symbol if expected_per_symbol else 0.0
-                ),
+                "coverage_ratio": (rows / expected_per_symbol if expected_per_symbol else 0.0),
                 "unknown_status_rows": int(symbol_quality.ne("OK").sum()),
             }
         )

@@ -80,9 +80,7 @@ def without_proxy_environment() -> Iterator[None]:
 
     with _environment_lock:
         managed_keys = _PROXY_KEYS | _BYPASS_KEYS
-        matching_keys = [
-            key for key in list(os.environ) if key.upper() in managed_keys
-        ]
+        matching_keys = [key for key in list(os.environ) if key.upper() in managed_keys]
         original = {key: os.environ[key] for key in matching_keys}
         for key in matching_keys:
             os.environ.pop(key, None)
@@ -142,24 +140,18 @@ class ProxyResilientAkShareClient:
             if not self._direct_fallback or not is_connection_error(first_error):
                 raise
             self._prefer_direct = True
-            logger.warning(
-                "AkShare connection failed; retrying without proxy environment"
-            )
+            logger.warning("AkShare connection failed; retrying without proxy environment")
             try:
                 return self._call_direct(operation, *args, **kwargs)
             except Exception as direct_error:
                 return self._fallback_or_raise(name, direct_error, **kwargs)
 
     @staticmethod
-    def _call_direct(
-        operation: Callable[..., Any], *args: Any, **kwargs: Any
-    ) -> Any:
+    def _call_direct(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         with without_proxy_environment():
             return operation(*args, **kwargs)
 
-    def _fallback_or_raise(
-        self, name: str, direct_error: Exception, **parameters: Any
-    ) -> Any:
+    def _fallback_or_raise(self, name: str, direct_error: Exception, **parameters: Any) -> Any:
         try:
             if name == "stock_zh_a_hist":
                 logger.warning("Eastmoney stock bars unavailable; using Sina fallback")
@@ -169,8 +161,7 @@ class ProxyResilientAkShareClient:
                 return self._sina_index_history(parameters)
         except Exception as fallback_error:
             raise AkShareNetworkError(
-                "东方财富接口不可用，新浪备用接口也未能返回数据；"
-                "请检查网络、防火墙或本机代理设置。"
+                "东方财富接口不可用，新浪备用接口也未能返回数据；请检查网络、防火墙或本机代理设置。"
             ) from fallback_error
         raise AkShareNetworkError(
             "代理连接失败，自动绕过代理直连后仍无法访问 AkShare 数据源；"
@@ -208,9 +199,7 @@ class ProxyResilientAkShareClient:
         ).copy()
         result["股票代码"] = code
         if "成交量" in result:
-            result["成交量"] = pd.to_numeric(
-                result["成交量"], errors="coerce"
-            ) / 100.0
+            result["成交量"] = pd.to_numeric(result["成交量"], errors="coerce") / 100.0
         if "成交额" not in result:
             result["成交额"] = pd.NA
         return result

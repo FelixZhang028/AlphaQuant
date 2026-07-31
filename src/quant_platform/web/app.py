@@ -29,9 +29,7 @@ def _parameter_input(
     if parameter.choices:
         choices = list(parameter.choices)
         default_index = choices.index(str(value)) if str(value) in choices else 0
-        return st.selectbox(
-            parameter.label, choices, index=default_index, help=help_text, key=key
-        )
+        return st.selectbox(parameter.label, choices, index=default_index, help=help_text, key=key)
     if parameter.kind == ParameterKind.INTEGER:
         return int(
             st.number_input(
@@ -49,12 +47,8 @@ def _parameter_input(
             st.number_input(
                 parameter.label,
                 value=float(value),
-                min_value=(
-                    float(parameter.minimum) if parameter.minimum is not None else None
-                ),
-                max_value=(
-                    float(parameter.maximum) if parameter.maximum is not None else None
-                ),
+                min_value=(float(parameter.minimum) if parameter.minimum is not None else None),
+                max_value=(float(parameter.maximum) if parameter.maximum is not None else None),
                 help=help_text,
                 key=key,
             )
@@ -87,9 +81,7 @@ def _display_value(summary: dict[str, Any], key: str, kind: str) -> str:
     return f"{number:.2f}"
 
 
-def _render_metric_grid(
-    summary: dict[str, Any], items: list[tuple[str, str, str]]
-) -> None:
+def _render_metric_grid(summary: dict[str, Any], items: list[tuple[str, str, str]]) -> None:
     """Render a compact four-column metric grid."""
 
     for offset in range(0, len(items), 4):
@@ -115,19 +107,16 @@ def _render_overview(summary: dict[str, Any], nav: pd.DataFrame) -> None:
     trough = summary.get("max_drawdown_trough_date") or "—"
     recovery = summary.get("max_drawdown_recovery_date") or "尚未恢复"
     duration = summary.get("max_drawdown_duration_trading_days", "—")
-    st.caption(
-        f"最大回撤区间：{start} → {trough}；恢复：{recovery}；"
-        f"持续：{duration} 个交易日。"
-    )
+    st.caption(f"最大回撤区间：{start} → {trough}；恢复：{recovery}；持续：{duration} 个交易日。")
 
     st.subheader("月度收益")
     monthly = calculate_monthly_returns(nav)
     if monthly.empty:
         st.info("当前运行没有足够数据计算月度收益。")
     else:
-        table = monthly.pivot(
-            index="year", columns="month_number", values="return"
-        ).reindex(columns=range(1, 13))
+        table = monthly.pivot(index="year", columns="month_number", values="return").reindex(
+            columns=range(1, 13)
+        )
         table.columns = [f"{month}月" for month in table.columns]
         st.dataframe(table.style.format("{:.2%}", na_rep="—"), width="stretch")
 
@@ -152,9 +141,7 @@ def _render_return_metrics(summary: dict[str, Any]) -> None:
     )
 
 
-def _render_trade_metrics(
-    summary: dict[str, Any], trades: pd.DataFrame
-) -> None:
+def _render_trade_metrics(summary: dict[str, Any], trades: pd.DataFrame) -> None:
     st.subheader("订单与完整交易")
     _render_metric_grid(
         summary,
@@ -216,9 +203,9 @@ def _render_position_metrics(
     if {"trade_date", "market_value", "equity"}.issubset(nav.columns):
         exposure = nav[["trade_date", "market_value", "equity"]].copy()
         exposure["trade_date"] = pd.to_datetime(exposure["trade_date"])
-        exposure["仓位"] = pd.to_numeric(
-            exposure["market_value"], errors="coerce"
-        ) / pd.to_numeric(exposure["equity"], errors="coerce")
+        exposure["仓位"] = pd.to_numeric(exposure["market_value"], errors="coerce") / pd.to_numeric(
+            exposure["equity"], errors="coerce"
+        )
         st.subheader("每日仓位")
         st.line_chart(exposure.set_index("trade_date")["仓位"])
     st.subheader("最新持仓")
@@ -290,9 +277,7 @@ except Exception as exc:
     st.error(f"配置或策略加载失败：{exc}")
     st.stop()
 
-metadata_by_name = {
-    metadata.plugin_name: metadata for metadata in service.available_strategies()
-}
+metadata_by_name = {metadata.plugin_name: metadata for metadata in service.available_strategies()}
 plugin_names = list(metadata_by_name)
 default_index = (
     plugin_names.index(default_request.strategy_plugin)
@@ -372,18 +357,12 @@ with st.expander("新建回测", expanded=True):
 
 st.divider()
 st.header("回测结果")
-runs = sorted(
-    (path for path in service.runs_root.glob("*") if path.is_dir()), reverse=True
-)
+runs = [record.path for record in service.run_store.list_records(successful_only=True)]
 if not runs:
     st.info("暂无回测结果，请先在上方运行一次回测。")
     st.stop()
 
 preferred = st.session_state.get("selected_run")
-run_index = next(
-    (index for index, path in enumerate(runs) if path.name == preferred), 0
-)
-selected_run = st.selectbox(
-    "回测运行", runs, index=run_index, format_func=lambda path: path.name
-)
+run_index = next((index for index, path in enumerate(runs) if path.name == preferred), 0)
+selected_run = st.selectbox("回测运行", runs, index=run_index, format_func=lambda path: path.name)
 _render_result(selected_run)

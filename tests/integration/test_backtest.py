@@ -39,9 +39,7 @@ def test_complete_t_plus_one_backtest(tmp_path: Path) -> None:
     assert not result.orders.empty
     assert not result.fills.empty
     assert (result.orders["execution_date"] > result.orders["signal_date"]).all()
-    fill_dates = dict(
-        zip(result.fills["order_id"], result.fills["trade_date"], strict=False)
-    )
+    fill_dates = dict(zip(result.fills["order_id"], result.fills["trade_date"], strict=False))
     assert all(
         fill_dates.get(row.order_id) == row.execution_date
         for row in result.orders.itertuples()

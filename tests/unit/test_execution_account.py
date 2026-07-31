@@ -49,9 +49,7 @@ def test_limit_up_rejects_buy() -> None:
     market = _market_row()
     market.loc[0, "raw_open"] = 11.0
 
-    orders, fills = NextOpenExecutionModel(ExecutionConfig()).execute(
-        [order], market, account
-    )
+    orders, fills = NextOpenExecutionModel(ExecutionConfig()).execute([order], market, account)
 
     assert orders[0].status == OrderStatus.REJECTED
     assert fills == []

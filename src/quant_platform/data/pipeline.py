@@ -31,9 +31,7 @@ class DailyDataPipeline:
         self.raw_repository = raw_repository
         self.market_repository = market_repository
 
-    def update(
-        self, trade_date: date, symbols: list[str] | None = None
-    ) -> DataQualityReport:
+    def update(self, trade_date: date, symbols: list[str] | None = None) -> DataQualityReport:
         """Fetch, normalize, validate, and publish one trading day."""
 
         bars_raw, bars_source = self.router.fetch(
@@ -72,9 +70,7 @@ class DailyDataPipeline:
             ("suspensions", suspensions, suspension_source),
         ):
             if source != "unavailable":
-                self.raw_repository.save(
-                    source, dataset, trade_date, frame, {"symbols": symbols}
-                )
+                self.raw_repository.save(source, dataset, trade_date, frame, {"symbols": symbols})
 
         standard = compose_standard_daily(bars, adj, limits, suspensions)
         report = inspect_daily_bars(standard)

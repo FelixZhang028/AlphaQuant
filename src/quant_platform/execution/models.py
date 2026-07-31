@@ -16,11 +16,15 @@ class OrderSide(StrEnum):
 
 
 class OrderStatus(StrEnum):
-    """Paper-order lifecycle state."""
+    """Order lifecycle shared by backtest, paper, and future live adapters."""
 
     CREATED = "CREATED"
     SUBMITTED = "SUBMITTED"
+    ACCEPTED = "ACCEPTED"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
+    CANCEL_PENDING = "CANCEL_PENDING"
+    CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
     FAILED = "FAILED"
 
@@ -37,6 +41,7 @@ class Order:
     signal_date: date
     execution_date: date
     status: OrderStatus = OrderStatus.CREATED
+    filled_quantity: int = 0
     reject_reason: str | None = None
 
     @classmethod
@@ -61,10 +66,25 @@ class Order:
             execution_date,
         )
 
+    @property
+    def remaining_quantity(self) -> int:
+        """Return the unfilled quantity."""
+
+        return max(self.quantity - self.filled_quantity, 0)
+
     def with_status(self, status: OrderStatus, reason: str | None = None) -> Order:
         """Return an updated immutable order."""
 
         return replace(self, status=status, reject_reason=reason)
+
+    def with_fill(self, quantity: int) -> Order:
+        """Apply a fill quantity and derive full or partial status."""
+
+        if quantity <= 0 or self.filled_quantity + quantity > self.quantity:
+            raise ValueError("invalid order fill quantity")
+        filled = self.filled_quantity + quantity
+        status = OrderStatus.FILLED if filled == self.quantity else OrderStatus.PARTIALLY_FILLED
+        return replace(self, filled_quantity=filled, status=status)
 
 
 @dataclass(frozen=True)

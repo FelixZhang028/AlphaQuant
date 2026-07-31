@@ -67,9 +67,7 @@ class StrategyCatalog:
         except KeyError as exc:
             raise PluginError(f"Unknown strategy plugin: {plugin_name}") from exc
 
-    def create(
-        self, plugin_name: str, strategy_id: str, parameters: dict[str, Any]
-    ) -> Strategy:
+    def create(self, plugin_name: str, strategy_id: str, parameters: dict[str, Any]) -> Strategy:
         """Validate parameters and instantiate one discovered strategy."""
 
         try:

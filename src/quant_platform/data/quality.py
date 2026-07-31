@@ -47,8 +47,7 @@ def inspect_daily_bars(frame: pd.DataFrame) -> DataQualityReport:
     duplicate_rows = int(frame.duplicated(["symbol", "trade_date"]).sum())
     missing = {name: int(frame[name].isna().sum()) for name in sorted(required)}
     statuses = {
-        str(key): int(value)
-        for key, value in frame["quality_status"].value_counts().items()
+        str(key): int(value) for key, value in frame["quality_status"].value_counts().items()
     }
     return DataQualityReport(
         rows=len(frame),

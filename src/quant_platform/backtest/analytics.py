@@ -59,9 +59,7 @@ def analyze_backtest(
 ) -> BacktestAnalytics:
     """Build the complete backward-compatible summary for one run."""
 
-    summary = calculate_metrics(
-        nav, initial_cash=initial_cash, risk_free_rate=risk_free_rate
-    )
+    summary = calculate_metrics(nav, initial_cash=initial_cash, risk_free_rate=risk_free_rate)
     trades = build_closed_trades(fills)
     summary.update(_execution_metrics(nav, orders, fills, trades, initial_cash))
     summary.update(_portfolio_metrics(nav, positions))
@@ -137,12 +135,8 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
                 raise ValueError(f"sell fill exceeds open quantity for {symbol}")
             lot = symbol_lots[0]
             matched = min(remaining, lot.quantity)
-            direct_cost = matched * (
-                lot.direct_cost_per_share + sell_cost_per_share
-            )
-            slippage_cost = matched * (
-                lot.slippage_per_share + sell_slippage_per_share
-            )
+            direct_cost = matched * (lot.direct_cost_per_share + sell_cost_per_share)
+            slippage_cost = matched * (lot.slippage_per_share + sell_slippage_per_share)
             gross_pnl = matched * (reference_price - lot.reference_price)
             net_pnl = gross_pnl - direct_cost - slippage_cost
             capital = matched * lot.reference_price + matched * (
@@ -185,13 +179,9 @@ def _execution_metrics(
 ) -> dict[str, Any]:
     order_count = len(orders)
     fill_count = len(fills)
-    statuses = (
-        orders["status"].astype(str) if "status" in orders else pd.Series(dtype=str)
-    )
+    statuses = orders["status"].astype(str) if "status" in orders else pd.Series(dtype=str)
     sides = fills["side"].astype(str) if "side" in fills else pd.Series(dtype=str)
-    filled_order_count = (
-        int(fills["order_id"].nunique()) if "order_id" in fills else 0
-    )
+    filled_order_count = int(fills["order_id"].nunique()) if "order_id" in fills else 0
 
     commission = _column_sum(fills, "commission")
     stamp_tax = _column_sum(fills, "stamp_tax")
@@ -213,9 +203,7 @@ def _execution_metrics(
         else pd.Series(dtype=float)
     )
     average_equity = float(equity.mean()) if not equity.empty else initial_cash
-    period_turnover = (
-        traded_notional / (2.0 * average_equity) if average_equity > 0 else 0.0
-    )
+    period_turnover = traded_notional / (2.0 * average_equity) if average_equity > 0 else 0.0
     periods = max(len(equity) - 1, 1)
 
     winning = trades[trades["net_pnl"] > 0] if not trades.empty else trades
@@ -237,9 +225,7 @@ def _execution_metrics(
         "winning_trades": len(winning),
         "losing_trades": len(losing),
         "trade_win_rate": len(winning) / len(trades) if len(trades) else 0.0,
-        "average_trade_pnl": (
-            float(trades["net_pnl"].mean()) if not trades.empty else None
-        ),
+        "average_trade_pnl": (float(trades["net_pnl"].mean()) if not trades.empty else None),
         "average_win": average_win,
         "average_loss": average_loss,
         "payoff_ratio": (
@@ -247,27 +233,15 @@ def _execution_metrics(
             if average_win is not None and average_loss not in (None, 0.0)
             else None
         ),
-        "profit_factor": (
-            gross_profit / abs(gross_loss) if gross_loss < 0 else None
-        ),
-        "max_trade_profit": (
-            float(trades["net_pnl"].max()) if not trades.empty else None
-        ),
-        "max_trade_loss": (
-            float(trades["net_pnl"].min()) if not trades.empty else None
-        ),
+        "profit_factor": (gross_profit / abs(gross_loss) if gross_loss < 0 else None),
+        "max_trade_profit": (float(trades["net_pnl"].max()) if not trades.empty else None),
+        "max_trade_loss": (float(trades["net_pnl"].min()) if not trades.empty else None),
         "average_holding_days": (
             float(trades["holding_days"].mean()) if not trades.empty else None
         ),
-        "max_holding_days": (
-            int(trades["holding_days"].max()) if not trades.empty else None
-        ),
-        "realized_gross_pnl": (
-            float(trades["gross_pnl"].sum()) if not trades.empty else 0.0
-        ),
-        "realized_net_pnl": (
-            float(trades["net_pnl"].sum()) if not trades.empty else 0.0
-        ),
+        "max_holding_days": (int(trades["holding_days"].max()) if not trades.empty else None),
+        "realized_gross_pnl": (float(trades["gross_pnl"].sum()) if not trades.empty else 0.0),
+        "realized_net_pnl": (float(trades["net_pnl"].sum()) if not trades.empty else 0.0),
         "commission": commission,
         "stamp_tax": stamp_tax,
         "slippage_cost": slippage_cost,
@@ -304,9 +278,7 @@ def _portfolio_metrics(nav: pd.DataFrame, positions: pd.DataFrame) -> dict[str, 
     average_concentration = 0.0
     max_concentration = 0.0
     max_single_weight = 0.0
-    if not positions.empty and {"trade_date", "market_value"}.issubset(
-        positions.columns
-    ):
+    if not positions.empty and {"trade_date", "market_value"}.issubset(positions.columns):
         working_positions = positions.copy()
         working_positions["trade_date"] = pd.to_datetime(
             working_positions["trade_date"]
@@ -317,15 +289,13 @@ def _portfolio_metrics(nav: pd.DataFrame, positions: pd.DataFrame) -> dict[str, 
             .reindex(nav_dates, fill_value=0)
             .astype(float)
         )
-        dated_equity = working_nav.set_index(
-            working_nav["trade_date"].dt.normalize()
-        )["equity"]
+        dated_equity = working_nav.set_index(working_nav["trade_date"].dt.normalize())["equity"]
         working_positions["weight"] = pd.to_numeric(
             working_positions["market_value"], errors="coerce"
         ) / working_positions["trade_date"].map(dated_equity)
-        concentration = working_positions.groupby("trade_date", observed=True)[
-            "weight"
-        ].apply(lambda values: float((values.fillna(0.0) ** 2).sum()))
+        concentration = working_positions.groupby("trade_date", observed=True)["weight"].apply(
+            lambda values: float((values.fillna(0.0) ** 2).sum())
+        )
         concentration = concentration.reindex(nav_dates, fill_value=0.0)
         average_concentration = float(concentration.mean())
         max_concentration = float(concentration.max())

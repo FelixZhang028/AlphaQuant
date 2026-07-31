@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 class DataRouter:
     """Try providers in configured order and report the provider actually used."""
 
-    def __init__(
-        self, providers: dict[str, DataProvider], routes: dict[str, list[str]]
-    ) -> None:
+    def __init__(self, providers: dict[str, DataProvider], routes: dict[str, list[str]]) -> None:
         self.providers = providers
         self.routes = routes
 
@@ -54,6 +52,4 @@ class DataRouter:
             except Exception as exc:
                 logger.exception("Provider fetch failed: %s/%s", provider_name, dataset)
                 failures.append(f"{provider_name}: {type(exc).__name__}: {exc}")
-        raise DataUnavailableError(
-            f"No provider returned {dataset}; " + "; ".join(failures)
-        )
+        raise DataUnavailableError(f"No provider returned {dataset}; " + "; ".join(failures))

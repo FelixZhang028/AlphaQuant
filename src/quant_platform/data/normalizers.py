@@ -108,14 +108,7 @@ def normalize_akshare_daily(frame: pd.DataFrame) -> pd.DataFrame:
 def canonical_symbol(code: str) -> str:
     """Convert a six-digit A-share code into ``000001.SZ`` style."""
 
-    clean = (
-        str(code)
-        .split(".")[0]
-        .lower()
-        .removeprefix("sh")
-        .removeprefix("sz")
-        .removeprefix("bj")
-    )
+    clean = str(code).split(".")[0].lower().removeprefix("sh").removeprefix("sz").removeprefix("bj")
     clean = clean.zfill(6)
     if clean.startswith(("4", "8", "9")):
         exchange = "BJ"
@@ -170,9 +163,7 @@ def compose_standard_daily(
     ).copy()
     if not limits.empty:
         limits["trade_date"] = pd.to_datetime(limits["trade_date"]).dt.normalize()
-        result = result.merge(
-            limits[keys + ["up_limit", "down_limit"]], on=keys, how="left"
-        )
+        result = result.merge(limits[keys + ["up_limit", "down_limit"]], on=keys, how="left")
     else:
         result["up_limit"] = pd.NA
         result["down_limit"] = pd.NA
@@ -192,7 +183,5 @@ def compose_standard_daily(
     unknown_status = result[["up_limit", "down_limit"]].isna().any(axis=1)
     result.loc[missing_price, "quality_status"] = "MISSING_PRICE"
     result.loc[~missing_price & missing_adj, "quality_status"] = "MISSING_ADJ_FACTOR"
-    result.loc[~missing_price & ~missing_adj & unknown_status, "quality_status"] = (
-        "UNKNOWN_STATUS"
-    )
+    result.loc[~missing_price & ~missing_adj & unknown_status, "quality_status"] = "UNKNOWN_STATUS"
     return result.sort_values(keys).reset_index(drop=True)

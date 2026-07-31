@@ -34,9 +34,7 @@ class Strategy(ABC):
 
     @classmethod
     @abstractmethod
-    def from_parameters(
-        cls, strategy_id: str, parameters: dict[str, Any]
-    ) -> Strategy:
+    def from_parameters(cls, strategy_id: str, parameters: dict[str, Any]) -> Strategy:
         """Build a strategy from values validated against its metadata."""
 
     @abstractmethod

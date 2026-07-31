@@ -90,9 +90,7 @@ class StrategyMetadata:
 
         return {parameter.name: parameter.default for parameter in self.parameters}
 
-    def validate_parameters(
-        self, values: dict[str, Any]
-    ) -> dict[str, int | float | bool | str]:
+    def validate_parameters(self, values: dict[str, Any]) -> dict[str, int | float | bool | str]:
         """Validate known values and reject misspelled parameter names."""
 
         definitions = {parameter.name: parameter for parameter in self.parameters}

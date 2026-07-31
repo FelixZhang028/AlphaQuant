@@ -37,9 +37,7 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
-        raise ConfigurationError(
-            f"Top-level YAML value must be a mapping: {config_path}"
-        )
+        raise ConfigurationError(f"Top-level YAML value must be a mapping: {config_path}")
     return cast(dict[str, Any], _expand_environment(loaded))
 
 

@@ -44,9 +44,7 @@ def normalize_akshare_security_master(frame: pd.DataFrame) -> pd.DataFrame:
     ].drop_duplicates("symbol", keep="last")
 
 
-def normalize_akshare_index_daily(
-    frame: pd.DataFrame, symbol: str
-) -> pd.DataFrame:
+def normalize_akshare_index_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     """Normalize AkShare ``index_zh_a_hist`` daily output."""
 
     aliases = {
@@ -81,9 +79,9 @@ def normalize_akshare_index_daily(
     result["source"] = "akshare"
     result["ingested_at"] = datetime.now(UTC)
     result["quality_status"] = "OK"
-    result.loc[
-        result[["raw_open", "raw_close"]].isna().any(axis=1), "quality_status"
-    ] = "MISSING_PRICE"
+    result.loc[result[["raw_open", "raw_close"]].isna().any(axis=1), "quality_status"] = (
+        "MISSING_PRICE"
+    )
     columns = [
         "symbol",
         "trade_date",

@@ -1,4 +1,5 @@
 """Helpers for exporting data from the web interface."""
+
 from __future__ import annotations
 
 import pandas as pd

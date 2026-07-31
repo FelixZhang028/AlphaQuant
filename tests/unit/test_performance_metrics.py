@@ -9,9 +9,7 @@ from quant_platform.backtest.metrics import calculate_metrics, calculate_monthly
 def test_return_metrics_include_drawdown_path_and_risk_ratios() -> None:
     nav = pd.DataFrame(
         {
-            "trade_date": pd.to_datetime(
-                ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
-            ),
+            "trade_date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]),
             "equity": [100.0, 110.0, 99.0, 120.0],
         }
     )
@@ -123,9 +121,7 @@ def test_complete_analytics_include_execution_cost_and_position_metrics() -> Non
         }
     )
 
-    result = analyze_backtest(
-        nav, orders, fills, positions, initial_cash=1_000.0
-    ).summary
+    result = analyze_backtest(nav, orders, fills, positions, initial_cash=1_000.0).summary
 
     assert math.isclose(result["total_transaction_cost"], 41.08)
     assert math.isclose(result["trade_win_rate"], 1.0)

@@ -20,6 +20,9 @@ portfolio:
 execution:
   config: configs/execution/paper.yaml
 
+risk:
+  config: configs/risk.yaml
+
 backtest:
   start_date: "2023-01-03"
   end_date: "2024-12-31"

@@ -23,13 +23,14 @@ class BacktestResult:
     fills: pd.DataFrame
     trades: pd.DataFrame
     positions: pd.DataFrame
+    risk_events: pd.DataFrame
     summary: dict[str, Any]
 
     def save(self, root: str | Path, config_snapshot: dict[str, Any]) -> Path:
         """Persist all run artifacts under a unique directory."""
 
         directory = Path(root) / self.run_id
-        directory.mkdir(parents=True, exist_ok=False)
+        directory.mkdir(parents=True, exist_ok=True)
         for name, frame in (
             ("nav", self.nav),
             ("signals", self.signals),
@@ -38,6 +39,7 @@ class BacktestResult:
             ("fills", self.fills),
             ("closed_trades", self.trades),
             ("positions", self.positions),
+            ("risk_events", self.risk_events),
         ):
             frame.to_parquet(directory / f"{name}.parquet", index=False)
         (directory / "summary.json").write_text(

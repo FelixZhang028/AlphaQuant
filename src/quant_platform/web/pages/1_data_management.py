@@ -34,9 +34,7 @@ def _download_csv(
 st.title("数据管理")
 st.caption("更新 AkShare 数据、检查覆盖率，并记录每次数据批次。")
 
-config_path = st.sidebar.text_input(
-    "数据管理配置", "configs/app.yaml", key="data_config_path"
-)
+config_path = st.sidebar.text_input("数据管理配置", "configs/app.yaml", key="data_config_path")
 try:
     service = DataCenterService(config_path)
     overview = service.overview()
@@ -56,16 +54,12 @@ with st.expander("更新数据", expanded=True):
     with st.form("data_update_form"):
         left, right = st.columns(2)
         with left:
-            start_date = st.date_input(
-                "开始日期", value=date.today() - timedelta(days=365)
-            )
+            start_date = st.date_input("开始日期", value=date.today() - timedelta(days=365))
             include_security_master = st.checkbox("更新全 A 证券主表", value=True)
             include_market = st.checkbox("更新配置股票池行情", value=True)
         with right:
             end_date = st.date_input("结束日期", value=date.today())
-            include_benchmark = st.checkbox(
-                f"更新基准 {overview.benchmark_symbol}", value=True
-            )
+            include_benchmark = st.checkbox(f"更新基准 {overview.benchmark_symbol}", value=True)
             st.info(
                 "行情更新默认只处理配置股票池，不会下载全市场历史行情。"
                 "代理连接失败时会自动尝试直连。"
@@ -87,9 +81,7 @@ with st.expander("更新数据", expanded=True):
                         include_market=include_market,
                         include_benchmark=include_benchmark,
                     )
-                st.session_state["last_data_update"] = [
-                    asdict(result) for result in results
-                ]
+                st.session_state["last_data_update"] = [asdict(result) for result in results]
                 st.rerun()
             except Exception as exc:
                 st.error(f"数据更新未能启动：{friendly_data_error(exc)}")
@@ -122,8 +114,8 @@ with st.expander("更新数据", expanded=True):
             key="download_update_results_csv",
         )
 
-coverage_tab, benchmark_tab, master_tab, versions_tab = st.tabs(
-    ["覆盖率", "基准行情", "证券主表", "数据版本"]
+coverage_tab, market_tab, benchmark_tab, master_tab, versions_tab = st.tabs(
+    ["覆盖率", "股票行情", "基准行情", "证券主表", "数据版本"]
 )
 
 with coverage_tab:
@@ -146,6 +138,59 @@ with coverage_tab:
             f"本地范围：{market.start_date} 至 {market.end_date}；"
             f"缺失估算：{market.missing_rows:,} 行；重复：{market.duplicate_rows:,} 行。"
         )
+
+with market_tab:
+    st.subheader("配置股票池日线行情")
+    daily_bars = service.repository.read_table("daily_bars")
+    if daily_bars.empty:
+        st.info("暂无股票行情，请先运行数据更新。")
+    else:
+        daily_bars = daily_bars.copy()
+        daily_bars["trade_date"] = pd.to_datetime(daily_bars["trade_date"])
+        available_symbols = sorted(daily_bars["symbol"].dropna().astype(str).unique())
+        selected_symbols = st.multiselect(
+            "股票代码",
+            available_symbols,
+            default=available_symbols[:1],
+            key="daily_bars_export_symbols",
+        )
+        minimum_date = daily_bars["trade_date"].min().date()
+        maximum_date = daily_bars["trade_date"].max().date()
+        left, right = st.columns(2)
+        with left:
+            export_start = st.date_input(
+                "导出开始日期",
+                minimum_date,
+                min_value=minimum_date,
+                max_value=maximum_date,
+                key="daily_bars_export_start",
+            )
+        with right:
+            export_end = st.date_input(
+                "导出结束日期",
+                maximum_date,
+                min_value=minimum_date,
+                max_value=maximum_date,
+                key="daily_bars_export_end",
+            )
+        selected_bars = daily_bars[
+            daily_bars["symbol"].astype(str).isin(selected_symbols)
+            & daily_bars["trade_date"].between(pd.Timestamp(export_start), pd.Timestamp(export_end))
+        ].sort_values(["symbol", "trade_date"])
+        st.caption(
+            f"筛选结果 {len(selected_bars):,} 行；页面最多预览最后500行，下载包含全部筛选结果。"
+        )
+        st.dataframe(selected_bars.tail(500), width="stretch", hide_index=True)
+        if selected_bars.empty:
+            st.warning("当前筛选条件没有数据。")
+        else:
+            _download_csv(
+                selected_bars,
+                label="下载股票日线行情 CSV",
+                file_name="daily_bars_selected.csv",
+                key="download_daily_bars_csv",
+            )
+
 
 with benchmark_tab:
     st.subheader(overview.benchmark_symbol)

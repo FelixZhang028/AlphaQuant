@@ -31,9 +31,7 @@ def calculate_metrics(
     cumulative_return = float(equity.iloc[-1] / starting_equity - 1.0)
     total_ratio = float(equity.iloc[-1] / starting_equity)
     annual_return = (
-        float(total_ratio ** (TRADING_DAYS_PER_YEAR / periods) - 1.0)
-        if total_ratio > 0
-        else -1.0
+        float(total_ratio ** (TRADING_DAYS_PER_YEAR / periods) - 1.0) if total_ratio > 0 else -1.0
     )
     annual_volatility = _annualized_std(returns)
 
@@ -51,9 +49,7 @@ def calculate_metrics(
     drawdown = calculate_drawdown_series(prepared)
     drawdown_metrics = _drawdown_metrics(prepared, drawdown)
     max_drawdown = float(drawdown_metrics["max_drawdown"])
-    calmar = (
-        annual_return / abs(max_drawdown) if max_drawdown < -1e-12 else None
-    )
+    calmar = annual_return / abs(max_drawdown) if max_drawdown < -1e-12 else None
 
     monthly = calculate_monthly_returns(prepared)
     return {
@@ -67,9 +63,7 @@ def calculate_metrics(
         "risk_free_rate": risk_free_rate,
         "best_day_return": float(returns.max()) if not returns.empty else 0.0,
         "worst_day_return": float(returns.min()) if not returns.empty else 0.0,
-        "positive_day_ratio": (
-            float((returns > 0).mean()) if not returns.empty else 0.0
-        ),
+        "positive_day_ratio": (float((returns > 0).mean()) if not returns.empty else 0.0),
         "positive_month_ratio": (
             float((monthly["return"] > 0).mean()) if not monthly.empty else 0.0
         ),
@@ -150,9 +144,7 @@ def _annualized_ratio(returns: pd.Series, annualized_risk: float) -> float | Non
     return annualized_excess / annualized_risk
 
 
-def _drawdown_metrics(
-    nav: pd.DataFrame, drawdown: pd.DataFrame
-) -> dict[str, Any]:
+def _drawdown_metrics(nav: pd.DataFrame, drawdown: pd.DataFrame) -> dict[str, Any]:
     values = drawdown["drawdown"]
     trough_index = int(values.idxmin())
     prior_equity = nav.loc[:trough_index, "equity"]

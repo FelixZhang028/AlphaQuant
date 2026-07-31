@@ -40,9 +40,7 @@ class NextOpenExecutionModel:
         rows = {str(row["symbol"]): row for _, row in market_rows.iterrows()}
         updated: list[Order] = []
         fills: list[Fill] = []
-        for order in sorted(
-            orders, key=lambda item: (item.side != OrderSide.SELL, item.symbol)
-        ):
+        for order in sorted(orders, key=lambda item: (item.side != OrderSide.SELL, item.symbol)):
             row = rows.get(order.symbol)
             reason = self._rejection_reason(order, row)
             if reason:
@@ -58,19 +56,13 @@ class NextOpenExecutionModel:
             quantity = self._executable_quantity(order, price, account)
             if quantity <= 0:
                 updated.append(
-                    order.with_status(
-                        OrderStatus.REJECTED, "insufficient cash or quantity"
-                    )
+                    order.with_status(OrderStatus.REJECTED, "insufficient cash or quantity")
                 )
                 continue
             notional = quantity * price
-            commission = max(
-                self.config.minimum_commission, notional * self.config.commission_rate
-            )
+            commission = max(self.config.minimum_commission, notional * self.config.commission_rate)
             stamp_tax = (
-                notional * self.config.stamp_tax_rate
-                if order.side == OrderSide.SELL
-                else 0.0
+                notional * self.config.stamp_tax_rate if order.side == OrderSide.SELL else 0.0
             )
             fill = Fill.create(
                 order,
@@ -87,7 +79,7 @@ class NextOpenExecutionModel:
                 updated.append(order.with_status(OrderStatus.FAILED, str(exc)))
                 continue
             fills.append(fill)
-            updated.append(order.with_status(OrderStatus.FILLED))
+            updated.append(order.with_fill(quantity))
         return updated, fills
 
     def _rejection_reason(self, order: Order, row: pd.Series | None) -> str | None:
@@ -95,10 +87,7 @@ class NextOpenExecutionModel:
             return "missing execution-day market data"
         if bool(row.get("is_suspended", False)):
             return "security suspended"
-        if (
-            self.config.reject_unknown_status
-            and str(row.get("quality_status", "OK")) != "OK"
-        ):
+        if self.config.reject_unknown_status and str(row.get("quality_status", "OK")) != "OK":
             return f"market status is {row.get('quality_status')}"
         raw_open = float(row["raw_open"])
         up_limit = row.get("up_limit")
@@ -123,8 +112,6 @@ class NextOpenExecutionModel:
             return min(order.quantity, position.available_quantity if position else 0)
         available_for_notional = max(account.cash - self.config.minimum_commission, 0.0)
         per_share_with_cost = price * (1.0 + self.config.commission_rate)
-        affordable = int(
-            available_for_notional / per_share_with_cost / self.config.lot_size
-        )
+        affordable = int(available_for_notional / per_share_with_cost / self.config.lot_size)
         affordable *= self.config.lot_size
         return min(order.quantity, affordable)

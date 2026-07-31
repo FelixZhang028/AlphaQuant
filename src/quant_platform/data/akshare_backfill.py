@@ -53,13 +53,9 @@ class AkShareRangeBackfill:
             if not frame.empty:
                 frames.append(frame)
         if not frames:
-            raise DataUnavailableError(
-                "AkShare returned no bars for the requested universe"
-            )
+            raise DataUnavailableError("AkShare returned no bars for the requested universe")
 
-        daily = pd.concat(frames, ignore_index=True).sort_values(
-            ["trade_date", "symbol"]
-        )
+        daily = pd.concat(frames, ignore_index=True).sort_values(["trade_date", "symbol"])
         calendar = pd.DataFrame(
             {
                 "cal_date": sorted(daily["trade_date"].dropna().unique()),
@@ -81,9 +77,7 @@ class AkShareRangeBackfill:
         self.market_repository.save_table("daily_bars", daily)
         return inspect_daily_bars(daily)
 
-    def _fetch_symbol(
-        self, symbol: str, start_date: date, end_date: date
-    ) -> pd.DataFrame:
+    def _fetch_symbol(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
         code = symbol.split(".")[0]
         parameters = {
             "symbol": code,
@@ -120,14 +114,12 @@ class AkShareRangeBackfill:
             }
         ).copy()
         adjusted["trade_date"] = pd.to_datetime(adjusted["trade_date"]).dt.normalize()
-        adjusted = adjusted[["trade_date", "adjusted_close"]].drop_duplicates(
-            "trade_date"
-        )
+        adjusted = adjusted[["trade_date", "adjusted_close"]].drop_duplicates("trade_date")
         bars = bars.merge(adjusted, on="trade_date", how="left")
         bars["symbol"] = symbol
-        bars["adj_factor"] = pd.to_numeric(
-            bars["adjusted_close"], errors="coerce"
-        ) / pd.to_numeric(bars["raw_close"], errors="coerce")
+        bars["adj_factor"] = pd.to_numeric(bars["adjusted_close"], errors="coerce") / pd.to_numeric(
+            bars["raw_close"], errors="coerce"
+        )
         bars["up_limit"] = pd.NA
         bars["down_limit"] = pd.NA
         bars["is_suspended"] = False

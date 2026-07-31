@@ -32,9 +32,7 @@ def test_momentum_filters_negative_trend_and_equal_weights() -> None:
     history = _history()
     trade_date = history["trade_date"].max().date()
     strategy = AShareMomentumStrategy("momentum", MomentumParameters(20, 60, 1.0))
-    context = StrategyContext.create(
-        trade_date, history, ["AAA.SZ", "BBB.SZ", "CCC.SZ"]
-    )
+    context = StrategyContext.create(trade_date, history, ["AAA.SZ", "BBB.SZ", "CCC.SZ"])
 
     signals = strategy.generate_signals(context)
     targets = EqualWeightPortfolio(top_n=2).construct(signals)
@@ -48,14 +46,8 @@ def test_strategy_context_does_not_expose_future_rows() -> None:
     history = _history()
     signal_date = date(2024, 3, 29)
     strategy = AShareMomentumStrategy("momentum", MomentumParameters(5, 10, 1.0))
-    before = strategy.generate_signals(
-        StrategyContext.create(signal_date, history, ["AAA.SZ"])
-    )
-    history.loc[
-        history["trade_date"] > pd.Timestamp(signal_date), "adjusted_close"
-    ] *= 100
-    after = strategy.generate_signals(
-        StrategyContext.create(signal_date, history, ["AAA.SZ"])
-    )
+    before = strategy.generate_signals(StrategyContext.create(signal_date, history, ["AAA.SZ"]))
+    history.loc[history["trade_date"] > pd.Timestamp(signal_date), "adjusted_close"] *= 100
+    after = strategy.generate_signals(StrategyContext.create(signal_date, history, ["AAA.SZ"]))
 
     assert before == after

@@ -65,18 +65,14 @@ class ParquetMarketDataRepository(MarketDataRepository):
             mask &= frame["trade_date"] >= pd.Timestamp(start_date)
         if end_date:
             mask &= frame["trade_date"] <= pd.Timestamp(end_date)
-        return (
-            frame.loc[mask].sort_values(["trade_date", "symbol"]).reset_index(drop=True)
-        )
+        return frame.loc[mask].sort_values(["trade_date", "symbol"]).reset_index(drop=True)
 
     def get_trade_calendar(self, start_date: date, end_date: date) -> pd.DataFrame:
         frame = self.read_table("trade_calendar")
         if frame.empty:
             return frame
         frame["cal_date"] = pd.to_datetime(frame["cal_date"]).dt.normalize()
-        mask = frame["cal_date"].between(
-            pd.Timestamp(start_date), pd.Timestamp(end_date)
-        )
+        mask = frame["cal_date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
         if "is_open" in frame.columns:
             mask &= frame["is_open"].astype(int).eq(1)
         return frame.loc[mask].sort_values("cal_date").reset_index(drop=True)

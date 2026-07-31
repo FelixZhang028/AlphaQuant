@@ -8,17 +8,13 @@ from quant_platform.sample_data import generate_sample_market_data
 
 
 def _write_yaml(path: Path, value: object) -> None:
-    path.write_text(
-        yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 def test_service_runs_discovered_strategy_and_saves_snapshot(tmp_path: Path) -> None:
     symbols = ["000001.SZ", "000002.SZ", "600000.SH", "600036.SH"]
     market = tmp_path / "market"
-    generate_sample_market_data(
-        market, symbols, date(2022, 1, 3), date(2023, 12, 29)
-    )
+    generate_sample_market_data(market, symbols, date(2022, 1, 3), date(2023, 12, 29))
     universe_path = tmp_path / "universe.yaml"
     strategy_path = tmp_path / "strategy.yaml"
     execution_path = tmp_path / "execution.yaml"
@@ -84,9 +80,7 @@ def test_service_runs_discovered_strategy_and_saves_snapshot(tmp_path: Path) -> 
     service = BacktestService(app_path)
     completed = service.run()
 
-    assert "a_share_momentum" in {
-        item.plugin_name for item in service.available_strategies()
-    }
+    assert "a_share_momentum" in {item.plugin_name for item in service.available_strategies()}
     assert not completed.result.nav.empty
     assert completed.output_dir.exists()
     assert (completed.output_dir / "config.snapshot.yaml").exists()

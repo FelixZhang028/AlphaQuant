@@ -56,15 +56,10 @@ class AShareMomentumStrategy(Strategy):
             minimum=0,
         ),
     )
-    required_fields = frozenset(
-        {"symbol", "trade_date", "adjusted_close", "amount"}
-    )
+    required_fields = frozenset({"symbol", "trade_date", "adjusted_close", "amount"})
 
     def __init__(self, strategy_id: str, parameters: MomentumParameters) -> None:
-        if (
-            parameters.short_window <= 0
-            or parameters.long_window <= parameters.short_window
-        ):
+        if parameters.short_window <= 0 or parameters.long_window <= parameters.short_window:
             raise ValueError("Momentum windows must satisfy 0 < short < long")
         self.strategy_id = strategy_id
         self.config = parameters
@@ -102,23 +97,14 @@ class AShareMomentumStrategy(Strategy):
             if pd.Timestamp(latest["trade_date"]) != cutoff:
                 continue
             current = float(latest["adjusted_close"])
-            short_base = float(
-                group.iloc[-self.config.short_window - 1]["adjusted_close"]
-            )
-            long_base = float(
-                group.iloc[-self.config.long_window - 1]["adjusted_close"]
-            )
+            short_base = float(group.iloc[-self.config.short_window - 1]["adjusted_close"])
+            long_base = float(group.iloc[-self.config.long_window - 1]["adjusted_close"])
             if short_base <= 0 or long_base <= 0:
                 continue
             short_momentum = current / short_base - 1.0
             long_momentum = current / long_base - 1.0
-            average_amount = pd.to_numeric(
-                group.tail(20)["amount"], errors="coerce"
-            ).mean()
-            if (
-                long_momentum <= 0
-                or average_amount < self.config.minimum_average_amount
-            ):
+            average_amount = pd.to_numeric(group.tail(20)["amount"], errors="coerce").mean()
+            if long_momentum <= 0 or average_amount < self.config.minimum_average_amount:
                 continue
             signals.append(
                 Signal(

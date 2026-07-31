@@ -41,9 +41,7 @@ class OrderGenerator:
             position = account.positions.get(symbol)
             current_quantity = position.quantity if position is not None else 0
             desired_value = equity * target_map.get(symbol, 0.0)
-            desired_quantity = (
-                int(desired_value / price / self.lot_size) * self.lot_size
-            )
+            desired_quantity = int(desired_value / price / self.lot_size) * self.lot_size
             difference = desired_quantity - current_quantity
             if difference == 0:
                 continue
@@ -62,9 +60,7 @@ class OrderGenerator:
                         execution_date=execution_date,
                     )
                 )
-        return sorted(
-            orders, key=lambda order: (order.side != OrderSide.SELL, order.symbol)
-        )
+        return sorted(orders, key=lambda order: (order.side != OrderSide.SELL, order.symbol))
 
     @staticmethod
     def _estimated_equity(account: Account, closing_prices: dict[str, float]) -> float:

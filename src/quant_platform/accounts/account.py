@@ -52,9 +52,7 @@ class Account:
             cash -= total
         else:
             if fill.quantity > position.available_quantity:
-                raise AccountError(
-                    f"Insufficient sellable quantity for fill {fill.fill_id}"
-                )
+                raise AccountError(f"Insufficient sellable quantity for fill {fill.fill_id}")
             realized_pnl += notional - fees - fill.quantity * position.average_cost
             position.quantity -= fill.quantity
             position.available_quantity -= fill.quantity
@@ -69,9 +67,7 @@ class Account:
         self.realized_pnl = realized_pnl
         self.processed_fill_ids.add(fill.fill_id)
 
-    def mark_to_market(
-        self, trade_date: date, closing_prices: dict[str, float]
-    ) -> AccountSnapshot:
+    def mark_to_market(self, trade_date: date, closing_prices: dict[str, float]) -> AccountSnapshot:
         """Value positions at raw closing prices and append an end-of-day snapshot."""
 
         market_value = sum(
@@ -79,14 +75,9 @@ class Account:
             for symbol, position in self.positions.items()
         )
         equity = self.cash + market_value
-        previous_equity = (
-            self.snapshots[-1].equity if self.snapshots else self.initial_cash
-        )
+        previous_equity = self.snapshots[-1].equity if self.snapshots else self.initial_cash
         daily_return = equity / previous_equity - 1.0 if previous_equity else 0.0
-        peak = max(
-            [snapshot.equity for snapshot in self.snapshots]
-            + [self.initial_cash, equity]
-        )
+        peak = max([snapshot.equity for snapshot in self.snapshots] + [self.initial_cash, equity])
         drawdown = equity / peak - 1.0 if peak else 0.0
         snapshot = AccountSnapshot(
             trade_date=trade_date,

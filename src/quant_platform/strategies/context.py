@@ -32,12 +32,9 @@ class StrategyContext:
         symbols = tuple(sorted(set(str(symbol) for symbol in universe)))
         cutoff = pd.Timestamp(trade_date)
         available = history[
-            history["symbol"].isin(symbols)
-            & (pd.to_datetime(history["trade_date"]) <= cutoff)
+            history["symbol"].isin(symbols) & (pd.to_datetime(history["trade_date"]) <= cutoff)
         ].copy()
-        available["trade_date"] = pd.to_datetime(
-            available["trade_date"]
-        ).dt.normalize()
+        available["trade_date"] = pd.to_datetime(available["trade_date"]).dt.normalize()
         return cls(
             trade_date=trade_date,
             universe=symbols,
@@ -66,15 +63,11 @@ class StrategyContext:
         requested = tuple(dict.fromkeys(["symbol", "trade_date", *fields]))
         self.require_fields(requested)
         selected_symbols = (
-            set(str(symbol) for symbol in symbols)
-            if symbols is not None
-            else set(self.universe)
+            set(str(symbol) for symbol in symbols) if symbols is not None else set(self.universe)
         )
         frame = self._history[self._history["symbol"].isin(selected_symbols)]
         if lookback is not None:
             if lookback <= 0:
                 raise ValueError("lookback must be positive")
-            frame = frame.groupby("symbol", observed=True, group_keys=False).tail(
-                lookback
-            )
+            frame = frame.groupby("symbol", observed=True, group_keys=False).tail(lookback)
         return frame.loc[:, list(requested)].copy()

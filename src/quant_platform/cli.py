@@ -55,9 +55,7 @@ def command_backtest(args: argparse.Namespace) -> None:
         start_date=parse_date(args.start_date) if args.start_date else request.start_date,
         end_date=parse_date(args.end_date) if args.end_date else request.end_date,
         initial_cash=(
-            float(args.initial_cash)
-            if args.initial_cash is not None
-            else request.initial_cash
+            float(args.initial_cash) if args.initial_cash is not None else request.initial_cash
         ),
     )
     run = service.run(request)
@@ -73,9 +71,7 @@ def command_data_backfill(args: argparse.Namespace) -> None:
     repository = ParquetMarketDataRepository(data_config["repository"])
     raw = RawDataRepository(Path(require_mapping(app, "app")["runtime_dir"]) / "raw")
     universe_config = load_yaml(require_mapping(app, "universe")["config"])
-    symbols = [
-        str(item) for item in require_mapping(universe_config, "universe")["symbols"]
-    ]
+    symbols = [str(item) for item in require_mapping(universe_config, "universe")["symbols"]]
     report = AkShareRangeBackfill(raw, repository).backfill(
         symbols,
         parse_date(args.start_date),
@@ -106,9 +102,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="configs/app.yaml")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    sample = subparsers.add_parser(
-        "sample-data", help="generate deterministic local demo data"
-    )
+    sample = subparsers.add_parser("sample-data", help="generate deterministic local demo data")
     _add_config_argument(sample)
     sample.add_argument("--start-date", default="20220103")
     sample.add_argument("--end-date", default="20241231")
@@ -122,9 +116,7 @@ def make_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--initial-cash", type=float)
     backtest.set_defaults(func=command_backtest)
 
-    backfill = subparsers.add_parser(
-        "data-backfill", help="download and standardize provider data"
-    )
+    backfill = subparsers.add_parser("data-backfill", help="download and standardize provider data")
     _add_config_argument(backfill)
     backfill.add_argument("--start-date", required=True)
     backfill.add_argument("--end-date", required=True)
