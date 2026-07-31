@@ -1,8 +1,17 @@
 # A股个人量化工作台
 
-这是一个运行在本地 Windows 主机上的 A 股日频研究与回测平台。当前版本聚焦
-“数据更新 → 策略信号 → 目标组合 → 模拟订单 → T+1 成交 → 账户净值 → 网页展示”
-这一条最小闭环。
+这是一个运行在本地 Windows 主机上的 A 股日频研究与回测平台。当前版本聚焦：
+
+```text
+数据更新
+→ 策略信号
+→ 目标组合
+→ 模拟订单
+→ T+1 开盘成交
+→ 账户与净值
+→ 绩效和成本分析
+→ 网页展示
+```
 
 当前项目只用于策略研究和模拟，不连接真实券商，不构成投资建议。
 
@@ -16,12 +25,32 @@
 - 从 `src/quant_platform/strategies` 自动发现策略；
 - 在网页中选择策略、修改参数并运行回测；
 - T 日收盘生成信号，T+1 开盘模拟成交；
-- 处理 A 股 100 股交易单位、佣金、最低佣金、印花税和滑点；
-- 保存净值、信号、目标仓位、订单、成交、持仓和回测配置快照；
-- 在 Streamlit 中查看数据状态、运行回测和浏览历史结果。
+- 处理 A 股 100 股交易单位、佣金、最低佣金、印花税和固定滑点；
+- 单独记录参考开盘价、实际模拟成交价和滑点成本；
+- 使用 FIFO 还原完整买卖交易并计算净盈亏；
+- 计算收益、回撤、交易、成本、换手和持仓集中度指标；
+- 保存净值、信号、目标仓位、订单、成交、完整交易、持仓和配置快照；
+- 在 Streamlit 中查看数据状态、运行回测和分析历史结果。
 
 目前尚未实现：多因子研究体系、机器学习选股、Qlib、持久化模拟账户、每日自动任务、
-三级风控、通知、真实券商下单和 ETF 策略。ETF 已按当前开发计划暂缓。
+完整三级风控、通知、真实券商下单和 ETF 策略。ETF 已按当前开发计划暂缓。
+
+## 普通用户使用现状
+
+当前版本仍然属于“带网页界面的开发者工具”，首次使用需要安装 Python、执行启动命令，
+股票池仍需编辑 YAML。完全不懂计算机的用户可能在安装、启动、配置、错误处理和回测
+指标理解方面遇到困难。
+
+后续产品化方向包括：
+
+- Windows 双击启动脚本或安装程序；
+- 首次使用向导；
+- 在网页中管理股票池和常用设置；
+- 基础模式与专业模式；
+- 数据是否可回测的自动检查；
+- 策略参数和回测指标的中文解释；
+- 中文错误提示、重试和诊断信息；
+- 一键导出回测报告。
 
 ## 环境要求
 
@@ -79,7 +108,7 @@ python scripts/update_data.py `
 python scripts/data_status.py
 ```
 
-如只想更新部分数据，可以使用：
+可以通过以下参数跳过某一类数据：
 
 ```text
 --skip-security-master
@@ -90,13 +119,20 @@ python scripts/data_status.py
 ### 3. 启动网页
 
 ```powershell
-streamlit run src/quant_platform/web/app.py
+python -m streamlit run src/quant_platform/web/app.py
 ```
 
-浏览器中的主要页面：
+启动后一般访问：
 
-- **A股量化工作台**：选择策略、修改参数、运行回测、查看净值与交易记录；
-- **数据管理**：更新行情、查看覆盖率、证券主表、基准行情和数据版本。
+```text
+http://localhost:8501
+```
+
+网页中的主要功能：
+
+- **A股量化工作台**：选择策略、修改参数、运行回测并查看绩效；
+- **数据管理**：更新行情、查看覆盖率、证券主表、基准行情和数据版本；
+- **回测结果**：查看概览、收益与风险、交易与成本、持仓分析和订单明细。
 
 ### 4. 命令行回测
 
@@ -162,12 +198,12 @@ AkShare
 每次更新都会在 `data_manifests` 中记录版本号、数据源、请求参数、日期范围、行数、
 证券数量、质量摘要和错误信息。单个数据集失败不会中断其他数据集更新。
 
-更详细的数据中心说明见 `docs/data_center.md`。
+详细说明见 `docs/data_center.md`。
 
 ## 当前策略与回测规则
 
 内置策略为 `a_share_momentum`，配置文件位于
-`configs/strategies/momentum.yaml`。主要逻辑是：
+`configs/strategies/momentum.yaml`。主要逻辑：
 
 1. 过滤长期动量为负的股票；
 2. 过滤最近 20 日平均成交额不足的股票；
@@ -185,12 +221,45 @@ AkShare
 - 最大持仓数量；
 - 日、周、月调仓频率。
 
-当前回测评价指标包括累计收益、年化收益、年化波动率、Sharpe 和最大回撤，
-同时记录成交数量、拒单数量、佣金和印花税。
+## 回测指标
+
+新回测提供以下指标：
+
+### 收益与风险
+
+- 累计收益、年化收益；
+- 年化波动率、下行波动率；
+- Sharpe、Sortino、Calmar；
+- 最大回撤及峰值、谷底、恢复日期；
+- 最大回撤持续交易日；
+- 最佳和最差单日收益；
+- 正收益日比例和正收益月比例；
+- 月度收益表和回撤曲线。
+
+### 交易与成本
+
+- 订单数、成交数、拒单数和订单成交率；
+- FIFO 完整交易数、胜率、平均盈亏、盈亏比和 Profit Factor；
+- 平均和最大持仓天数；
+- 区间换手率和年化换手率；
+- 佣金、印花税、滑点成本和总交易成本；
+- 成交金额、已实现毛盈亏和已实现净盈亏。
+
+### 持仓
+
+- 平均和最大持仓数量；
+- 平均和最大仓位；
+- 平均和最低现金比例；
+- 在场时间比例；
+- 单股最大权重；
+- 平均和最大持仓集中度 HHI。
+
+指标口径、公式和边界见 `docs/backtest_metrics.md`。基准数据稳定后再增加超额收益、
+信息比率、Alpha 和 Beta。
 
 ## 新增自己的策略
 
-在 `src/quant_platform/strategies` 新建一个 `.py` 文件，实现 `Strategy`：
+在 `src/quant_platform/strategies` 新建 `.py` 文件并实现 `Strategy`：
 
 ```python
 from typing import Any, ClassVar
@@ -207,12 +276,8 @@ class MyStrategy(Strategy):
     description = "策略说明"
     parameters: ClassVar[tuple[StrategyParameter, ...]] = (
         StrategyParameter(
-            "lookback",
-            "观察窗口",
-            ParameterKind.INTEGER,
-            20,
-            minimum=2,
-            maximum=250,
+            "lookback", "观察窗口", ParameterKind.INTEGER, 20,
+            minimum=2, maximum=250,
         ),
     )
     required_fields = frozenset(
@@ -231,26 +296,24 @@ class MyStrategy(Strategy):
 
     def generate_signals(self, context: StrategyContext) -> list[Signal]:
         history = context.history(
-            fields=["adjusted_close"],
-            lookback=self.lookback,
+            fields=["adjusted_close"], lookback=self.lookback
         )
-        # 在这里计算信号并返回 list[Signal]
         return []
 ```
 
 不需要修改 `plugins.py`、命令行或网页。平台会自动发现策略，并根据
 `StrategyParameter` 生成网页参数控件。
 
-策略应遵守以下边界：
+策略应遵守：
 
 - 只能通过 `StrategyContext` 读取截至当前信号日的数据；
-- 不直接调用 AkShare 或读取本地文件；
+- 不直接调用 AkShare 或读写本地文件；
 - 只输出信号，不直接生成订单或修改账户；
 - 组合、风控、订单、成交和账户由平台负责。
 
 ## 运行结果
 
-每次回测保存在 `runtime/runs/<run_id>/`：
+每次新回测保存在 `runtime/runs/<run_id>/`：
 
 ```text
 nav.parquet
@@ -258,16 +321,20 @@ signals.parquet
 target_positions.parquet
 orders.parquet
 fills.parquet
+closed_trades.parquet
 positions.parquet
 summary.json
 config.snapshot.yaml
 ```
 
+`closed_trades.parquet` 保存 FIFO 买卖配对、参考价格、成交价格、费用、滑点、
+净盈亏和持仓天数。旧回测仍可打开，但旧文件不存在的指标会显示为 `—`。
+
 这些目录属于本地运行数据，默认不会提交到 Git。
 
 ## 示例数据
 
-如果暂时不希望联网，可以使用确定性示例数据：
+不希望联网时，可以使用确定性示例数据：
 
 ```powershell
 python -m quant_platform.cli sample-data --config configs/app.sample.yaml
@@ -283,22 +350,22 @@ python -m ruff check .
 python -m mypy src
 ```
 
-当前测试覆盖配置、数据标准化、AkShare 网络回退、数据中心、策略发现、
-防未来数据访问、订单、成交、账户和完整回测流程。
+当前有 23 个自动化测试，覆盖配置、数据标准化、AkShare 网络回退、数据中心、
+策略发现、防未来数据访问、订单、滑点、FIFO完整交易、绩效指标、账户和完整回测流程。
 
 ## 项目结构
 
 ```text
 configs/                         YAML 配置
-docs/                            设计和使用文档
+docs/                            设计、数据和指标文档
 scripts/                         常用命令入口
 src/quant_platform/
   application/                   数据与回测用例服务
   accounts/                      账户和持仓
-  backtest/                      回测引擎与指标
+  backtest/                      回测引擎、交易还原和指标
   core/                          配置、日志、注册器和异常
   data/                          数据源、标准化、质量和存储
-  execution/                     订单与 T+1 模拟成交
+  execution/                     订单、滑点和 T+1 模拟成交
   portfolio/                     组合构建
   risk/                          基础风控
   signals/                       信号模型
@@ -315,24 +382,29 @@ runtime/                         本地数据与运行结果
 - AkShare 免费数据不能稳定提供完整的历史 ST、停牌和涨跌停状态；
 - 当前大量行情可能标记为 `UNKNOWN_STATUS`；
 - `unknown_status_policy: allow_trade` 适合跑通工程流程，但可能低估无法成交；
-- 改成 `reject_trade` 会更保守，但在状态数据补全前可能拒绝大部分订单；
-- 基准行情可以下载和展示，但尚未计入超额收益、信息比率等回测指标；
+- 改成 `reject_trade` 会更保守，但状态数据补全前可能拒绝大部分订单；
+- 当前滑点是配置假设，不是由真实成交数据校准；
+- 日频回测无法还原盘口排队、撮合延迟和真实市场冲击；
+- 基准行情尚未计入超额收益和信息比率；
 - 当前只有固定股票池的 A 股动量策略和等权组合；
-- 账户只存在于单次历史回测中，尚不能作为每日持续运行的模拟账户；
-- 没有任务调度、通知、因子研究、模型训练和真实交易接口。
+- 当前风控只有基础权重检查，还没有配置界面和可审计风控事件；
+- 账户只存在于单次历史回测中，不能作为每日持续运行的模拟账户；
+- 没有任务调度、通知、因子研究、模型训练和真实交易接口；
+- 普通用户仍需安装 Python、执行命令并编辑 YAML。
 
 因此，当前结果适合工程验证和策略原型研究，不适合作为实盘决策的唯一依据。
 
 ## 后续路线
 
-按当前 A 股优先的方向，建议依次完成：
+按当前计划：
 
-1. 补全基准、交易日历、ST、停牌和涨跌停数据；
-2. 增加基准收益、超额收益、信息比率、换手率和胜率；
-3. 实现因子插件、因子评价和多因子选股；
-4. 实现持久化模拟账户、每日任务和订单人工确认；
-5. 完善资产级、策略级和总组合级风控；
-6. 最后接入 Qlib 和机器学习模型。
+1. 实现可配置、可审计的风控引擎；
+2. 增加回测风控参数界面和风控结果标签页；
+3. 实现批量参数回测和实验对比；
+4. 增加基础模式、首次使用向导和一键启动；
+5. 后续使用更完整的付费数据补全交易状态和基准；
+6. 后续研究更多策略，再考虑多因子、Qlib和机器学习；
+7. 最后实现持久化模拟账户、每日任务和通知。
 
 ## 安全说明
 

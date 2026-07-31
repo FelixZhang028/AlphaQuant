@@ -72,7 +72,15 @@ class NextOpenExecutionModel:
                 if order.side == OrderSide.SELL
                 else 0.0
             )
-            fill = Fill.create(order, quantity, price, commission, stamp_tax)
+            fill = Fill.create(
+                order,
+                quantity,
+                price,
+                commission,
+                stamp_tax,
+                reference_price=raw_open,
+                slippage_cost=abs(price - raw_open) * quantity,
+            )
             try:
                 account.apply_fill(fill)
             except AccountError as exc:

@@ -9,7 +9,7 @@ from uuid import uuid4
 import pandas as pd
 
 from quant_platform.accounts.account import Account
-from quant_platform.backtest.metrics import calculate_metrics
+from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.execution.models import Fill, Order
@@ -36,6 +36,7 @@ class BacktestEngine:
         order_generator: OrderGenerator,
         execution_model: NextOpenExecutionModel,
         rebalance: str = "weekly",
+        risk_free_rate: float = 0.0,
     ) -> None:
         self.repository = repository
         self.universe = universe
@@ -44,6 +45,7 @@ class BacktestEngine:
         self.order_generator = order_generator
         self.execution_model = execution_model
         self.rebalance = rebalance
+        self.risk_free_rate = risk_free_rate
 
     def run(
         self, start_date: date, end_date: date, initial_cash: float
@@ -133,29 +135,29 @@ class BacktestEngine:
             all_targets.extend(targets)
 
         nav = pd.DataFrame(nav_rows)
-        summary = calculate_metrics(nav)
-        summary.update(
-            {
-                "initial_cash": initial_cash,
-                "final_equity": float(nav.iloc[-1]["equity"]),
-                "orders": len(all_orders),
-                "fills": len(all_fills),
-                "rejected_orders": sum(
-                    order.status == "REJECTED" for order in all_orders
-                ),
-                "commission": sum(fill.commission for fill in all_fills),
-                "stamp_tax": sum(fill.stamp_tax for fill in all_fills),
-            }
+        signals_frame = pd.DataFrame([signal.to_dict() for signal in all_signals])
+        targets_frame = pd.DataFrame([asdict(target) for target in all_targets])
+        orders_frame = pd.DataFrame([asdict(order) for order in all_orders])
+        fills_frame = pd.DataFrame([asdict(fill) for fill in all_fills])
+        positions_frame = pd.DataFrame(position_rows)
+        analytics = analyze_backtest(
+            nav,
+            orders_frame,
+            fills_frame,
+            positions_frame,
+            initial_cash=initial_cash,
+            risk_free_rate=self.risk_free_rate,
         )
         return BacktestResult(
             run_id=str(uuid4()),
             nav=nav,
-            signals=pd.DataFrame([signal.to_dict() for signal in all_signals]),
-            targets=pd.DataFrame([asdict(target) for target in all_targets]),
-            orders=pd.DataFrame([asdict(order) for order in all_orders]),
-            fills=pd.DataFrame([asdict(fill) for fill in all_fills]),
-            positions=pd.DataFrame(position_rows),
-            summary=summary,
+            signals=signals_frame,
+            targets=targets_frame,
+            orders=orders_frame,
+            fills=fills_frame,
+            trades=analytics.trades,
+            positions=positions_frame,
+            summary=analytics.summary,
         )
 
     def _rebalance_dates(self, dates: list[date]) -> set[date]:

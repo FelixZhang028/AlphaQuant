@@ -21,6 +21,7 @@ class BacktestResult:
     targets: pd.DataFrame
     orders: pd.DataFrame
     fills: pd.DataFrame
+    trades: pd.DataFrame
     positions: pd.DataFrame
     summary: dict[str, Any]
 
@@ -35,6 +36,7 @@ class BacktestResult:
             ("target_positions", self.targets),
             ("orders", self.orders),
             ("fills", self.fills),
+            ("closed_trades", self.trades),
             ("positions", self.positions),
         ):
             frame.to_parquet(directory / f"{name}.parquet", index=False)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ import pandas as pd
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
+from quant_platform.backtest.metrics import (
+    calculate_drawdown_series,
+    calculate_monthly_returns,
+)
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 
 
@@ -56,9 +61,172 @@ def _parameter_input(
         )
     if parameter.kind == ParameterKind.BOOLEAN:
         return st.checkbox(parameter.label, value=bool(value), help=help_text, key=key)
-    return st.text_input(
-        parameter.label, value=str(value), help=help_text, key=key
+    return st.text_input(parameter.label, value=str(value), help=help_text, key=key)
+
+
+def _numeric(summary: dict[str, Any], key: str) -> float | None:
+    value = summary.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _display_value(summary: dict[str, Any], key: str, kind: str) -> str:
+    number = _numeric(summary, key)
+    if number is None:
+        return "—"
+    if kind == "percent":
+        return f"{number:.2%}"
+    if kind == "money":
+        return f"{number:,.2f}"
+    if kind == "integer":
+        return f"{int(number):,}"
+    if kind == "days":
+        return f"{number:.1f} 天"
+    return f"{number:.2f}"
+
+
+def _render_metric_grid(
+    summary: dict[str, Any], items: list[tuple[str, str, str]]
+) -> None:
+    """Render a compact four-column metric grid."""
+
+    for offset in range(0, len(items), 4):
+        row = items[offset : offset + 4]
+        columns = st.columns(4)
+        for column, (label, key, kind) in zip(columns, row, strict=False):
+            column.metric(label, _display_value(summary, key, kind))
+
+
+def _read_optional_frame(path: Path) -> pd.DataFrame:
+    return pd.read_parquet(path) if path.exists() else pd.DataFrame()
+
+
+def _render_overview(summary: dict[str, Any], nav: pd.DataFrame) -> None:
+    st.subheader("净值与回撤")
+    chart = nav.copy()
+    chart["trade_date"] = pd.to_datetime(chart["trade_date"])
+    st.line_chart(chart.set_index("trade_date")["equity"])
+    drawdown = calculate_drawdown_series(nav)
+    if not drawdown.empty:
+        st.line_chart(drawdown.set_index("trade_date")["drawdown"])
+    start = summary.get("max_drawdown_start_date") or "—"
+    trough = summary.get("max_drawdown_trough_date") or "—"
+    recovery = summary.get("max_drawdown_recovery_date") or "尚未恢复"
+    duration = summary.get("max_drawdown_duration_trading_days", "—")
+    st.caption(
+        f"最大回撤区间：{start} → {trough}；恢复：{recovery}；"
+        f"持续：{duration} 个交易日。"
     )
+
+    st.subheader("月度收益")
+    monthly = calculate_monthly_returns(nav)
+    if monthly.empty:
+        st.info("当前运行没有足够数据计算月度收益。")
+    else:
+        table = monthly.pivot(
+            index="year", columns="month_number", values="return"
+        ).reindex(columns=range(1, 13))
+        table.columns = [f"{month}月" for month in table.columns]
+        st.dataframe(table.style.format("{:.2%}", na_rep="—"), width="stretch")
+
+
+def _render_return_metrics(summary: dict[str, Any]) -> None:
+    _render_metric_grid(
+        summary,
+        [
+            ("累计收益", "cumulative_return", "percent"),
+            ("年化收益", "annual_return", "percent"),
+            ("年化波动率", "annual_volatility", "percent"),
+            ("下行波动率", "downside_volatility", "percent"),
+            ("Sharpe", "sharpe", "ratio"),
+            ("Sortino", "sortino", "ratio"),
+            ("Calmar", "calmar", "ratio"),
+            ("最大回撤", "max_drawdown", "percent"),
+            ("最佳单日", "best_day_return", "percent"),
+            ("最差单日", "worst_day_return", "percent"),
+            ("正收益日比例", "positive_day_ratio", "percent"),
+            ("正收益月比例", "positive_month_ratio", "percent"),
+        ],
+    )
+
+
+def _render_trade_metrics(
+    summary: dict[str, Any], trades: pd.DataFrame
+) -> None:
+    st.subheader("订单与完整交易")
+    _render_metric_grid(
+        summary,
+        [
+            ("订单数", "orders", "integer"),
+            ("成交数", "fills", "integer"),
+            ("订单成交率", "order_fill_rate", "percent"),
+            ("拒单数", "rejected_orders", "integer"),
+            ("完整交易", "closed_trades", "integer"),
+            ("交易胜率", "trade_win_rate", "percent"),
+            ("盈亏比", "payoff_ratio", "ratio"),
+            ("Profit Factor", "profit_factor", "ratio"),
+            ("平均盈利", "average_win", "money"),
+            ("平均亏损", "average_loss", "money"),
+            ("平均持仓", "average_holding_days", "days"),
+            ("年化换手率", "annualized_turnover", "percent"),
+        ],
+    )
+
+    st.subheader("交易成本")
+    _render_metric_grid(
+        summary,
+        [
+            ("佣金", "commission", "money"),
+            ("印花税", "stamp_tax", "money"),
+            ("滑点成本", "slippage_cost", "money"),
+            ("总交易成本", "total_transaction_cost", "money"),
+            ("成本/初始资金", "transaction_cost_to_initial_cash", "percent"),
+            ("成交金额", "traded_notional", "money"),
+            ("已实现毛盈亏", "realized_gross_pnl", "money"),
+            ("已实现净盈亏", "realized_net_pnl", "money"),
+        ],
+    )
+    if trades.empty:
+        st.info("没有已完成的买卖配对，或该结果来自旧版本。")
+    else:
+        st.subheader("FIFO完整交易明细")
+        st.dataframe(trades.sort_values("sell_date", ascending=False), width="stretch")
+
+
+def _render_position_metrics(
+    summary: dict[str, Any], nav: pd.DataFrame, positions: pd.DataFrame
+) -> None:
+    _render_metric_grid(
+        summary,
+        [
+            ("平均持仓数", "average_position_count", "ratio"),
+            ("最大持仓数", "max_position_count", "integer"),
+            ("平均仓位", "average_exposure", "percent"),
+            ("最大仓位", "max_exposure", "percent"),
+            ("平均现金比例", "average_cash_ratio", "percent"),
+            ("最低现金比例", "minimum_cash_ratio", "percent"),
+            ("在场时间比例", "time_in_market_ratio", "percent"),
+            ("单股最大权重", "max_single_position_weight", "percent"),
+            ("平均集中度 HHI", "average_concentration_hhi", "ratio"),
+            ("最大集中度 HHI", "max_concentration_hhi", "ratio"),
+        ],
+    )
+    if {"trade_date", "market_value", "equity"}.issubset(nav.columns):
+        exposure = nav[["trade_date", "market_value", "equity"]].copy()
+        exposure["trade_date"] = pd.to_datetime(exposure["trade_date"])
+        exposure["仓位"] = pd.to_numeric(
+            exposure["market_value"], errors="coerce"
+        ) / pd.to_numeric(exposure["equity"], errors="coerce")
+        st.subheader("每日仓位")
+        st.line_chart(exposure.set_index("trade_date")["仓位"])
+    st.subheader("最新持仓")
+    if positions.empty:
+        st.info("当前为空仓。")
+    else:
+        latest_date = positions["trade_date"].max()
+        st.dataframe(positions[positions["trade_date"] == latest_date], width="stretch")
 
 
 def _render_result(run_dir: Path) -> None:
@@ -68,36 +236,47 @@ def _render_result(run_dir: Path) -> None:
     if not summary_path.exists():
         st.warning("该运行缺少 summary.json。")
         return
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    columns = st.columns(4)
-    columns[0].metric("最终权益", f"{summary.get('final_equity', 0):,.2f}")
-    columns[1].metric("累计收益", f"{summary.get('cumulative_return', 0):.2%}")
-    columns[2].metric("最大回撤", f"{summary.get('max_drawdown', 0):.2%}")
-    columns[3].metric("成交笔数", int(summary.get("fills", 0)))
-
+    raw_summary: Any = json.loads(summary_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_summary, dict):
+        st.error("summary.json 格式无效。")
+        return
+    summary: dict[str, Any] = {str(key): value for key, value in raw_summary.items()}
     nav = pd.read_parquet(run_dir / "nav.parquet")
-    st.subheader("净值")
-    st.line_chart(nav.set_index("trade_date")["equity"])
-
     positions = pd.read_parquet(run_dir / "positions.parquet")
     orders = pd.read_parquet(run_dir / "orders.parquet")
     fills = pd.read_parquet(run_dir / "fills.parquet")
-    left, right = st.columns(2)
-    with left:
-        st.subheader("最新持仓")
-        if positions.empty:
-            st.info("当前为空仓。")
-        else:
-            latest_date = positions["trade_date"].max()
-            st.dataframe(
-                positions[positions["trade_date"] == latest_date],
-                use_container_width=True,
-            )
-    with right:
+    trades = _read_optional_frame(run_dir / "closed_trades.parquet")
+
+    _render_metric_grid(
+        summary,
+        [
+            ("最终权益", "final_equity", "money"),
+            ("累计收益", "cumulative_return", "percent"),
+            ("年化收益", "annual_return", "percent"),
+            ("最大回撤", "max_drawdown", "percent"),
+            ("Sharpe", "sharpe", "ratio"),
+            ("Sortino", "sortino", "ratio"),
+            ("Calmar", "calmar", "ratio"),
+            ("总交易成本", "total_transaction_cost", "money"),
+        ],
+    )
+
+    overview_tab, return_tab, trade_tab, position_tab, detail_tab = st.tabs(
+        ["概览", "收益与风险", "交易与成本", "持仓分析", "订单明细"]
+    )
+    with overview_tab:
+        _render_overview(summary, nav)
+    with return_tab:
+        _render_return_metrics(summary)
+    with trade_tab:
+        _render_trade_metrics(summary, trades)
+    with position_tab:
+        _render_position_metrics(summary, nav, positions)
+    with detail_tab:
         st.subheader("订单")
-        st.dataframe(orders.tail(100), use_container_width=True)
-    st.subheader("成交")
-    st.dataframe(fills.tail(100), use_container_width=True)
+        st.dataframe(orders.tail(200), width="stretch")
+        st.subheader("成交")
+        st.dataframe(fills.tail(200), width="stretch")
 
 
 st.set_page_config(page_title="A股量化工作台", layout="wide")
