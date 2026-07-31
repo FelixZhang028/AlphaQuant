@@ -10,6 +10,26 @@ import streamlit as st
 
 from quant_platform.application.data_service import DataCenterService
 from quant_platform.data.network import friendly_data_error
+from quant_platform.web.exports import dataframe_to_csv_bytes
+
+
+def _download_csv(
+    frame: pd.DataFrame,
+    *,
+    label: str,
+    file_name: str,
+    key: str,
+) -> None:
+    """Render an Excel-friendly CSV download button."""
+
+    st.download_button(
+        label=label,
+        data=dataframe_to_csv_bytes(frame),
+        file_name=file_name,
+        mime="text/csv; charset=utf-8",
+        key=key,
+    )
+
 
 st.title("数据管理")
 st.caption("更新 AkShare 数据、检查覆盖率，并记录每次数据批次。")
@@ -95,6 +115,12 @@ with st.expander("更新数据", expanded=True):
             }
         )
         st.dataframe(result_frame, width="stretch", hide_index=True)
+        _download_csv(
+            result_frame,
+            label="下载更新结果 CSV",
+            file_name="data_update_results.csv",
+            key="download_update_results_csv",
+        )
 
 coverage_tab, benchmark_tab, master_tab, versions_tab = st.tabs(
     ["覆盖率", "基准行情", "证券主表", "数据版本"]
@@ -108,6 +134,12 @@ with coverage_tab:
         st.dataframe(
             overview.per_symbol.style.format({"coverage_ratio": "{:.2%}"}),
             width="stretch",
+        )
+        _download_csv(
+            overview.per_symbol,
+            label="下载覆盖率 CSV",
+            file_name="configured_stock_coverage.csv",
+            key="download_coverage_csv",
         )
     if market.start_date and market.end_date:
         st.caption(
@@ -125,13 +157,25 @@ with benchmark_tab:
         ]
         st.line_chart(selected.set_index("trade_date")["raw_close"])
         st.dataframe(selected.tail(100), width="stretch")
+        _download_csv(
+            selected,
+            label="下载完整基准行情 CSV",
+            file_name=f"benchmark_{overview.benchmark_symbol.replace('.', '_')}.csv",
+            key="download_benchmark_csv",
+        )
 
 with master_tab:
     if overview.security_master.empty:
         st.info("暂无证券主表。")
     else:
         st.dataframe(overview.security_master.head(2000), width="stretch")
-        st.caption("页面最多展示前 2000 行，完整数据保存在本地 Parquet。")
+        st.caption("页面最多展示前 2000 行，下载文件包含完整数据。")
+        _download_csv(
+            overview.security_master,
+            label="下载完整证券主表 CSV",
+            file_name="security_master.csv",
+            key="download_security_master_csv",
+        )
 
 with versions_tab:
     if overview.manifests.empty:
@@ -153,4 +197,11 @@ with versions_tab:
             )
             if column in overview.manifests.columns
         ]
-        st.dataframe(overview.manifests[display_columns], width="stretch")
+        version_frame = overview.manifests[display_columns]
+        st.dataframe(version_frame, width="stretch")
+        _download_csv(
+            version_frame,
+            label="下载数据版本 CSV",
+            file_name="data_versions.csv",
+            key="download_data_versions_csv",
+        )
