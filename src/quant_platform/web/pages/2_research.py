@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -16,6 +17,7 @@ from quant_platform.application.optimization_service import (
 )
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.exports import dataframe_to_csv_bytes
+from quant_platform.web.localization import localize_frame
 
 
 def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]:
@@ -31,14 +33,40 @@ def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]
         try:
             return tuple(aliases[part.lower()] for part in parts)
         except KeyError as exc:
-            raise ValueError(f"{parameter.label} 请填写 true,false") from exc
+            raise ValueError(f"{parameter.label} 请填写“是,否”（也支持 true,false）") from exc
     return tuple(parts)
 
 
-def _run_label(record: Any) -> str:
-    strategy = record.strategy_plugin or "旧版本策略"
+def _run_label(record: Any, strategy_names: dict[str, str]) -> str:
+    strategy = strategy_names.get(
+        record.strategy_plugin,
+        record.strategy_plugin or "旧版本策略",
+    )
     dates = f"{record.start_date}~{record.end_date}" if record.start_date else "日期未知"
     return f"{strategy} | {dates} | {record.run_id[:8]}"
+
+
+def _localized_parameters(
+    raw: Any,
+    strategy_plugin: Any,
+    metadata_by_name: dict[str, Any],
+) -> str:
+    """Translate persisted parameter keys for display without changing stored data."""
+
+    try:
+        values = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return str(raw)
+    metadata = metadata_by_name.get(str(strategy_plugin))
+    labels = (
+        {parameter.name: parameter.label for parameter in metadata.parameters}
+        if metadata is not None
+        else {}
+    )
+    return json.dumps(
+        {labels.get(str(name), str(name)): value for name, value in values.items()},
+        ensure_ascii=False,
+    )
 
 
 st.title("策略研究")
@@ -53,6 +81,7 @@ except Exception as exc:
     st.stop()
 
 metadata_by_name = {item.plugin_name: item for item in service.available_strategies()}
+strategy_names = {name: item.display_name for name, item in metadata_by_name.items()}
 
 with st.expander("参数优化", expanded=True):
     st.info("第一版采用网格搜索：候选值会进行全部组合。为避免误操作，单次最多100组。")
@@ -144,7 +173,9 @@ with st.expander("参数优化", expanded=True):
     latest_path = st.session_state.get("latest_optimization")
     if latest_path:
         latest = pd.read_csv(latest_path)
-        st.dataframe(latest, width="stretch", hide_index=True)
+        parameter_labels = {f"param_{item.name}": item.label for item in metadata.parameters}
+        latest_display = localize_frame(latest.rename(columns=parameter_labels))
+        st.dataframe(latest_display, width="stretch", hide_index=True)
         st.download_button(
             "下载优化结果 CSV",
             dataframe_to_csv_bytes(latest),
@@ -163,7 +194,7 @@ else:
         "选择2～5次回测",
         list(record_by_id),
         default=list(record_by_id)[: min(2, len(record_by_id))],
-        format_func=lambda run_id: _run_label(record_by_id[run_id]),
+        format_func=lambda run_id: _run_label(record_by_id[run_id], strategy_names),
         max_selections=5,
     )
     if len(selected_ids) < 2:
@@ -190,11 +221,30 @@ else:
             ]
             if column in comparison.columns
         ]
-        st.dataframe(comparison[important], width="stretch", hide_index=True)
+        comparison_display = comparison[important].copy()
+        if "parameters" in comparison_display.columns:
+            comparison_display["parameters"] = comparison_display.apply(
+                lambda row: _localized_parameters(
+                    row["parameters"],
+                    row.get("strategy"),
+                    metadata_by_name,
+                ),
+                axis=1,
+            )
+        if "strategy" in comparison_display.columns:
+            comparison_display["strategy"] = comparison_display["strategy"].map(
+                lambda value: strategy_names.get(str(value), value)
+            )
+        st.dataframe(
+            localize_frame(comparison_display),
+            width="stretch",
+            hide_index=True,
+        )
         nav = service.run_store.normalized_nav(selected_ids)
         if not nav.empty:
             st.subheader("标准化净值（起点=1）")
-            st.line_chart(nav.set_index("trade_date"))
+            nav_display = nav.rename(columns={"trade_date": "交易日期"})
+            st.line_chart(nav_display.set_index("交易日期"))
         st.download_button(
             "下载对比结果 CSV",
             dataframe_to_csv_bytes(comparison),

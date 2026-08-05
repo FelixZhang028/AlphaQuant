@@ -10,6 +10,7 @@ import streamlit as st
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.core.config import load_yaml
 from quant_platform.risk.config import RiskLimits, load_risk_limits, save_risk_limits
+from quant_platform.web.localization import localize_frame
 
 st.title("风险管理")
 st.caption("所有策略共用的组合级风控参数；修改后会应用到新运行的回测和模拟账户。")
@@ -81,6 +82,6 @@ try:
         checks, rejections = st.columns(2)
         checks.metric("最近检查次数", f"{len(events):,}")
         rejections.metric("拒绝次数", f"{len(rejected):,}")
-        st.dataframe(events.head(500), width="stretch", hide_index=True)
+        st.dataframe(localize_frame(events.head(500)), width="stretch", hide_index=True)
 except Exception as exc:
     st.warning(f"暂时无法读取风控记录：{exc}")

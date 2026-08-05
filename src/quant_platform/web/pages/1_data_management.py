@@ -11,6 +11,7 @@ import streamlit as st
 from quant_platform.application.data_service import DataCenterService
 from quant_platform.data.network import friendly_data_error
 from quant_platform.web.exports import dataframe_to_csv_bytes
+from quant_platform.web.localization import localize_frame
 
 
 def _download_csv(
@@ -106,7 +107,7 @@ with st.expander("更新数据", expanded=True):
                 "error": "错误说明",
             }
         )
-        st.dataframe(result_frame, width="stretch", hide_index=True)
+        st.dataframe(localize_frame(result_frame), width="stretch", hide_index=True)
         _download_csv(
             result_frame,
             label="下载更新结果 CSV",
@@ -123,8 +124,9 @@ with coverage_tab:
     if overview.per_symbol.empty:
         st.info("暂无本地行情，请先运行数据更新。")
     else:
+        coverage_display = localize_frame(overview.per_symbol)
         st.dataframe(
-            overview.per_symbol.style.format({"coverage_ratio": "{:.2%}"}),
+            coverage_display.style.format({"覆盖率": "{:.2%}"}),
             width="stretch",
         )
         _download_csv(
@@ -180,7 +182,7 @@ with market_tab:
         st.caption(
             f"筛选结果 {len(selected_bars):,} 行；页面最多预览最后500行，下载包含全部筛选结果。"
         )
-        st.dataframe(selected_bars.tail(500), width="stretch", hide_index=True)
+        st.dataframe(localize_frame(selected_bars.tail(500)), width="stretch", hide_index=True)
         if selected_bars.empty:
             st.warning("当前筛选条件没有数据。")
         else:
@@ -200,8 +202,11 @@ with benchmark_tab:
         selected = overview.benchmark_bars[
             overview.benchmark_bars["symbol"].eq(overview.benchmark_symbol)
         ]
-        st.line_chart(selected.set_index("trade_date")["raw_close"])
-        st.dataframe(selected.tail(100), width="stretch")
+        closing_price = selected.rename(
+            columns={"trade_date": "交易日期", "raw_close": "收盘价"}
+        ).set_index("交易日期")[["收盘价"]]
+        st.line_chart(closing_price)
+        st.dataframe(localize_frame(selected.tail(100)), width="stretch")
         _download_csv(
             selected,
             label="下载完整基准行情 CSV",
@@ -213,7 +218,7 @@ with master_tab:
     if overview.security_master.empty:
         st.info("暂无证券主表。")
     else:
-        st.dataframe(overview.security_master.head(2000), width="stretch")
+        st.dataframe(localize_frame(overview.security_master.head(2000)), width="stretch")
         st.caption("页面最多展示前 2000 行，下载文件包含完整数据。")
         _download_csv(
             overview.security_master,
@@ -243,7 +248,7 @@ with versions_tab:
             if column in overview.manifests.columns
         ]
         version_frame = overview.manifests[display_columns]
-        st.dataframe(version_frame, width="stretch")
+        st.dataframe(localize_frame(version_frame), width="stretch")
         _download_csv(
             version_frame,
             label="下载数据版本 CSV",

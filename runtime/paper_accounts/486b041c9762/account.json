@@ -1,0 +1,32 @@
+{
+  "account_id": "486b041c9762",
+  "display_name": "我的日线模拟账户",
+  "status": "ACTIVE",
+  "created_at": "2026-07-31T07:49:18.675388+00:00",
+  "updated_at": "2026-07-31T07:49:23.661180+00:00",
+  "last_date": "2026-07-31",
+  "last_run_id": "96c3bb17-effd-4e8e-a26f-8b3e89072b07",
+  "error": null,
+  "request": {
+    "strategy_plugin": "a_share_momentum",
+    "strategy_id": "a_share_momentum_v1",
+    "strategy_parameters": {
+      "short_window": 20,
+      "long_window": 60,
+      "minimum_average_amount": 20000000.0
+    },
+    "start_date": "2023-01-03",
+    "end_date": "2024-12-31",
+    "initial_cash": 1000000.0,
+    "top_n": 5,
+    "rebalance": "weekly",
+    "risk_limits": {
+      "enabled": true,
+      "max_total_weight": 1.0,
+      "max_single_weight": 0.3,
+      "max_positions": 10,
+      "minimum_cash_ratio": 0.0,
+      "max_drawdown": 0.2
+    }
+  }
+}

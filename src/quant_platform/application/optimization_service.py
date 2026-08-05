@@ -15,9 +15,9 @@ import pandas as pd
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
 
 OBJECTIVES = {
-    "sharpe": "Sharpe",
+    "sharpe": "夏普比率",
     "annual_return": "年化收益",
-    "calmar": "Calmar",
+    "calmar": "卡玛比率",
     "max_drawdown": "最大回撤最小",
 }
 
