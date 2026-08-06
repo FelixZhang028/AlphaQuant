@@ -46,6 +46,7 @@ class BacktestRequest:
     top_n: int
     rebalance: str
     risk_limits: RiskLimits = field(default_factory=RiskLimits)
+    evaluation_mode: str = "in_sample"
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,8 @@ class BacktestService:
             execution_model=NextOpenExecutionModel(execution_config),
             rebalance=effective.rebalance,
             risk_limits=effective.risk_limits,
+            evaluation_mode=effective.evaluation_mode,
+            fixed_universe=True,
         )
         return engine, self._config_snapshot(effective)
 
@@ -221,6 +224,8 @@ class BacktestService:
             raise ValueError("top_n must be positive")
         if request.rebalance not in {"daily", "weekly", "monthly"}:
             raise ValueError(f"Unsupported rebalance frequency: {request.rebalance}")
+        if request.evaluation_mode not in {"in_sample", "training", "out_of_sample"}:
+            raise ValueError(f"Unsupported evaluation mode: {request.evaluation_mode}")
         request.risk_limits.validate()
 
     def _config_snapshot(self, request: BacktestRequest) -> dict[str, Any]:
@@ -240,6 +245,7 @@ class BacktestService:
                 "start_date": request.start_date.isoformat(),
                 "end_date": request.end_date.isoformat(),
                 "initial_cash": request.initial_cash,
+                "evaluation_mode": request.evaluation_mode,
             }
         )
         require_mapping(snapshot["app"], "portfolio")["top_n"] = request.top_n

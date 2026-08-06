@@ -29,5 +29,9 @@ class DataQualityError(DataError):
     """Raised when data does not satisfy its contract."""
 
 
+class BacktestValidityError(QuantPlatformError):
+    """Raised when a requested backtest cannot produce reliable metrics."""
+
+
 class AccountError(QuantPlatformError):
     """Raised when a fill would make account state invalid."""

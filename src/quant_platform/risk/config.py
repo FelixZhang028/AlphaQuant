@@ -19,6 +19,9 @@ class RiskLimits:
     max_positions: int = 10
     minimum_cash_ratio: float = 0.0
     max_drawdown: float = 0.20
+    daily_position_limits: bool = True
+    drawdown_action: str = "stop_new"
+    drawdown_target_weight: float = 0.50
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any] | None) -> RiskLimits:
@@ -32,6 +35,9 @@ class RiskLimits:
             max_positions=int(raw.get("max_positions", 10)),
             minimum_cash_ratio=float(raw.get("minimum_cash_ratio", 0.0)),
             max_drawdown=float(raw.get("max_drawdown", 0.20)),
+            daily_position_limits=bool(raw.get("daily_position_limits", True)),
+            drawdown_action=str(raw.get("drawdown_action", "stop_new")),
+            drawdown_target_weight=float(raw.get("drawdown_target_weight", 0.50)),
         )
         limits.validate()
         return limits
@@ -44,6 +50,7 @@ class RiskLimits:
             ("max_single_weight", self.max_single_weight),
             ("minimum_cash_ratio", self.minimum_cash_ratio),
             ("max_drawdown", self.max_drawdown),
+            ("drawdown_target_weight", self.drawdown_target_weight),
         ):
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
@@ -51,6 +58,13 @@ class RiskLimits:
             raise ValueError("max_positions must be positive")
         if self.max_total_weight > 1.0 - self.minimum_cash_ratio + 1e-9:
             raise ValueError("max_total_weight must leave at least minimum_cash_ratio in cash")
+        if self.drawdown_action not in {"stop_new", "reduce", "liquidate"}:
+            raise ValueError("drawdown_action must be stop_new, reduce, or liquidate")
+        if (
+            self.drawdown_action == "reduce"
+            and self.drawdown_target_weight > self.max_total_weight + 1e-9
+        ):
+            raise ValueError("drawdown_target_weight must not exceed max_total_weight")
 
     def to_dict(self) -> dict[str, Any]:
         """Return a serializable representation."""

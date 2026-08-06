@@ -38,6 +38,11 @@ with st.form("risk_limits_form"):
         max_positions = st.number_input(
             "最大持股数量", min_value=1, value=limits.max_positions, step=1
         )
+        daily_position_limits = st.checkbox(
+            "每日检查实际持仓并自动纠偏",
+            value=limits.daily_position_limits,
+            help="持仓上涨导致单股、总仓位或持股数量超限时，下一交易日自动减仓。",
+        )
     with right:
         minimum_cash_ratio = st.number_input(
             "最低现金比例", 0.0, 1.0, limits.minimum_cash_ratio, 0.05, format="%.2f"
@@ -45,7 +50,28 @@ with st.form("risk_limits_form"):
         max_drawdown = st.number_input(
             "最大回撤停止线", 0.0, 1.0, limits.max_drawdown, 0.05, format="%.2f"
         )
-        st.info("回撤达到停止线后，系统停止生成新的调仓订单，但不会自动清仓。")
+        action_options = ["stop_new", "reduce", "liquidate"]
+        action_labels = {
+            "stop_new": "停止新开仓",
+            "reduce": "自动降低仓位",
+            "liquidate": "自动清仓",
+        }
+        drawdown_action = st.selectbox(
+            "达到回撤线后的处理",
+            action_options,
+            index=action_options.index(limits.drawdown_action),
+            format_func=lambda value: action_labels[value],
+        )
+        drawdown_target_weight = st.number_input(
+            "降仓后的最大总仓位",
+            0.0,
+            1.0,
+            limits.drawdown_target_weight,
+            0.05,
+            format="%.2f",
+            disabled=drawdown_action != "reduce",
+        )
+        st.info("风控在每日收盘后检查实际持仓，纠偏订单在下一交易日开盘执行。")
     saved = st.form_submit_button("保存风控配置", type="primary")
 
 if saved:
@@ -57,6 +83,9 @@ if saved:
             max_positions=int(max_positions),
             minimum_cash_ratio=float(minimum_cash_ratio),
             max_drawdown=float(max_drawdown),
+            daily_position_limits=bool(daily_position_limits),
+            drawdown_action=str(drawdown_action),
+            drawdown_target_weight=float(drawdown_target_weight),
         )
         save_risk_limits(risk_path, updated)
         st.success(f"已保存到 {risk_path}")
@@ -79,8 +108,10 @@ try:
     else:
         events = pd.concat(frames, ignore_index=True).sort_values("trade_date", ascending=False)
         rejected = events[events["decision"].eq("REJECT")]
-        checks, rejections = st.columns(2)
+        adjusted = events[events["decision"].eq("ADJUST")]
+        checks, adjustments, rejections = st.columns(3)
         checks.metric("最近检查次数", f"{len(events):,}")
+        adjustments.metric("自动调整次数", f"{len(adjusted):,}")
         rejections.metric("拒绝次数", f"{len(rejected):,}")
         st.dataframe(localize_frame(events.head(500)), width="stretch", hide_index=True)
 except Exception as exc:

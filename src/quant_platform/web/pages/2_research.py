@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -14,6 +15,10 @@ from quant_platform.application.optimization_service import (
     OBJECTIVES,
     OptimizationRequest,
     OptimizationService,
+)
+from quant_platform.application.walk_forward_service import (
+    WalkForwardRequest,
+    WalkForwardService,
 )
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.exports import dataframe_to_csv_bytes
@@ -183,6 +188,141 @@ with st.expander("参数优化", expanded=True):
             "text/csv; charset=utf-8",
         )
 
+with st.expander("滚动样本外验证", expanded=False):
+    st.info(
+        "系统只在训练期选择参数，再用紧随其后的未见数据测试；随后向前滚动，"
+        "避免用同一段历史既选参数又评价参数。"
+    )
+    wf_plugin = st.selectbox(
+        "验证策略",
+        list(metadata_by_name),
+        index=list(metadata_by_name).index(default_request.strategy_plugin),
+        format_func=lambda name: metadata_by_name[name].display_name,
+        key="walk_forward_strategy",
+    )
+    wf_metadata = metadata_by_name[wf_plugin]
+    wf_defaults = (
+        default_request.strategy_parameters
+        if wf_plugin == default_request.strategy_plugin
+        else wf_metadata.defaults()
+    )
+    with st.form("walk_forward_form"):
+        st.caption("每个窗口都只使用过去的训练数据选参数，测试区间不会参与参数排名。")
+        wf_candidates: dict[str, str] = {}
+        wf_parameter_columns = st.columns(2)
+        for index, parameter in enumerate(wf_metadata.parameters):
+            with wf_parameter_columns[index % 2]:
+                wf_candidates[parameter.name] = st.text_input(
+                    parameter.label,
+                    value=str(wf_defaults[parameter.name]),
+                    help=parameter.description or None,
+                    key=f"walk_forward_{parameter.name}",
+                )
+        wf_left, wf_middle, wf_right = st.columns(3)
+        with wf_left:
+            wf_start = st.date_input("总开始日期", default_request.start_date, key="wf_start")
+            wf_end = st.date_input("总结束日期", default_request.end_date, key="wf_end")
+        with wf_middle:
+            training_months = st.number_input(
+                "训练期（月）", min_value=3, value=12, step=1, key="wf_training_months"
+            )
+            test_months = st.number_input(
+                "每次样本外测试（月）", min_value=1, value=3, step=1, key="wf_test_months"
+            )
+        with wf_right:
+            step_months = st.number_input(
+                "滚动步长（月）", min_value=1, value=3, step=1, key="wf_step_months"
+            )
+            max_windows = st.number_input(
+                "最多窗口数", min_value=1, max_value=24, value=8, step=1, key="wf_max_windows"
+            )
+            wf_objective = st.selectbox(
+                "训练期排序指标",
+                list(OBJECTIVES),
+                format_func=lambda name: OBJECTIVES[str(name)],
+                key="wf_objective",
+            )
+        wf_submitted = st.form_submit_button("开始滚动样本外验证", type="primary")
+
+    if wf_submitted:
+        try:
+            wf_grid = {
+                parameter.name: _parse_candidates(parameter, wf_candidates[parameter.name])
+                for parameter in wf_metadata.parameters
+            }
+            wf_base = replace(
+                default_request,
+                strategy_plugin=wf_plugin,
+                strategy_id=f"{wf_plugin}_walk_forward",
+                strategy_parameters={name: values[0] for name, values in wf_grid.items()},
+                start_date=wf_start,
+                end_date=wf_end,
+            )
+            wf_request = WalkForwardRequest(
+                base_request=wf_base,
+                parameter_grid=wf_grid,
+                objective=str(wf_objective),
+                training_months=int(training_months),
+                test_months=int(test_months),
+                step_months=int(step_months),
+                max_windows=int(max_windows),
+            )
+            validator = WalkForwardService(service)
+            windows = validator.build_windows(wf_request)
+            combinations = 1
+            for values in wf_grid.values():
+                combinations *= len(values)
+            with st.spinner(
+                f"正在运行 {len(windows)} 个窗口，每个窗口训练 {combinations} 组参数……"
+            ):
+                wf_result = validator.run(wf_request)
+            st.session_state["latest_walk_forward"] = str(wf_result.output_dir)
+            st.success(
+                f"滚动验证完成：{wf_result.summary['successful_windows']}/"
+                f"{wf_result.summary['window_count']} 个样本外窗口成功。"
+            )
+        except Exception as exc:
+            st.exception(exc)
+
+    wf_path = st.session_state.get("latest_walk_forward")
+    if wf_path:
+        wf_directory = Path(wf_path)
+        wf_results = pd.read_csv(wf_directory / "results.csv")
+        wf_summary = json.loads((wf_directory / "summary.json").read_text(encoding="utf-8"))
+        wf_metrics = st.columns(4)
+        wf_metrics[0].metric("成功窗口", f"{wf_summary.get('successful_windows', 0)}")
+        wf_metrics[1].metric(
+            "样本外累计收益",
+            (
+                f"{float(wf_summary['out_of_sample_cumulative_return']):.2%}"
+                if wf_summary.get("out_of_sample_cumulative_return") is not None
+                else "—"
+            ),
+        )
+        wf_metrics[2].metric(
+            "正收益窗口比例",
+            (
+                f"{float(wf_summary['positive_window_ratio']):.2%}"
+                if wf_summary.get("positive_window_ratio") is not None
+                else "—"
+            ),
+        )
+        wf_metrics[3].metric(
+            "最差窗口回撤",
+            (
+                f"{float(wf_summary['worst_window_drawdown']):.2%}"
+                if wf_summary.get("worst_window_drawdown") is not None
+                else "—"
+            ),
+        )
+        st.warning(str(wf_summary.get("trust_warning", "")))
+        st.dataframe(localize_frame(wf_results), width="stretch", hide_index=True)
+        st.download_button(
+            "下载滚动验证结果 CSV",
+            dataframe_to_csv_bytes(wf_results),
+            "walk_forward_results.csv",
+            "text/csv; charset=utf-8",
+        )
 st.divider()
 st.header("回测结果对比")
 records = service.run_store.list_records(successful_only=True)
@@ -218,6 +358,7 @@ else:
                 "total_transaction_cost",
                 "orders",
                 "risk_rejections",
+                "risk_adjustments",
             ]
             if column in comparison.columns
         ]

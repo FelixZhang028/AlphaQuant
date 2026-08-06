@@ -25,6 +25,7 @@ class BacktestResult:
     positions: pd.DataFrame
     risk_events: pd.DataFrame
     summary: dict[str, Any]
+    validity: dict[str, Any]
 
     def save(self, root: str | Path, config_snapshot: dict[str, Any]) -> Path:
         """Persist all run artifacts under a unique directory."""
@@ -44,6 +45,10 @@ class BacktestResult:
             frame.to_parquet(directory / f"{name}.parquet", index=False)
         (directory / "summary.json").write_text(
             json.dumps(self.summary, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        (directory / "validity_report.json").write_text(
+            json.dumps(self.validity, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
         (directory / "config.snapshot.yaml").write_text(

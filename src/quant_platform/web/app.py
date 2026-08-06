@@ -6,7 +6,7 @@ import streamlit as st
 
 from quant_platform.application.readiness_service import platform_needs_onboarding
 
-st.set_page_config(page_title="A股量化工作台", layout="wide")
+st.set_page_config(page_title="AlphaQuant量化工作台", layout="wide")
 
 needs_onboarding = platform_needs_onboarding()
 

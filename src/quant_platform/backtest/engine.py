@@ -11,13 +11,20 @@ import pandas as pd
 from quant_platform.accounts.account import Account
 from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
+from quant_platform.backtest.validity import ValidityStatus, assess_backtest_validity
+from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.execution.models import Fill, Order
 from quant_platform.execution.next_open import NextOpenExecutionModel
 from quant_platform.execution.order_generator import OrderGenerator
 from quant_platform.portfolio.equal_weight import EqualWeightPortfolio
 from quant_platform.portfolio.models import TargetPosition
-from quant_platform.risk.basic_rules import RiskDecision, evaluate_target_risk
+from quant_platform.risk.basic_rules import (
+    PortfolioRiskAction,
+    RiskDecision,
+    evaluate_daily_portfolio_risk,
+    evaluate_target_risk,
+)
 from quant_platform.risk.config import RiskLimits
 from quant_platform.signals.models import Signal
 from quant_platform.strategies.base import Strategy
@@ -27,11 +34,15 @@ from quant_platform.universe.base import Universe
 RISK_EVENT_COLUMNS = [
     "trade_date",
     "strategy_id",
+    "event_type",
     "decision",
+    "action",
     "reason",
     "target_count",
     "total_weight",
     "max_weight",
+    "current_total_weight",
+    "current_max_weight",
     "current_drawdown",
 ]
 
@@ -50,6 +61,8 @@ class BacktestEngine:
         rebalance: str = "weekly",
         risk_free_rate: float = 0.0,
         risk_limits: RiskLimits | None = None,
+        evaluation_mode: str = "in_sample",
+        fixed_universe: bool = True,
     ) -> None:
         self.repository = repository
         self.universe = universe
@@ -60,6 +73,8 @@ class BacktestEngine:
         self.rebalance = rebalance
         self.risk_free_rate = risk_free_rate
         self.risk_limits = risk_limits or RiskLimits()
+        self.evaluation_mode = evaluation_mode
+        self.fixed_universe = fixed_universe
 
     def run(
         self,
@@ -128,6 +143,48 @@ class BacktestEngine:
                     }
                 )
 
+            weights = self._position_weights(account, last_closing_prices, snapshot.equity)
+            daily_risk = evaluate_daily_portfolio_risk(
+                weights,
+                self.risk_limits,
+                strategy_id=self.strategy.strategy_id,
+                trade_date=trade_date,
+                current_drawdown=snapshot.drawdown,
+            )
+            risk_rows.append(
+                {
+                    "trade_date": trade_date,
+                    "strategy_id": self.strategy.strategy_id,
+                    "event_type": "DAILY_POSITION",
+                    "decision": daily_risk.decision.value,
+                    "action": daily_risk.action.value,
+                    "reason": "；".join(daily_risk.reasons),
+                    "target_count": len(daily_risk.targets),
+                    "total_weight": sum(target.target_weight for target in daily_risk.targets),
+                    "max_weight": max(
+                        (target.target_weight for target in daily_risk.targets), default=0.0
+                    ),
+                    "current_total_weight": daily_risk.current_total_weight,
+                    "current_max_weight": daily_risk.current_max_weight,
+                    "current_drawdown": daily_risk.current_drawdown,
+                }
+            )
+            if index + 1 < len(dates) and daily_risk.decision == RiskDecision.ADJUST:
+                next_date = dates[index + 1]
+                corrective_targets = list(daily_risk.targets)
+                all_targets.extend(corrective_targets)
+                corrective_orders = self.order_generator.generate(
+                    targets=corrective_targets,
+                    account=account,
+                    signal_date=trade_date,
+                    execution_date=next_date,
+                    closing_prices=last_closing_prices,
+                )
+                pending[next_date] = corrective_orders
+                continue
+            if daily_risk.action == PortfolioRiskAction.STOP_NEW:
+                continue
+
             if trade_date not in rebalance_dates or index + 1 >= len(dates):
                 continue
             history = bars[bars["trade_date"] <= pd.Timestamp(trade_date)]
@@ -147,11 +204,15 @@ class BacktestEngine:
                 {
                     "trade_date": trade_date,
                     "strategy_id": self.strategy.strategy_id,
+                    "event_type": "TARGET_PORTFOLIO",
                     "decision": evaluation.decision.value,
+                    "action": PortfolioRiskAction.NONE.value,
                     "reason": "；".join(evaluation.reasons),
                     "target_count": evaluation.target_count,
                     "total_weight": evaluation.total_weight,
                     "max_weight": evaluation.max_weight,
+                    "current_total_weight": daily_risk.current_total_weight,
+                    "current_max_weight": daily_risk.current_max_weight,
                     "current_drawdown": evaluation.current_drawdown,
                 }
             )
@@ -168,6 +229,20 @@ class BacktestEngine:
             pending.setdefault(next_date, []).extend(orders)
 
         nav = pd.DataFrame(nav_rows)
+        validity = assess_backtest_validity(
+            nav,
+            start_date=start_date,
+            end_date=end_date,
+            calendar=calendar,
+            evaluation_mode=self.evaluation_mode,
+            fixed_universe=self.fixed_universe,
+        )
+        if validity.status == ValidityStatus.INVALID:
+            errors = "；".join(
+                issue.message for issue in validity.issues if issue.severity.value == "ERROR"
+            )
+            raise BacktestValidityError(errors or "回测有效性检查未通过")
+
         signals_frame = pd.DataFrame([signal.to_dict() for signal in all_signals])
         targets_frame = pd.DataFrame([asdict(target) for target in all_targets])
         orders_frame = pd.DataFrame([asdict(order) for order in all_orders])
@@ -190,6 +265,14 @@ class BacktestEngine:
                     if not risk_frame.empty
                     else 0
                 ),
+                "risk_adjustments": (
+                    int(risk_frame["decision"].eq(RiskDecision.ADJUST.value).sum())
+                    if not risk_frame.empty
+                    else 0
+                ),
+                "validity_status": validity.status.value,
+                "metrics_reliable": validity.metrics_reliable,
+                "evaluation_mode": self.evaluation_mode,
             }
         )
         return BacktestResult(
@@ -203,7 +286,20 @@ class BacktestEngine:
             positions=positions_frame,
             risk_events=risk_frame,
             summary=analytics.summary,
+            validity=validity.to_dict(),
         )
+
+    @staticmethod
+    def _position_weights(
+        account: Account, closing_prices: dict[str, float], equity: float
+    ) -> dict[str, float]:
+        if equity <= 0:
+            return {}
+        return {
+            symbol: position.quantity * closing_prices.get(symbol, 0.0) / equity
+            for symbol, position in account.positions.items()
+            if position.quantity > 0 and closing_prices.get(symbol, 0.0) > 0
+        }
 
     def _rebalance_dates(self, dates: list[date]) -> set[date]:
         frame = pd.DataFrame({"trade_date": pd.to_datetime(dates)})

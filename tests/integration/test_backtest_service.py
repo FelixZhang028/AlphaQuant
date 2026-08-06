@@ -84,3 +84,7 @@ def test_service_runs_discovered_strategy_and_saves_snapshot(tmp_path: Path) -> 
     assert not completed.result.nav.empty
     assert completed.output_dir.exists()
     assert (completed.output_dir / "config.snapshot.yaml").exists()
+    assert (completed.output_dir / "validity_report.json").exists()
+    assert completed.result.summary["validity_status"] == "WARNING"
+    assert completed.result.summary["metrics_reliable"] is True
+    assert "DAILY_POSITION" in set(completed.result.risk_events["event_type"])

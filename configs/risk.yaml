@@ -5,3 +5,6 @@ risk:
   max_positions: 10
   minimum_cash_ratio: 0.0
   max_drawdown: 0.20
+  daily_position_limits: true
+  drawdown_action: reduce
+  drawdown_target_weight: 0.50
