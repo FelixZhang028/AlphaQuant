@@ -21,6 +21,7 @@ from quant_platform.backtest.validity import assess_backtest_validity
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.localization import localize_frame, rebalance_label
+from quant_platform.web.run_labels import format_run_label
 
 
 def _parameter_input(
@@ -346,6 +347,7 @@ except Exception as exc:
 
 metadata_by_name = {metadata.plugin_name: metadata for metadata in service.available_strategies()}
 plugin_names = list(metadata_by_name)
+strategy_names = {name: metadata.display_name for name, metadata in metadata_by_name.items()}
 default_index = (
     plugin_names.index(default_request.strategy_plugin)
     if default_request.strategy_plugin in plugin_names
@@ -419,7 +421,10 @@ with st.expander("新建回测", expanded=True):
             with st.spinner("正在运行回测……"):
                 completed = service.run(request)
             st.session_state["selected_run"] = completed.output_dir.name
-            st.success(f"回测完成：{completed.output_dir.name}")
+            st.success(
+                f"回测完成：{metadata.display_name}｜区间 {start_date}～{end_date}｜"
+                f"{completed.output_dir.name[:8]}"
+            )
         except BacktestValidityError as exc:
             st.error(f"回测已停止：{exc}")
             st.info("请缩短回测区间或补齐相关日期后再运行。")
@@ -428,12 +433,21 @@ with st.expander("新建回测", expanded=True):
 
 st.divider()
 st.header("回测结果")
-runs = [record.path for record in service.run_store.list_records(successful_only=True)]
-if not runs:
+records = service.run_store.list_records(successful_only=True)
+if not records:
     st.info("暂无回测结果，请先在上方运行一次回测。")
     st.stop()
 
+record_by_id = {record.run_id: record for record in records}
 preferred = st.session_state.get("selected_run")
-run_index = next((index for index, path in enumerate(runs) if path.name == preferred), 0)
-selected_run = st.selectbox("回测运行", runs, index=run_index, format_func=lambda path: path.name)
-_render_result(selected_run)
+run_ids = list(record_by_id)
+run_index = run_ids.index(preferred) if preferred in run_ids else 0
+selected_id = st.selectbox(
+    "回测运行",
+    run_ids,
+    index=run_index,
+    format_func=lambda run_id: format_run_label(record_by_id[run_id], strategy_names),
+)
+selected_record = record_by_id[selected_id]
+st.caption(format_run_label(selected_record, strategy_names))
+_render_result(selected_record.path)

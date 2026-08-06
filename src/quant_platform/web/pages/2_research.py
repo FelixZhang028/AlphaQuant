@@ -23,6 +23,7 @@ from quant_platform.application.walk_forward_service import (
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame
+from quant_platform.web.run_labels import format_run_label
 
 
 def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]:
@@ -41,14 +42,6 @@ def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]
             raise ValueError(f"{parameter.label} 请填写“是,否”（也支持 true,false）") from exc
     return tuple(parts)
 
-
-def _run_label(record: Any, strategy_names: dict[str, str]) -> str:
-    strategy = strategy_names.get(
-        record.strategy_plugin,
-        record.strategy_plugin or "旧版本策略",
-    )
-    dates = f"{record.start_date}~{record.end_date}" if record.start_date else "日期未知"
-    return f"{strategy} | {dates} | {record.run_id[:8]}"
 
 
 def _localized_parameters(
@@ -334,7 +327,7 @@ else:
         "选择2～5次回测",
         list(record_by_id),
         default=list(record_by_id)[: min(2, len(record_by_id))],
-        format_func=lambda run_id: _run_label(record_by_id[run_id], strategy_names),
+        format_func=lambda run_id: format_run_label(record_by_id[run_id], strategy_names),
         max_selections=5,
     )
     if len(selected_ids) < 2:

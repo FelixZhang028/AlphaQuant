@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from quant_platform.application.readiness_service import platform_needs_onboarding
 
-st.set_page_config(page_title="AlphaQuant量化工作台", layout="wide")
+LOGO_PATH = Path(__file__).parent / "assets" / "alphaquant-logo.png"
+
+st.set_page_config(
+    page_title="AlphaQuant量化工作台", page_icon=str(LOGO_PATH), layout="wide"
+)
+st.logo(str(LOGO_PATH), size="large", icon_image=str(LOGO_PATH))
 
 needs_onboarding = platform_needs_onboarding()
 
