@@ -19,7 +19,7 @@
 
 已经支持：
 
-- 使用 AkShare 更新 A 股证券主表、配置股票池日线和基准指数日线；
+- 使用 iFinD（优先）或 AkShare（自动回退）更新股票池日线，证券主表与基准指数由 AkShare 更新；
 - 东方财富连接失败时自动尝试直连，并切换到新浪备用行情接口；
 - 保存原始快照、标准化 Parquet 数据、覆盖率报告和数据版本记录；
 - 从 `src/quant_platform/strategies` 自动发现策略；
@@ -73,7 +73,7 @@
 python -m pip install -e ".[dev]"
 ```
 
-当前使用 AkShare 不需要 Token。Tushare 仅保留为可选适配器；有权限时再安装：
+AkShare 不需要 Token。iFinD 需要官方 Windows SDK 和账号权限；Tushare 仅保留为可选适配器：
 
 ```powershell
 python -m pip install -e ".[tushare]"
@@ -193,9 +193,9 @@ python -m quant_platform.cli strategies
 ## 数据流程
 
 ```text
-AkShare
-  → 东方财富接口
-  → 代理失败时自动直连
+iFinD 日线行情
+  → 失败时自动回退 AkShare
+  → AkShare 代理失败时自动直连
   → 东方财富仍不可用时切换新浪接口
   → 原始数据快照
   → 字段与单位标准化
@@ -231,7 +231,8 @@ AkShare
 每次更新都会在 `data_manifests` 中记录版本号、数据源、请求参数、日期范围、行数、
 证券数量、质量摘要和错误信息。单个数据集失败不会中断其他数据集更新。
 
-详细说明见 `docs/data_center.md`。
+详细说明见 `docs/data_center.md`；iFinD 配置与数据口径见
+`docs/ifind_data_source.md`。
 
 ## 当前策略与回测规则
 

@@ -2,7 +2,7 @@ risk:
   enabled: true
   max_total_weight: 1.0
   max_single_weight: 0.30
-  max_positions: 10
+  max_positions: 15
   minimum_cash_ratio: 0.0
   max_drawdown: 0.20
   daily_position_limits: true

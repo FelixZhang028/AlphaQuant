@@ -189,7 +189,12 @@ class BacktestEngine:
                 continue
             history = bars[bars["trade_date"] <= pd.Timestamp(trade_date)]
             symbols = self.universe.select(trade_date, history)
-            context = StrategyContext.create(trade_date, history, symbols)
+            context = StrategyContext.create(
+                trade_date,
+                history,
+                symbols,
+                portfolio_drawdown=snapshot.drawdown,
+            )
             context.require_fields(self.strategy.required_fields)
             signals = self.strategy.generate_signals(context)
             targets = self.portfolio.construct(signals)

@@ -11,6 +11,12 @@ COLUMN_LABELS: dict[str, str] = {
     "version_id": "版本号",
     "dataset": "数据集",
     "source": "数据来源",
+    "provider": "数据来源",
+    "role": "用途",
+    "readiness": "配置状态",
+    "detail": "说明",
+    "provider_route": "调用路径",
+    "fallback_used": "发生回退",
     "status": "状态",
     "decision": "风控结果",
     "event_type": "检查类型",
@@ -133,6 +139,19 @@ COLUMN_LABELS: dict[str, str] = {
 
 
 VALUE_LABELS: dict[str, dict[str, str]] = {
+    "source": {
+        "ifind": "iFinD",
+        "akshare": "AkShare",
+        "ifind -> akshare": "iFinD → AkShare",
+    },
+    "provider": {"ifind": "iFinD", "akshare": "AkShare"},
+    "role": {"PRIMARY": "首选", "FALLBACK": "备用"},
+    "readiness": {"READY": "已配置", "NOT_READY": "未就绪"},
+    "provider_route": {
+        "ifind:success": "iFinD 成功",
+        "akshare:success": "AkShare 成功",
+        "ifind:failed -> akshare:success": "iFinD 失败 → AkShare 成功",
+    },
     "status": {
         "CREATED": "已创建",
         "READY": "已就绪",

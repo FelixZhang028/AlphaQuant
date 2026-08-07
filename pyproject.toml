@@ -46,7 +46,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
   "quant_platform.data.akshare_backfill",
+  "quant_platform.data.ifind_backfill",
   "quant_platform.data.providers.akshare_provider",
+  "quant_platform.data.providers.ifind_provider",
   "quant_platform.data.providers.tushare_provider",
 ]
 warn_return_any = false

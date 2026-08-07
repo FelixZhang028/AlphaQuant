@@ -1,0 +1,37 @@
+# iFinD 数据源接入
+
+项目现在把 iFinD 作为日线行情的首选来源，并在不可用时自动回退到 AkShare。
+证券主表与基准指数仍由 AkShare 更新，因此两套来源可以同时存在。
+
+## 首次配置
+
+1. 在 Windows 上安装并修复同花顺 iFinD 官方 Python SDK，确认 Python 能导入 `iFinDPy`。
+2. 复制 `.env.example` 为 `.env`，填写 `IFIND_USERNAME` 和 `IFIND_PASSWORD`。
+3. 启动项目后，在“数据管理”中按原方式更新行情。
+
+## 界面中的体现
+
+- 页面顶部“最近行情来源”显示最近一次成功更新实际使用的来源；
+- “行情数据源”区域显示 iFinD/AkShare 的首选顺序与本机配置状态；
+- 本次更新完成后会提示“行情更新完成（来源：ifind/akshare）”；
+- “数据版本”页签显示实际来源、调用路径和是否发生自动回退。
+
+“已配置”只表示 SDK 与账号环境变量已经准备好，不代表已完成网络连通测试；
+实际可用性以更新结果为准。
+
+项目不会把账号密码写入 YAML、原始快照或数据版本记录。没有配置凭证、SDK
+不可用或 iFinD 请求失败时，只要 `allow_fallback_provider` 保持为 `true`，更新会继续
+尝试 AkShare。
+
+## 数据口径
+
+- `CPS=1` 获取未复权日线；
+- `CPS=2` 获取前复权日线；
+- `adj_factor = adjusted_close / raw_close`；
+- 成交量按股、成交额按元进入标准行情表；
+- 原始响应分别保存在 `runtime/raw/ifind/daily_range_raw` 和
+  `runtime/raw/ifind/daily_range_qfq`；
+- 数据版本记录中的 `source` 表示本次实际成功的来源，`provider_attempts` 保存回退过程。
+
+iFinD 的证券主表、涨跌停与停牌字段尚未在本适配器中启用。相关交易状态仍会标记为
+`UNKNOWN_STATUS`，不应把当前数据单独作为实盘成交判断依据。

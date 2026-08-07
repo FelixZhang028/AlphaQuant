@@ -33,7 +33,7 @@ def _download_csv(
 
 
 st.title("数据管理")
-st.caption("更新 AkShare 数据、检查覆盖率，并记录每次数据批次。")
+st.caption("按 iFinD → AkShare 的优先顺序更新行情，检查覆盖率并记录数据版本。")
 
 config_path = st.sidebar.text_input("数据管理配置", "configs/app.yaml", key="data_config_path")
 try:
@@ -44,12 +44,37 @@ except Exception as exc:
     st.stop()
 
 market = overview.market
-columns = st.columns(5)
+provider_labels = {"ifind": "iFinD", "akshare": "AkShare"}
+last_market_source = "暂无"
+if not overview.manifests.empty:
+    successful_market = overview.manifests[
+        overview.manifests["dataset"].eq("daily_bars")
+        & overview.manifests["status"].eq("SUCCESS")
+    ]
+    if not successful_market.empty:
+        source = str(successful_market.iloc[0]["source"])
+        last_market_source = provider_labels.get(source, source)
+columns = st.columns(6)
 columns[0].metric("证券主表", f"{overview.security_count:,}")
 columns[1].metric("配置股票", overview.configured_symbol_count)
 columns[2].metric("行情覆盖率", f"{market.coverage_ratio:.2%}")
 columns[3].metric("行情记录", f"{market.rows:,}")
 columns[4].metric("未知状态记录", f"{market.unknown_status_rows:,}")
+columns[5].metric("最近行情来源", last_market_source)
+
+with st.expander("行情数据源", expanded=True):
+    source_status = service.market_source_status()
+    if not source_status.empty:
+        primary = source_status.iloc[0]
+        primary_name = provider_labels.get(str(primary["provider"]), str(primary["provider"]))
+        if primary["readiness"] == "READY":
+            st.success(f"首选数据源 {primary_name} 已配置。")
+        else:
+            st.warning(
+                f"首选数据源 {primary_name} 尚未就绪；更新行情时会自动尝试备用数据源。"
+            )
+        st.dataframe(localize_frame(source_status), width="stretch", hide_index=True)
+        st.caption("这里显示的是本机配置状态；实际成功来源以本次更新结果和数据版本为准。")
 
 with st.expander("更新数据", expanded=True):
     with st.form("data_update_form"):
@@ -63,7 +88,7 @@ with st.expander("更新数据", expanded=True):
             include_benchmark = st.checkbox(f"更新基准 {overview.benchmark_symbol}", value=True)
             st.info(
                 "行情更新默认只处理配置股票池，不会下载全市场历史行情。"
-                "代理连接失败时会自动尝试直连。"
+                "iFinD 不可用时会自动尝试 AkShare；AkShare 代理失败时会自动尝试直连。"
             )
         submitted = st.form_submit_button("开始更新", type="primary")
 
@@ -97,6 +122,9 @@ with st.expander("更新数据", expanded=True):
                 st.caption(f"{item['dataset']}：{item['error']}")
         else:
             st.success("本次所选数据均更新完成。")
+        market_results = [item for item in last_update if item["dataset"] == "daily_bars"]
+        if market_results and market_results[0]["status"] == "SUCCESS":
+            st.info(str(market_results[0]["message"]))
         result_frame = pd.DataFrame(last_update).rename(
             columns={
                 "dataset": "数据集",
@@ -237,6 +265,8 @@ with versions_tab:
                 "version_id",
                 "dataset",
                 "source",
+                "provider_route",
+                "fallback_used",
                 "status",
                 "completed_at",
                 "row_count",

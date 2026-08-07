@@ -18,10 +18,16 @@ class StrategyContext:
     trade_date: date
     universe: tuple[str, ...]
     _history: pd.DataFrame
+    portfolio_drawdown: float = 0.0
 
     @classmethod
     def create(
-        cls, trade_date: date, history: pd.DataFrame, universe: Iterable[str]
+        cls,
+        trade_date: date,
+        history: pd.DataFrame,
+        universe: Iterable[str],
+        *,
+        portfolio_drawdown: float = 0.0,
     ) -> StrategyContext:
         """Build a context that removes future and out-of-universe rows."""
 
@@ -39,6 +45,7 @@ class StrategyContext:
             trade_date=trade_date,
             universe=symbols,
             _history=available.sort_values(["symbol", "trade_date"]),
+            portfolio_drawdown=float(portfolio_drawdown),
         )
 
     def require_fields(self, fields: Iterable[str]) -> None:

@@ -105,6 +105,60 @@ def normalize_akshare_daily(frame: pd.DataFrame) -> pd.DataFrame:
     return result[CANONICAL_BAR_COLUMNS]
 
 
+def normalize_ifind_daily(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize official iFinD ``THS_HQ`` daily-history output."""
+
+    aliases = {
+        "thscode": "symbol",
+        "code": "symbol",
+        "time": "trade_date",
+        "date": "trade_date",
+        "open": "raw_open",
+        "high": "raw_high",
+        "low": "raw_low",
+        "close": "raw_close",
+        "preclose": "pre_close",
+        "pre_close": "pre_close",
+        "volume": "volume",
+        "amount": "amount",
+    }
+    renamed = {column: aliases.get(str(column).lower(), column) for column in frame.columns}
+    result = frame.rename(columns=renamed).copy()
+    _require_columns(
+        result,
+        {
+            "symbol",
+            "trade_date",
+            "raw_open",
+            "raw_high",
+            "raw_low",
+            "raw_close",
+            "volume",
+            "amount",
+        },
+        "ifind.THS_HQ",
+    )
+    result["symbol"] = result["symbol"].astype(str).map(canonical_symbol)
+    result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce").dt.normalize()
+    result = result.sort_values(["symbol", "trade_date"])
+    if "pre_close" not in result.columns:
+        result["pre_close"] = result.groupby("symbol", observed=True)["raw_close"].shift(1)
+    numeric_columns = [
+        "raw_open",
+        "raw_high",
+        "raw_low",
+        "raw_close",
+        "pre_close",
+        "volume",
+        "amount",
+    ]
+    for column in numeric_columns:
+        result[column] = pd.to_numeric(result[column], errors="coerce")
+    result["source"] = "ifind"
+    result["ingested_at"] = datetime.now(UTC)
+    return result[CANONICAL_BAR_COLUMNS]
+
+
 def canonical_symbol(code: str) -> str:
     """Convert a six-digit A-share code into ``000001.SZ`` style."""
 

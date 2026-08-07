@@ -7,6 +7,7 @@ from datetime import date
 from quant_platform.data.normalizers import (
     compose_standard_daily,
     normalize_akshare_daily,
+    normalize_ifind_daily,
     normalize_suspensions,
     normalize_tushare_daily,
 )
@@ -40,11 +41,12 @@ class DailyDataPipeline:
         self.raw_repository.save(
             bars_source, "daily_bars", trade_date, bars_raw, {"symbols": symbols}
         )
-        bars = (
-            normalize_tushare_daily(bars_raw)
-            if bars_source == "tushare"
-            else normalize_akshare_daily(bars_raw)
-        )
+        normalizers = {
+            "tushare": normalize_tushare_daily,
+            "akshare": normalize_akshare_daily,
+            "ifind": normalize_ifind_daily,
+        }
+        bars = normalizers[bars_source](bars_raw)
 
         adj, adj_source = self.router.fetch(
             "adjustment_factors",
