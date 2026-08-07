@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,8 +16,10 @@ class _FakeBacktests:
     def __init__(self, root: Path, request: BacktestRequest) -> None:
         self.runs_root = root / "runs"
         self.request = request
+        self.calls: list[BacktestRequest] = []
 
     def run(self, request: BacktestRequest) -> SimpleNamespace:
+        self.calls.append(request)
         value = int(request.strategy_parameters["lookback"])
         summary = {
             "sharpe": value / 10.0,
@@ -44,6 +47,7 @@ def test_grid_optimization_ranks_eligible_results(tmp_path: Path) -> None:
         parameter_grid={"lookback": (10, 20, 40)},
         objective="sharpe",
         max_drawdown_limit=0.25,
+        baseline_run_id="baseline-1",
     )
 
     result = service.run(request)
@@ -52,3 +56,7 @@ def test_grid_optimization_ranks_eligible_results(tmp_path: Path) -> None:
     assert result.experiments.iloc[0]["rank"] == 1
     assert result.experiments["eligible"].tolist() == [True, True, False]
     assert (result.output_dir / "results.csv").exists()
+    assert all(call.run_kind == "optimization" for call in service.backtests.calls)
+    assert all(call.baseline_run_id == "baseline-1" for call in service.backtests.calls)
+    request_json = json.loads((result.output_dir / "request.json").read_text(encoding="utf-8"))
+    assert request_json["baseline_run_id"] == "baseline-1"

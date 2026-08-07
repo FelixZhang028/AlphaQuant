@@ -31,6 +31,7 @@ class OptimizationRequest:
     objective: str = "sharpe"
     max_drawdown_limit: float | None = None
     max_combinations: int = 100
+    baseline_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class OptimizationService:
         ):
             raise ValueError("max_drawdown_limit must be between 0 and 1")
 
+        optimization_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         names = list(request.parameter_grid)
         rows: list[dict[str, Any]] = []
         for index, values in enumerate(
@@ -91,6 +93,9 @@ class OptimizationService:
                 request.base_request,
                 strategy_id=f"{request.base_request.strategy_id}_opt_{index:03d}",
                 strategy_parameters=parameters,
+                run_kind="optimization",
+                parent_experiment_id=optimization_id,
+                baseline_run_id=request.baseline_run_id,
             )
             row: dict[str, Any] = {
                 **{f"param_{name}": value for name, value in parameters.items()},
@@ -108,7 +113,6 @@ class OptimizationService:
             rows.append(row)
 
         experiments = self._rank(pd.DataFrame(rows), request)
-        optimization_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         output = self.root / optimization_id
         output.mkdir(parents=True, exist_ok=False)
         experiments.to_csv(output / "results.csv", index=False, encoding="utf-8-sig")
@@ -120,6 +124,7 @@ class OptimizationService:
                     "max_drawdown_limit": request.max_drawdown_limit,
                     "parameter_grid": request.parameter_grid,
                     "combination_count": count,
+                    "baseline_run_id": request.baseline_run_id,
                 },
                 ensure_ascii=False,
                 indent=2,

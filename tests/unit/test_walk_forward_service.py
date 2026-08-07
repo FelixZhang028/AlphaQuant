@@ -59,6 +59,7 @@ def test_walk_forward_selects_on_training_and_tests_unseen_windows(tmp_path: Pat
         test_months=3,
         step_months=3,
         max_windows=2,
+        baseline_run_id="baseline-1",
     )
 
     result = service.run(request)
@@ -66,6 +67,8 @@ def test_walk_forward_selects_on_training_and_tests_unseen_windows(tmp_path: Pat
     tests = [call for call in fake.calls if call.evaluation_mode == "out_of_sample"]
     assert len(tests) == 2
     assert all(call.strategy_parameters["short_window"] == 20 for call in tests)
+    assert all(call.run_kind == "walk_forward_oos" for call in tests)
+    assert all(call.baseline_run_id == "baseline-1" for call in tests)
     assert result.summary["successful_windows"] == 2
     assert abs(result.summary["out_of_sample_cumulative_return"] - 0.21) < 1e-9
     assert (result.output_dir / "results.csv").exists()

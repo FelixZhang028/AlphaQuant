@@ -79,6 +79,7 @@ def test_service_runs_discovered_strategy_and_saves_snapshot(tmp_path: Path) -> 
 
     service = BacktestService(app_path)
     completed = service.run()
+    restored = service.request_from_run(completed.result.run_id)
 
     assert "a_share_momentum" in {item.plugin_name for item in service.available_strategies()}
     assert not completed.result.nav.empty
@@ -88,3 +89,7 @@ def test_service_runs_discovered_strategy_and_saves_snapshot(tmp_path: Path) -> 
     assert completed.result.summary["validity_status"] == "WARNING"
     assert completed.result.summary["metrics_reliable"] is True
     assert "DAILY_POSITION" in set(completed.result.risk_events["event_type"])
+    assert restored.strategy_plugin == "a_share_momentum"
+    assert restored.strategy_parameters["short_window"] == 20
+    assert restored.start_date == date(2023, 1, 3)
+    assert restored.baseline_run_id == completed.result.run_id

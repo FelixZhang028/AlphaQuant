@@ -18,7 +18,15 @@ def _snapshot() -> dict[str, object]:
                 "parameters": {"lookback": 20},
             }
         },
-        "app": {"backtest": {"start_date": "2024-01-01", "end_date": "2024-12-31"}},
+        "app": {
+            "backtest": {
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "run_kind": "optimization",
+                "parent_experiment_id": "experiment-1",
+                "baseline_run_id": "baseline-1",
+            }
+        },
     }
 
 
@@ -39,6 +47,9 @@ def test_run_store_tracks_lifecycle_and_builds_comparison(tmp_path: Path) -> Non
 
     assert record.status == RunStatus.SUCCESS
     assert record.strategy_plugin == "momentum"
+    assert record.run_kind == "optimization"
+    assert record.parent_experiment_id == "experiment-1"
+    assert record.baseline_run_id == "baseline-1"
     assert comparison.iloc[0]["annual_return"] == 0.1
     assert nav["run-1"].tolist() == [1.0, 1.1]
 

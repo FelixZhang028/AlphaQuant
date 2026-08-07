@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -47,6 +47,9 @@ class BacktestRequest:
     rebalance: str
     risk_limits: RiskLimits = field(default_factory=RiskLimits)
     evaluation_mode: str = "in_sample"
+    run_kind: str = "single"
+    parent_experiment_id: str | None = None
+    baseline_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,40 @@ class BacktestService:
             risk_limits=RiskLimits.from_mapping(
                 risk_section if isinstance(risk_section, dict) else {}
             ),
+        )
+
+    def request_from_run(self, run_id: str) -> BacktestRequest:
+        """Rebuild a request from an immutable successful-run snapshot."""
+
+        snapshot = self.run_store.load_config(run_id)
+        default = self.default_request()
+        strategy = require_mapping(require_mapping(snapshot, "strategy"), "strategy")
+        app = require_mapping(snapshot, "app")
+        backtest = require_mapping(app, "backtest")
+        portfolio = require_mapping(app, "portfolio")
+        plugin = str(strategy.get("plugin", default.strategy_plugin))
+        metadata = self.catalog.get_metadata(plugin)
+        raw_parameters = strategy.get("parameters", metadata.defaults())
+        parameters = metadata.validate_parameters(
+            raw_parameters if isinstance(raw_parameters, dict) else metadata.defaults()
+        )
+        risk_root = snapshot.get("risk", {})
+        risk = risk_root.get("risk", {}) if isinstance(risk_root, dict) else {}
+        return replace(
+            default,
+            strategy_plugin=plugin,
+            strategy_id=str(strategy.get("id", default.strategy_id)),
+            strategy_parameters=parameters,
+            start_date=parse_date(str(backtest.get("start_date", default.start_date))),
+            end_date=parse_date(str(backtest.get("end_date", default.end_date))),
+            initial_cash=float(backtest.get("initial_cash", default.initial_cash)),
+            top_n=int(portfolio.get("top_n", default.top_n)),
+            rebalance=str(strategy.get("rebalance", default.rebalance)),
+            risk_limits=RiskLimits.from_mapping(risk if isinstance(risk, dict) else {}),
+            evaluation_mode="in_sample",
+            run_kind="single",
+            parent_experiment_id=None,
+            baseline_run_id=run_id,
         )
 
     def build_engine(
@@ -246,6 +283,9 @@ class BacktestService:
                 "end_date": request.end_date.isoformat(),
                 "initial_cash": request.initial_cash,
                 "evaluation_mode": request.evaluation_mode,
+                "run_kind": request.run_kind,
+                "parent_experiment_id": request.parent_experiment_id,
+                "baseline_run_id": request.baseline_run_id,
             }
         )
         require_mapping(snapshot["app"], "portfolio")["top_n"] = request.top_n

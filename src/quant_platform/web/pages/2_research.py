@@ -1,4 +1,4 @@
-"""Parameter optimization and persisted backtest comparison."""
+"""Parameter optimization and rolling out-of-sample validation."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from quant_platform.application.walk_forward_service import (
 )
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.exports import dataframe_to_csv_bytes
-from quant_platform.web.localization import localize_frame
+from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
 
 
@@ -35,7 +35,14 @@ def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]
     if parameter.kind == ParameterKind.NUMBER:
         return tuple(float(part) for part in parts)
     if parameter.kind == ParameterKind.BOOLEAN:
-        aliases = {"true": True, "1": True, "是": True, "false": False, "0": False, "否": False}
+        aliases = {
+            "true": True,
+            "1": True,
+            "是": True,
+            "false": False,
+            "0": False,
+            "否": False,
+        }
         try:
             return tuple(aliases[part.lower()] for part in parts)
         except KeyError as exc:
@@ -43,89 +50,108 @@ def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]
     return tuple(parts)
 
 
-
-def _localized_parameters(
-    raw: Any,
-    strategy_plugin: Any,
-    metadata_by_name: dict[str, Any],
-) -> str:
-    """Translate persisted parameter keys for display without changing stored data."""
-
-    try:
-        values = json.loads(raw) if isinstance(raw, str) else dict(raw)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return str(raw)
-    metadata = metadata_by_name.get(str(strategy_plugin))
-    labels = (
-        {parameter.name: parameter.label for parameter in metadata.parameters}
-        if metadata is not None
-        else {}
-    )
-    return json.dumps(
-        {labels.get(str(name), str(name)): value for name, value in values.items()},
-        ensure_ascii=False,
-    )
+def _metric(value: Any, *, percent: bool = False) -> str:
+    if not isinstance(value, (int, float)):
+        return "—"
+    return f"{float(value):.2%}" if percent else f"{float(value):.2f}"
 
 
-st.title("策略研究")
-st.caption("批量测试策略参数，并把不同回测放在同一张表和净值图中比较。")
+st.title("参数优化与稳健性验证")
+st.caption("从一次成功回测出发，寻找候选参数，并用未见数据检查策略是否稳定。")
 
-config_path = st.sidebar.text_input("策略研究配置", "configs/app.yaml", key="research_config_path")
+config_path = st.sidebar.text_input(
+    "验证配置", "configs/app.yaml", key="research_config_path"
+)
 try:
     service = BacktestService(config_path)
-    default_request = service.default_request()
 except Exception as exc:
-    st.error(f"无法加载策略研究配置：{exc}")
+    st.error(f"无法加载验证配置：{exc}")
     st.stop()
 
 metadata_by_name = {item.plugin_name: item for item in service.available_strategies()}
 strategy_names = {name: item.display_name for name, item in metadata_by_name.items()}
+records = service.run_store.list_records(successful_only=True)
+if not records:
+    st.info("请先完成一次成功的单次回测，再创建验证实验。")
+    if st.button("前往单次回测", type="primary"):
+        st.switch_page("home.py")
+    st.stop()
+
+record_by_id = {record.run_id: record for record in records}
+run_ids = list(record_by_id)
+preferred = st.session_state.get("research_baseline_run_id")
+baseline_index = run_ids.index(preferred) if preferred in run_ids else 0
+baseline_id = st.selectbox(
+    "基准回测",
+    run_ids,
+    index=baseline_index,
+    format_func=lambda run_id: format_run_label(record_by_id[run_id], strategy_names),
+    help="实验会继承该回测的策略、资金、持仓数量、调仓频率和风险配置。",
+)
+st.session_state["research_baseline_run_id"] = baseline_id
+
+try:
+    baseline = service.request_from_run(baseline_id)
+    metadata = metadata_by_name[baseline.strategy_plugin]
+    baseline_summary = service.run_store.load_summary(baseline_id)
+except Exception as exc:
+    st.error(f"无法读取基准回测：{exc}")
+    st.stop()
+
+with st.container(border=True):
+    st.subheader("基准回测摘要")
+    st.caption(
+        f"{metadata.display_name}｜{baseline.start_date}～{baseline.end_date}｜"
+        f"初始资金 {baseline.initial_cash:,.0f}｜最大持仓 {baseline.top_n}｜"
+        f"调仓频率 {rebalance_label(baseline.rebalance)}"
+    )
+    summary_columns = st.columns(4)
+    summary_columns[0].metric(
+        "累计收益", _metric(baseline_summary.get("cumulative_return"), percent=True)
+    )
+    summary_columns[1].metric(
+        "最大回撤", _metric(baseline_summary.get("max_drawdown"), percent=True)
+    )
+    summary_columns[2].metric("夏普比率", _metric(baseline_summary.get("sharpe")))
+    summary_columns[3].metric("交易次数", str(baseline_summary.get("closed_trades", "—")))
+    parameter_text = "；".join(
+        f"{parameter.label}={baseline.strategy_parameters.get(parameter.name)}"
+        for parameter in metadata.parameters
+    )
+    st.caption(f"基准参数：{parameter_text}")
+
+baseline_suffix = baseline_id[:8]
 
 with st.expander("参数优化", expanded=True):
-    st.info("第一版采用网格搜索：候选值会进行全部组合。为避免误操作，单次最多100组。")
-    selected_plugin = st.selectbox(
-        "策略",
-        list(metadata_by_name),
-        index=list(metadata_by_name).index(default_request.strategy_plugin),
-        format_func=lambda name: metadata_by_name[name].display_name,
-        key="optimization_strategy",
+    st.info(
+        "填写每个参数的候选值，系统将运行全部组合并按目标指标排名。"
+        "单次实验最多100组，以控制过拟合和运行时间。"
     )
-    metadata = metadata_by_name[selected_plugin]
-    defaults = (
-        default_request.strategy_parameters
-        if selected_plugin == default_request.strategy_plugin
-        else metadata.defaults()
-    )
-    with st.form("optimization_form"):
-        st.caption("每个参数可以输入多个候选值，用英文或中文逗号分隔。")
+    with st.form(f"optimization_form_{baseline_suffix}"):
         candidate_text: dict[str, str] = {}
-        columns = st.columns(2)
+        parameter_columns = st.columns(2)
         for index, parameter in enumerate(metadata.parameters):
-            with columns[index % 2]:
+            with parameter_columns[index % 2]:
                 candidate_text[parameter.name] = st.text_input(
                     parameter.label,
-                    value=str(defaults[parameter.name]),
+                    value=str(baseline.strategy_parameters[parameter.name]),
                     help=parameter.description or None,
-                    key=f"optimization_{parameter.name}",
+                    key=f"optimization_{baseline_suffix}_{parameter.name}",
                 )
         left, middle, right = st.columns(3)
         with left:
-            start_date = st.date_input("开始日期", default_request.start_date, key="opt_start")
-            initial_cash = st.number_input(
-                "初始资金", min_value=1_000.0, value=default_request.initial_cash, key="opt_cash"
+            start_date = st.date_input(
+                "实验开始日期", baseline.start_date, key=f"opt_start_{baseline_suffix}"
+            )
+            end_date = st.date_input(
+                "实验结束日期", baseline.end_date, key=f"opt_end_{baseline_suffix}"
             )
         with middle:
-            end_date = st.date_input("结束日期", default_request.end_date, key="opt_end")
-            top_n = st.number_input(
-                "最大持仓数量", min_value=1, value=default_request.top_n, step=1, key="opt_top_n"
-            )
-        with right:
-            objective_names: list[str] = list(OBJECTIVES.keys())
             objective = st.selectbox(
                 "排序指标",
-                objective_names,
+                list(OBJECTIVES),
                 format_func=lambda name: OBJECTIVES[str(name)],
-                key="opt_objective",
+                key=f"opt_objective_{baseline_suffix}",
             )
             drawdown_limit = st.number_input(
                 "允许的最大回撤",
@@ -134,119 +160,164 @@ with st.expander("参数优化", expanded=True):
                 value=0.30,
                 step=0.01,
                 format="%.2f",
+                key=f"opt_drawdown_{baseline_suffix}",
             )
+        with right:
+            st.caption("其他设置自动继承基准回测")
+            st.write(f"初始资金：{baseline.initial_cash:,.0f}")
+            st.write(f"最大持仓：{baseline.top_n}")
+            st.write(f"调仓频率：{rebalance_label(baseline.rebalance)}")
         submitted = st.form_submit_button("开始参数优化", type="primary")
 
     if submitted:
         try:
             grid = {
-                parameter.name: _parse_candidates(parameter, candidate_text[parameter.name])
+                parameter.name: _parse_candidates(
+                    parameter, candidate_text[parameter.name]
+                )
                 for parameter in metadata.parameters
             }
             base = replace(
-                default_request,
-                strategy_plugin=selected_plugin,
-                strategy_id=f"{selected_plugin}_optimization",
+                baseline,
+                strategy_id=f"{baseline.strategy_id}_optimization",
                 strategy_parameters={name: values[0] for name, values in grid.items()},
                 start_date=start_date,
                 end_date=end_date,
-                initial_cash=float(initial_cash),
-                top_n=int(top_n),
             )
             request = OptimizationRequest(
                 base_request=base,
                 parameter_grid=grid,
                 objective=str(objective),
                 max_drawdown_limit=float(drawdown_limit),
+                baseline_run_id=baseline_id,
             )
             optimizer = OptimizationService(service)
             count = optimizer.combination_count(request)
-            with st.spinner(f"正在运行 {count} 组回测……"):
+            with st.spinner(f"正在运行 {count} 组参数……"):
                 result = optimizer.run(request)
-            st.session_state["latest_optimization"] = str(result.output_dir / "results.csv")
+            st.session_state[f"latest_optimization_{baseline_id}"] = str(
+                result.output_dir / "results.csv"
+            )
             st.success(f"参数优化完成，共运行 {count} 组。")
         except Exception as exc:
             st.exception(exc)
 
-    latest_path = st.session_state.get("latest_optimization")
+    latest_path = st.session_state.get(f"latest_optimization_{baseline_id}")
     if latest_path:
         latest = pd.read_csv(latest_path)
-        parameter_labels = {f"param_{item.name}": item.label for item in metadata.parameters}
-        latest_display = localize_frame(latest.rename(columns=parameter_labels))
-        st.dataframe(latest_display, width="stretch", hide_index=True)
+        parameter_labels = {
+            f"param_{item.name}": item.label for item in metadata.parameters
+        }
+        st.dataframe(
+            localize_frame(latest.rename(columns=parameter_labels)),
+            width="stretch",
+            hide_index=True,
+        )
+        successful_runs = latest[
+            latest["status"].eq("SUCCESS") & latest["run_id"].notna()
+        ]
+        if not successful_runs.empty:
+            child_ids = successful_runs["run_id"].astype(str).tolist()
+            child_records = {
+                record.run_id: record
+                for record in service.run_store.list_records(successful_only=True)
+                if record.run_id in set(child_ids)
+            }
+            child_id = st.selectbox(
+                "查看参数组合的详细结果",
+                child_ids,
+                format_func=lambda run_id: (
+                    format_run_label(child_records[run_id], strategy_names)
+                    if run_id in child_records
+                    else run_id
+                ),
+                key=f"optimization_child_{baseline_suffix}",
+            )
+            if st.button("打开该回测", key=f"open_opt_child_{baseline_suffix}"):
+                st.session_state["selected_run"] = child_id
+                st.switch_page("home.py")
         st.download_button(
             "下载优化结果 CSV",
             dataframe_to_csv_bytes(latest),
             "optimization_results.csv",
             "text/csv; charset=utf-8",
+            key=f"download_opt_{baseline_suffix}",
         )
 
 with st.expander("滚动样本外验证", expanded=False):
     st.info(
-        "系统只在训练期选择参数，再用紧随其后的未见数据测试；随后向前滚动，"
-        "避免用同一段历史既选参数又评价参数。"
+        "每个窗口只在训练期选择参数，再在紧随其后的未见数据上测试；"
+        "这比直接用全区间挑选最好参数更能发现过拟合。"
     )
-    wf_plugin = st.selectbox(
-        "验证策略",
-        list(metadata_by_name),
-        index=list(metadata_by_name).index(default_request.strategy_plugin),
-        format_func=lambda name: metadata_by_name[name].display_name,
-        key="walk_forward_strategy",
-    )
-    wf_metadata = metadata_by_name[wf_plugin]
-    wf_defaults = (
-        default_request.strategy_parameters
-        if wf_plugin == default_request.strategy_plugin
-        else wf_metadata.defaults()
-    )
-    with st.form("walk_forward_form"):
-        st.caption("每个窗口都只使用过去的训练数据选参数，测试区间不会参与参数排名。")
+    with st.form(f"walk_forward_form_{baseline_suffix}"):
         wf_candidates: dict[str, str] = {}
         wf_parameter_columns = st.columns(2)
-        for index, parameter in enumerate(wf_metadata.parameters):
+        for index, parameter in enumerate(metadata.parameters):
             with wf_parameter_columns[index % 2]:
                 wf_candidates[parameter.name] = st.text_input(
                     parameter.label,
-                    value=str(wf_defaults[parameter.name]),
+                    value=str(baseline.strategy_parameters[parameter.name]),
                     help=parameter.description or None,
-                    key=f"walk_forward_{parameter.name}",
+                    key=f"walk_forward_{baseline_suffix}_{parameter.name}",
                 )
         wf_left, wf_middle, wf_right = st.columns(3)
         with wf_left:
-            wf_start = st.date_input("总开始日期", default_request.start_date, key="wf_start")
-            wf_end = st.date_input("总结束日期", default_request.end_date, key="wf_end")
+            wf_start = st.date_input(
+                "总开始日期", baseline.start_date, key=f"wf_start_{baseline_suffix}"
+            )
+            wf_end = st.date_input(
+                "总结束日期", baseline.end_date, key=f"wf_end_{baseline_suffix}"
+            )
         with wf_middle:
             training_months = st.number_input(
-                "训练期（月）", min_value=3, value=12, step=1, key="wf_training_months"
+                "训练期（月）",
+                min_value=3,
+                value=12,
+                step=1,
+                key=f"wf_training_{baseline_suffix}",
             )
             test_months = st.number_input(
-                "每次样本外测试（月）", min_value=1, value=3, step=1, key="wf_test_months"
+                "样本外测试（月）",
+                min_value=1,
+                value=3,
+                step=1,
+                key=f"wf_test_{baseline_suffix}",
             )
         with wf_right:
             step_months = st.number_input(
-                "滚动步长（月）", min_value=1, value=3, step=1, key="wf_step_months"
+                "滚动步长（月）",
+                min_value=1,
+                value=3,
+                step=1,
+                key=f"wf_step_{baseline_suffix}",
             )
             max_windows = st.number_input(
-                "最多窗口数", min_value=1, max_value=24, value=8, step=1, key="wf_max_windows"
+                "最多窗口数",
+                min_value=1,
+                max_value=24,
+                value=8,
+                step=1,
+                key=f"wf_windows_{baseline_suffix}",
             )
             wf_objective = st.selectbox(
                 "训练期排序指标",
                 list(OBJECTIVES),
                 format_func=lambda name: OBJECTIVES[str(name)],
-                key="wf_objective",
+                key=f"wf_objective_{baseline_suffix}",
             )
         wf_submitted = st.form_submit_button("开始滚动样本外验证", type="primary")
 
     if wf_submitted:
         try:
             wf_grid = {
-                parameter.name: _parse_candidates(parameter, wf_candidates[parameter.name])
-                for parameter in wf_metadata.parameters
+                parameter.name: _parse_candidates(
+                    parameter, wf_candidates[parameter.name]
+                )
+                for parameter in metadata.parameters
             }
             wf_base = replace(
-                default_request,
-                strategy_plugin=wf_plugin,
-                strategy_id=f"{wf_plugin}_walk_forward",
+                baseline,
+                strategy_id=f"{baseline.strategy_id}_walk_forward",
                 strategy_parameters={name: values[0] for name, values in wf_grid.items()},
                 start_date=wf_start,
                 end_date=wf_end,
@@ -259,6 +330,7 @@ with st.expander("滚动样本外验证", expanded=False):
                 test_months=int(test_months),
                 step_months=int(step_months),
                 max_windows=int(max_windows),
+                baseline_run_id=baseline_id,
             )
             validator = WalkForwardService(service)
             windows = validator.build_windows(wf_request)
@@ -269,7 +341,9 @@ with st.expander("滚动样本外验证", expanded=False):
                 f"正在运行 {len(windows)} 个窗口，每个窗口训练 {combinations} 组参数……"
             ):
                 wf_result = validator.run(wf_request)
-            st.session_state["latest_walk_forward"] = str(wf_result.output_dir)
+            st.session_state[f"latest_walk_forward_{baseline_id}"] = str(
+                wf_result.output_dir
+            )
             st.success(
                 f"滚动验证完成：{wf_result.summary['successful_windows']}/"
                 f"{wf_result.summary['window_count']} 个样本外窗口成功。"
@@ -277,7 +351,7 @@ with st.expander("滚动样本外验证", expanded=False):
         except Exception as exc:
             st.exception(exc)
 
-    wf_path = st.session_state.get("latest_walk_forward")
+    wf_path = st.session_state.get(f"latest_walk_forward_{baseline_id}")
     if wf_path:
         wf_directory = Path(wf_path)
         wf_results = pd.read_csv(wf_directory / "results.csv")
@@ -286,102 +360,48 @@ with st.expander("滚动样本外验证", expanded=False):
         wf_metrics[0].metric("成功窗口", f"{wf_summary.get('successful_windows', 0)}")
         wf_metrics[1].metric(
             "样本外累计收益",
-            (
-                f"{float(wf_summary['out_of_sample_cumulative_return']):.2%}"
-                if wf_summary.get("out_of_sample_cumulative_return") is not None
-                else "—"
-            ),
+            _metric(wf_summary.get("out_of_sample_cumulative_return"), percent=True),
         )
         wf_metrics[2].metric(
             "正收益窗口比例",
-            (
-                f"{float(wf_summary['positive_window_ratio']):.2%}"
-                if wf_summary.get("positive_window_ratio") is not None
-                else "—"
-            ),
+            _metric(wf_summary.get("positive_window_ratio"), percent=True),
         )
         wf_metrics[3].metric(
             "最差窗口回撤",
-            (
-                f"{float(wf_summary['worst_window_drawdown']):.2%}"
-                if wf_summary.get("worst_window_drawdown") is not None
-                else "—"
-            ),
+            _metric(wf_summary.get("worst_window_drawdown"), percent=True),
         )
         st.warning(str(wf_summary.get("trust_warning", "")))
         st.dataframe(localize_frame(wf_results), width="stretch", hide_index=True)
+        test_runs = wf_results.get("test_run_id", pd.Series(dtype=str)).dropna().astype(str)
+        if not test_runs.empty:
+            test_run_ids = test_runs.tolist()
+            test_records = {
+                record.run_id: record
+                for record in service.run_store.list_records(successful_only=True)
+                if record.run_id in set(test_run_ids)
+            }
+            test_run_id = st.selectbox(
+                "查看样本外窗口的详细结果",
+                test_run_ids,
+                format_func=lambda run_id: (
+                    format_run_label(test_records[run_id], strategy_names)
+                    if run_id in test_records
+                    else run_id
+                ),
+                key=f"wf_child_{baseline_suffix}",
+            )
+            if st.button("打开样本外回测", key=f"open_wf_child_{baseline_suffix}"):
+                st.session_state["selected_run"] = test_run_id
+                st.switch_page("home.py")
         st.download_button(
             "下载滚动验证结果 CSV",
             dataframe_to_csv_bytes(wf_results),
             "walk_forward_results.csv",
             "text/csv; charset=utf-8",
+            key=f"download_wf_{baseline_suffix}",
         )
+
 st.divider()
-st.header("回测结果对比")
-records = service.run_store.list_records(successful_only=True)
-if len(records) < 2:
-    st.info("至少需要两次成功回测才能进行对比。")
-else:
-    record_by_id = {record.run_id: record for record in records}
-    selected_ids = st.multiselect(
-        "选择2～5次回测",
-        list(record_by_id),
-        default=list(record_by_id)[: min(2, len(record_by_id))],
-        format_func=lambda run_id: format_run_label(record_by_id[run_id], strategy_names),
-        max_selections=5,
-    )
-    if len(selected_ids) < 2:
-        st.warning("请至少选择两次回测。")
-    else:
-        comparison = service.run_store.comparison_frame(selected_ids)
-        important = [
-            column
-            for column in [
-                "run_id",
-                "strategy",
-                "parameters",
-                "start_date",
-                "end_date",
-                "cumulative_return",
-                "annual_return",
-                "max_drawdown",
-                "sharpe",
-                "sortino",
-                "calmar",
-                "total_transaction_cost",
-                "orders",
-                "risk_rejections",
-                "risk_adjustments",
-            ]
-            if column in comparison.columns
-        ]
-        comparison_display = comparison[important].copy()
-        if "parameters" in comparison_display.columns:
-            comparison_display["parameters"] = comparison_display.apply(
-                lambda row: _localized_parameters(
-                    row["parameters"],
-                    row.get("strategy"),
-                    metadata_by_name,
-                ),
-                axis=1,
-            )
-        if "strategy" in comparison_display.columns:
-            comparison_display["strategy"] = comparison_display["strategy"].map(
-                lambda value: strategy_names.get(str(value), value)
-            )
-        st.dataframe(
-            localize_frame(comparison_display),
-            width="stretch",
-            hide_index=True,
-        )
-        nav = service.run_store.normalized_nav(selected_ids)
-        if not nav.empty:
-            st.subheader("标准化净值（起点=1）")
-            nav_display = nav.rename(columns={"trade_date": "交易日期"})
-            st.line_chart(nav_display.set_index("交易日期"))
-        st.download_button(
-            "下载对比结果 CSV",
-            dataframe_to_csv_bytes(comparison),
-            "backtest_comparison.csv",
-            "text/csv; charset=utf-8",
-        )
+st.info("历史记录筛选与多回测对比已移至“回测记录库”，避免本页面重复承担复盘功能。")
+if st.button("打开回测记录库"):
+    st.switch_page("pages/6_run_library.py")

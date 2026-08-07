@@ -41,7 +41,7 @@ with data_column:
 with backtest_column:
     st.markdown("#### 3. 运行回测")
     st.write("数据达到最少历史天数后，即可选择策略并运行。")
-    if st.button("进入回测工作台", width="stretch", disabled=not report.ready_for_backtest):
+    if st.button("进入单次回测与复盘", width="stretch", disabled=not report.ready_for_backtest):
         st.switch_page("home.py")
 
 with st.expander("如果检查没有通过"):

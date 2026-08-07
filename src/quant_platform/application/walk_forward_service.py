@@ -43,6 +43,7 @@ class WalkForwardRequest:
     max_windows: int = 12
     max_drawdown_limit: float | None = None
     max_combinations: int = 100
+    baseline_run_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class WalkForwardService:
         """Optimize each training window and run the winner on its unseen test window."""
 
         windows = self.build_windows(request)
+        validation_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         optimizer = OptimizationService(self.backtests)
         rows: list[dict[str, Any]] = []
         for index, window in enumerate(windows, start=1):
@@ -115,6 +117,7 @@ class WalkForwardService:
                         objective=request.objective,
                         max_drawdown_limit=request.max_drawdown_limit,
                         max_combinations=request.max_combinations,
+                        baseline_run_id=request.baseline_run_id,
                     )
                 )
                 eligible = optimized.experiments[optimized.experiments["eligible"].eq(True)]
@@ -131,6 +134,9 @@ class WalkForwardService:
                     start_date=window.test_start,
                     end_date=window.test_end,
                     evaluation_mode="out_of_sample",
+                    run_kind="walk_forward_oos",
+                    parent_experiment_id=validation_id,
+                    baseline_run_id=request.baseline_run_id,
                 )
                 tested = self.backtests.run(test_request)
                 row.update(
@@ -156,7 +162,6 @@ class WalkForwardService:
 
         frame = pd.DataFrame(rows)
         summary = _aggregate(frame)
-        validation_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         output = self.root / validation_id
         output.mkdir(parents=True, exist_ok=False)
         frame.to_csv(output / "results.csv", index=False, encoding="utf-8-sig")
@@ -175,6 +180,7 @@ class WalkForwardService:
                     "max_windows": request.max_windows,
                     "max_drawdown_limit": request.max_drawdown_limit,
                     "window_count": len(windows),
+                    "baseline_run_id": request.baseline_run_id,
                 },
                 ensure_ascii=False,
                 indent=2,

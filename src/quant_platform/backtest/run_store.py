@@ -36,6 +36,9 @@ class RunRecord:
     end_date: str
     error: str | None
     path: Path
+    run_kind: str = "single"
+    parent_experiment_id: str | None = None
+    baseline_run_id: str | None = None
 
 
 class BacktestRunStore:
@@ -63,6 +66,9 @@ class BacktestRunStore:
                 "strategy_id": str(strategy.get("id", "")),
                 "start_date": str(app.get("start_date", "")),
                 "end_date": str(app.get("end_date", "")),
+                "run_kind": str(app.get("run_kind", "single")),
+                "parent_experiment_id": app.get("parent_experiment_id"),
+                "baseline_run_id": app.get("baseline_run_id"),
                 "error": None,
             },
         )
@@ -177,17 +183,27 @@ class BacktestRunStore:
         lifecycle = directory / "run.json"
         if lifecycle.exists():
             raw = json.loads(lifecycle.read_text(encoding="utf-8"))
+            strategy_id = str(raw.get("strategy_id", ""))
             return RunRecord(
                 run_id=str(raw.get("run_id", directory.name)),
                 status=RunStatus(str(raw.get("status", RunStatus.FAILED.value))),
                 created_at=str(raw.get("created_at", "")),
                 updated_at=str(raw.get("updated_at", "")),
                 strategy_plugin=str(raw.get("strategy_plugin", "")),
-                strategy_id=str(raw.get("strategy_id", "")),
+                strategy_id=strategy_id,
                 start_date=str(raw.get("start_date", "")),
                 end_date=str(raw.get("end_date", "")),
                 error=(str(raw["error"]) if raw.get("error") else None),
                 path=directory,
+                run_kind=str(raw.get("run_kind") or _infer_run_kind(strategy_id)),
+                parent_experiment_id=(
+                    str(raw["parent_experiment_id"])
+                    if raw.get("parent_experiment_id")
+                    else None
+                ),
+                baseline_run_id=(
+                    str(raw["baseline_run_id"]) if raw.get("baseline_run_id") else None
+                ),
             )
         if not (directory / "summary.json").exists():
             return None
@@ -196,6 +212,9 @@ class BacktestRunStore:
         strategy_id = ""
         start_date = ""
         end_date = ""
+        run_kind = "single"
+        parent_experiment_id: str | None = None
+        baseline_run_id: str | None = None
         snapshot = directory / "config.snapshot.yaml"
         if snapshot.exists():
             config = yaml.safe_load(snapshot.read_text(encoding="utf-8")) or {}
@@ -205,6 +224,20 @@ class BacktestRunStore:
             strategy_id = str(strategy.get("id", ""))
             start_date = str(backtest.get("start_date", ""))
             end_date = str(backtest.get("end_date", ""))
+            run_kind = str(
+                backtest.get("run_kind")
+                or _infer_run_kind(strategy_id, str(backtest.get("evaluation_mode", "")))
+            )
+            parent_experiment_id = (
+                str(backtest["parent_experiment_id"])
+                if backtest.get("parent_experiment_id")
+                else None
+            )
+            baseline_run_id = (
+                str(backtest["baseline_run_id"])
+                if backtest.get("baseline_run_id")
+                else None
+            )
         return RunRecord(
             directory.name,
             RunStatus.SUCCESS,
@@ -216,6 +249,9 @@ class BacktestRunStore:
             end_date,
             None,
             directory,
+            run_kind,
+            parent_experiment_id,
+            baseline_run_id,
         )
 
     @staticmethod
@@ -231,3 +267,11 @@ class BacktestRunStore:
 
 def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _infer_run_kind(strategy_id: str, evaluation_mode: str = "") -> str:
+    if evaluation_mode == "out_of_sample" or ("_wf" in strategy_id and "_test" in strategy_id):
+        return "walk_forward_oos"
+    if "_opt_" in strategy_id or evaluation_mode == "training":
+        return "optimization"
+    return "single"

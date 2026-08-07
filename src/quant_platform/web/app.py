@@ -30,11 +30,16 @@ navigation = st.navigation(
         "研究与回测": [
             st.Page(
                 "home.py",
-                title="回测工作台",
+                title="单次回测与复盘",
                 icon="📈",
                 default=not needs_onboarding,
             ),
-            st.Page("pages/2_research.py", title="策略研究", icon="🧪"),
+            st.Page(
+                "pages/2_research.py",
+                title="参数优化与稳健性验证",
+                icon="🧪",
+            ),
+            st.Page("pages/6_run_library.py", title="回测记录库", icon="🗂️"),
         ],
         "数据与交易": [
             st.Page("pages/1_data_management.py", title="数据管理", icon="🗃️"),

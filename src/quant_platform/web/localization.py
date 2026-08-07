@@ -8,6 +8,10 @@ import pandas as pd
 
 COLUMN_LABELS: dict[str, str] = {
     "run_id": "运行编号",
+    "run_label": "回测名称",
+    "run_kind": "运行类型",
+    "parent_experiment_id": "所属实验",
+    "baseline_run_id": "基准回测",
     "version_id": "版本号",
     "dataset": "数据集",
     "source": "数据来源",
@@ -139,6 +143,11 @@ COLUMN_LABELS: dict[str, str] = {
 
 
 VALUE_LABELS: dict[str, dict[str, str]] = {
+    "run_kind": {
+        "single": "单次回测",
+        "optimization": "参数优化",
+        "walk_forward_oos": "样本外验证",
+    },
     "source": {
         "ifind": "iFinD",
         "akshare": "AkShare",

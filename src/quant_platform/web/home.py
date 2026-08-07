@@ -335,7 +335,8 @@ def _render_result(run_dir: Path) -> None:
         st.dataframe(localize_frame(fills.tail(200)), width="stretch", hide_index=True)
 
 
-st.title("AlphaQuant量化工作台")
+st.title("单次回测与复盘")
+st.caption("运行一组确定参数，并深入检查收益、风险、交易成本、持仓和订单。")
 
 config_path = st.sidebar.text_input("应用配置", "configs/app.yaml")
 try:
@@ -450,4 +451,10 @@ selected_id = st.selectbox(
 )
 selected_record = record_by_id[selected_id]
 st.caption(format_run_label(selected_record, strategy_names))
+actions = st.columns(2)
+if actions[0].button("用本次结果创建验证实验", type="primary"):
+    st.session_state["research_baseline_run_id"] = selected_id
+    st.switch_page("pages/2_research.py")
+if actions[1].button("打开回测记录库"):
+    st.switch_page("pages/6_run_library.py")
 _render_result(selected_record.path)
