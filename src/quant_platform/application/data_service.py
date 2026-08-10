@@ -15,7 +15,7 @@ from typing import Any
 import pandas as pd
 
 from quant_platform.core.config import load_yaml, require_mapping
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataCapabilityNotSupported, DataUnavailableError
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.coverage import DatasetCoverage, calculate_daily_coverage
@@ -155,8 +155,10 @@ class DataCenterService:
         self._load_local_environment()
         rows: list[dict[str, Any]] = []
         for index, source in enumerate(self._market_sources()):
+            provider_config = self.source_config.get("providers", {}).get(source, {})
+            display_name = str(provider_config.get("display_name", source))
             if source == "ifind":
-                config = self.source_config.get("providers", {}).get("ifind", {})
+                config = provider_config
                 username_env = str(config.get("username_env", "IFIND_USERNAME"))
                 password_env = str(config.get("password_env", "IFIND_PASSWORD"))
                 credentials_ready = bool(os.getenv(username_env) and os.getenv(password_env))
@@ -182,6 +184,7 @@ class DataCenterService:
             rows.append(
                 {
                     "provider": source,
+                    "display_name": display_name,
                     "role": "PRIMARY" if index == 0 else "FALLBACK",
                     "readiness": "READY" if ready else "NOT_READY",
                     "detail": detail,
@@ -193,14 +196,14 @@ class DataCenterService:
     def _add_provider_route_summary(manifests: pd.DataFrame) -> pd.DataFrame:
         result = manifests.copy()
 
-        def summarize(value: object) -> tuple[str, bool]:
+        def summarize(value: object) -> tuple[str, bool, str, bool | None]:
             try:
                 parameters = json.loads(str(value))
             except (json.JSONDecodeError, TypeError, ValueError):
-                return "", False
+                return "", False, "", None
             attempts = parameters.get("provider_attempts", [])
             if not isinstance(attempts, list):
-                return "", False
+                attempts = []
             labels: list[str] = []
             failed = False
             succeeded = False
@@ -212,15 +215,34 @@ class DataCenterService:
                 labels.append(f"{source}:{status}")
                 failed = failed or status == "failed"
                 succeeded = succeeded or status == "success"
-            return " -> ".join(labels), failed and succeeded
+            requested = parameters.get(
+                "requested_sources", parameters.get("configured_sources", [])
+            )
+            requested_route = (
+                " -> ".join(str(source) for source in requested)
+                if isinstance(requested, list)
+                else ""
+            )
+            fallback = parameters.get("fallback_enabled")
+            fallback_enabled = fallback if isinstance(fallback, bool) else None
+            return (
+                " -> ".join(labels),
+                failed and succeeded,
+                requested_route,
+                fallback_enabled,
+            )
 
         if "parameters_json" not in result.columns:
             result["provider_route"] = ""
             result["fallback_used"] = False
+            result["requested_route"] = ""
+            result["fallback_enabled"] = pd.NA
             return result
         summaries = result["parameters_json"].map(summarize)
         result["provider_route"] = summaries.map(lambda item: item[0])
         result["fallback_used"] = summaries.map(lambda item: item[1])
+        result["requested_route"] = summaries.map(lambda item: item[2])
+        result["fallback_enabled"] = summaries.map(lambda item: item[3])
         return result
 
     def update_security_master(self) -> DataUpdateResult:
@@ -243,20 +265,30 @@ class DataCenterService:
         start_date: date,
         end_date: date,
         symbols: list[str] | None = None,
+        *,
+        source_order: list[str] | None = None,
+        allow_fallback: bool | None = None,
     ) -> DataUpdateResult:
-        """Refresh stock bars using configured providers with automatic fallback."""
+        """Refresh stock bars using a validated per-update provider order."""
 
         selected = symbols or self.configured_symbols
+        sources = self._resolve_market_sources(source_order)
+        fallback_enabled = self._fallback_enabled(allow_fallback)
         parameters: dict[str, Any] = {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "symbols": selected,
-            "configured_sources": self._market_sources(),
+            "requested_sources": sources,
+            "fallback_enabled": fallback_enabled,
         }
         existing_master = self.repository.read_table("security_master")
         try:
             source, report, attempts = self._run_market_backfill(
-                selected, start_date, end_date
+                selected,
+                start_date,
+                end_date,
+                source_order=sources,
+                allow_fallback=fallback_enabled,
             )
             parameters["provider_attempts"] = attempts
             manifest = DataManifest.start("daily_bars", source, parameters)
@@ -275,10 +307,13 @@ class DataCenterService:
                 },
             )
             save_manifest(self.repository, completed)
-            return self._result(completed, f"行情更新完成（来源：{source}）")
+            return self._result(
+                completed,
+                f"行情更新完成（来源：{self._source_display_name(source)}）",
+            )
         except Exception as exc:
             failed = DataManifest.start(
-                "daily_bars", " -> ".join(self._market_sources()), parameters
+                "daily_bars", " -> ".join(sources), parameters
             ).fail(exc)
             save_manifest(self.repository, failed)
             raise
@@ -320,6 +355,8 @@ class DataCenterService:
         include_security_master: bool = True,
         include_market: bool = True,
         include_benchmark: bool = True,
+        market_source_order: list[str] | None = None,
+        allow_market_fallback: bool | None = None,
     ) -> list[DataUpdateResult]:
         """Run selected updates independently in a deterministic order."""
 
@@ -329,7 +366,13 @@ class DataCenterService:
         if include_market:
             results.append(
                 self._capture_failure(
-                    "daily_bars", lambda: self.update_market_data(start_date, end_date)
+                    "daily_bars",
+                    lambda: self.update_market_data(
+                        start_date,
+                        end_date,
+                        source_order=market_source_order,
+                        allow_fallback=allow_market_fallback,
+                    ),
                 )
             )
         if include_benchmark:
@@ -365,12 +408,15 @@ class DataCenterService:
         symbols: list[str],
         start_date: date,
         end_date: date,
+        *,
+        source_order: list[str] | None = None,
+        allow_fallback: bool | None = None,
     ) -> tuple[str, Any, list[dict[str, str]]]:
         attempts: list[dict[str, str]] = []
         failures: list[str] = []
-        quality = self.source_config.get("quality", {})
-        allow_fallback = bool(quality.get("allow_fallback_provider", True))
-        for source in self._market_sources():
+        sources = self._resolve_market_sources(source_order)
+        fallback_enabled = self._fallback_enabled(allow_fallback)
+        for source in sources:
             try:
                 if source == "ifind":
                     report = IFindRangeBackfill(
@@ -385,8 +431,9 @@ class DataCenterService:
                         client=self._akshare_client(),
                     ).backfill(symbols, start_date, end_date)
                 else:
-                    attempts.append({"source": source, "status": "unsupported"})
-                    continue
+                    raise DataCapabilityNotSupported(
+                        f"Market-data source {source} has no range-backfill adapter"
+                    )
                 attempts.append({"source": source, "status": "success"})
                 return source, report, attempts
             except Exception as exc:
@@ -394,7 +441,7 @@ class DataCenterService:
                 attempts.append({"source": source, "status": "failed", "error": message})
                 failures.append(f"{source}: {message}")
                 logger.warning("Market-data provider %s failed: %s", source, exc)
-                if not allow_fallback:
+                if not fallback_enabled:
                     raise
         raise DataUnavailableError(
             "All configured market-data sources failed; " + "; ".join(failures)
@@ -410,6 +457,33 @@ class DataCenterService:
             if bool(providers.get(str(name), {}).get("enabled", True))
         ]
         return enabled or ["akshare"]
+
+    def _source_display_name(self, source: str) -> str:
+        providers = self.source_config.get("providers", {})
+        config = providers.get(source, {}) if isinstance(providers, dict) else {}
+        return str(config.get("display_name", source)) if isinstance(config, dict) else source
+
+    def _resolve_market_sources(self, requested: list[str] | None) -> list[str]:
+        configured = self._market_sources()
+        if requested is None:
+            return configured
+        unique = list(dict.fromkeys(str(source).strip().lower() for source in requested))
+        unique = [source for source in unique if source]
+        if not unique:
+            raise ValueError("At least one market-data source must be selected")
+        unavailable = [source for source in unique if source not in configured]
+        if unavailable:
+            raise ValueError(
+                "Market-data sources are disabled or not routed for daily bars: "
+                + ", ".join(unavailable)
+            )
+        return unique
+
+    def _fallback_enabled(self, requested: bool | None) -> bool:
+        if requested is not None:
+            return requested
+        quality = self.source_config.get("quality", {})
+        return bool(quality.get("allow_fallback_provider", True))
 
     def _ifind_provider(self) -> IFindDataProvider:
         self._load_local_environment()

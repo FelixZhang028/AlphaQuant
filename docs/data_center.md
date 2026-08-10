@@ -42,4 +42,8 @@ streamlit run src/quant_platform/web/app.py
 默认行情更新只处理 `configs/universes/a_share_demo.yaml` 中的配置股票，
 不会自动下载全市场数千只股票的全部历史行情。
 
+数据管理页面允许为每次股票日线更新选择首选来源，并决定失败时是否自动回退。
+用户选择、实际成功来源和调用路径都会写入数据版本记录；证券主表与基准指数目前仍使用
+AkShare。
+
 iFinD 的安装、账号环境变量和复权口径见 `docs/ifind_data_source.md`。

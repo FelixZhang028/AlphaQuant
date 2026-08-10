@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -63,7 +64,10 @@ def test_data_center_updates_versions_and_reports_coverage(tmp_path: Path) -> No
     service = DataCenterService(app_path, client=FakeAkShareDataCenter())
 
     results = service.update_all(
-        pd.Timestamp("2024-01-02").date(), pd.Timestamp("2024-01-03").date()
+        pd.Timestamp("2024-01-02").date(),
+        pd.Timestamp("2024-01-03").date(),
+        market_source_order=["akshare"],
+        allow_market_fallback=False,
     )
     overview = service.overview()
 
@@ -78,6 +82,10 @@ def test_data_center_updates_versions_and_reports_coverage(tmp_path: Path) -> No
     assert overview.market.unknown_status_rows == 2
     assert overview.benchmark.coverage_ratio == 1.0
     assert len(overview.manifests) == 3
+    market_manifest = overview.manifests[overview.manifests["dataset"].eq("daily_bars")].iloc[0]
+    market_parameters = json.loads(market_manifest["parameters_json"])
+    assert market_parameters["requested_sources"] == ["akshare"]
+    assert market_parameters["fallback_enabled"] is False
     master = overview.security_master.set_index("symbol")
     assert master.loc["000001.SZ", "name"] == "平安银行"
     assert set(overview.benchmark_bars["symbol"]) == {"000300.SH"}

@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import yaml
 
 from quant_platform.application.data_service import DataCenterService
@@ -69,6 +70,32 @@ def test_data_center_falls_back_from_ifind_to_akshare(
     assert actual_report is report
     assert [attempt["status"] for attempt in attempts] == ["failed", "success"]
 
+    source, _, attempts = service._run_market_backfill(
+        ["000001.SZ"],
+        date(2024, 1, 2),
+        date(2024, 1, 3),
+        source_order=["akshare", "ifind"],
+        allow_fallback=True,
+    )
+    assert source == "akshare"
+    assert attempts == [{"source": "akshare", "status": "success"}]
+
+    with pytest.raises(ConnectionError, match="iFinD unavailable"):
+        service._run_market_backfill(
+            ["000001.SZ"],
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            source_order=["ifind", "akshare"],
+            allow_fallback=False,
+        )
+
+    assert service._resolve_market_sources(["akshare", "ifind", "akshare"]) == [
+        "akshare",
+        "ifind",
+    ]
+    with pytest.raises(ValueError, match="disabled or not routed"):
+        service._resolve_market_sources(["unknown"])
+
     status = service.market_source_status()
     assert list(status["provider"]) == ["ifind", "akshare"]
     assert list(status["role"]) == ["PRIMARY", "FALLBACK"]
@@ -80,6 +107,8 @@ def test_manifest_provider_attempts_become_a_readable_route() -> None:
             "parameters_json": [
                 json.dumps(
                     {
+                        "requested_sources": ["ifind", "akshare"],
+                        "fallback_enabled": True,
                         "provider_attempts": [
                             {"source": "ifind", "status": "failed"},
                             {"source": "akshare", "status": "success"},
@@ -94,3 +123,5 @@ def test_manifest_provider_attempts_become_a_readable_route() -> None:
 
     assert result.iloc[0]["provider_route"] == "ifind:failed -> akshare:success"
     assert bool(result.iloc[0]["fallback_used"])
+    assert result.iloc[0]["requested_route"] == "ifind -> akshare"
+    assert bool(result.iloc[0]["fallback_enabled"])

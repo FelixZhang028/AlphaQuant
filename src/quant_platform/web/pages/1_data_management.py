@@ -44,7 +44,11 @@ except Exception as exc:
     st.stop()
 
 market = overview.market
-provider_labels = {"ifind": "iFinD", "akshare": "AkShare"}
+source_status = service.market_source_status()
+provider_labels = {
+    str(row["provider"]): str(row["display_name"])
+    for _, row in source_status.iterrows()
+}
 last_market_source = "暂无"
 if not overview.manifests.empty:
     successful_market = overview.manifests[
@@ -63,7 +67,6 @@ columns[4].metric("未知状态记录", f"{market.unknown_status_rows:,}")
 columns[5].metric("最近行情来源", last_market_source)
 
 with st.expander("行情数据源", expanded=True):
-    source_status = service.market_source_status()
     if not source_status.empty:
         primary = source_status.iloc[0]
         primary_name = provider_labels.get(str(primary["provider"]), str(primary["provider"]))
@@ -88,8 +91,35 @@ with st.expander("更新数据", expanded=True):
             include_benchmark = st.checkbox(f"更新基准 {overview.benchmark_symbol}", value=True)
             st.info(
                 "行情更新默认只处理配置股票池，不会下载全市场历史行情。"
-                "iFinD 不可用时会自动尝试 AkShare；AkShare 代理失败时会自动尝试直连。"
+                "证券主表和基准指数目前仍固定使用 AkShare。"
             )
+        configured_sources = source_status["provider"].astype(str).tolist()
+        automatic_route = " → ".join(
+            provider_labels.get(source, source) for source in configured_sources
+        )
+        source_options = ["auto", *configured_sources]
+        source_choice = st.selectbox(
+            "股票日线行情来源",
+            source_options,
+            format_func=lambda source: (
+                f"自动推荐（{automatic_route}）"
+                if source == "auto"
+                else provider_labels.get(source, source)
+            ),
+            help="指定来源只影响本次股票日线更新，不修改全局默认配置。",
+        )
+        fallback_selected = st.checkbox(
+            "首选来源失败时自动尝试其他来源",
+            value=True,
+            help="关闭后，如果所选或默认首选来源失败，本次股票行情更新将直接失败。",
+        )
+        if source_choice != "auto":
+            selected_status = source_status[source_status["provider"].eq(source_choice)]
+            if not selected_status.empty and selected_status.iloc[0]["readiness"] != "READY":
+                st.warning(
+                    f"{provider_labels.get(source_choice, source_choice)} 当前未就绪。"
+                    "如保留自动回退，系统仍会尝试其他来源。"
+                )
         submitted = st.form_submit_button("开始更新", type="primary")
 
     if submitted:
@@ -98,6 +128,15 @@ with st.expander("更新数据", expanded=True):
         elif not any((include_security_master, include_market, include_benchmark)):
             st.warning("请至少选择一个数据集。")
         else:
+            market_source_order: list[str] | None = None
+            if source_choice != "auto":
+                market_source_order = [source_choice]
+                if fallback_selected:
+                    market_source_order.extend(
+                        source
+                        for source in configured_sources
+                        if source != source_choice
+                    )
             try:
                 with st.spinner("正在下载和校验数据……"):
                     results = service.update_all(
@@ -106,6 +145,8 @@ with st.expander("更新数据", expanded=True):
                         include_security_master=include_security_master,
                         include_market=include_market,
                         include_benchmark=include_benchmark,
+                        market_source_order=market_source_order,
+                        allow_market_fallback=fallback_selected,
                     )
                 st.session_state["last_data_update"] = [asdict(result) for result in results]
                 st.rerun()
@@ -265,6 +306,8 @@ with versions_tab:
                 "version_id",
                 "dataset",
                 "source",
+                "requested_route",
+                "fallback_enabled",
                 "provider_route",
                 "fallback_used",
                 "status",

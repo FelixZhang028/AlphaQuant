@@ -1,15 +1,18 @@
 providers:
   ifind:
+    display_name: iFinD
     enabled: true
     priority: 1
     username_env: IFIND_USERNAME
     password_env: IFIND_PASSWORD
     batch_size: 3
   tushare:
+    display_name: Tushare
     enabled: false
     priority: 2
     token_env: TUSHARE_TOKEN
   akshare:
+    display_name: AkShare
     enabled: true
     priority: 3
 
