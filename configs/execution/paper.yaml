@@ -5,5 +5,4 @@ execution:
   minimum_commission: 5.0
   stamp_tax_rate: 0.0005
   slippage_rate: 0.0005
-  unknown_status_policy: allow_trade
-
+  unknown_status_policy: reject_trade

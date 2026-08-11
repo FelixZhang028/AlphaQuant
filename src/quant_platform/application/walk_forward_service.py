@@ -139,6 +139,8 @@ class WalkForwardService:
                     baseline_run_id=request.baseline_run_id,
                 )
                 tested = self.backtests.run(test_request)
+                if not bool(tested.result.summary.get("metrics_reliable", False)):
+                    raise ValueError("样本外回测未通过当前可信度审计")
                 row.update(
                     {
                         "optimization_id": optimized.optimization_id,

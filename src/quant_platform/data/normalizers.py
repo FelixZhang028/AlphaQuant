@@ -159,10 +159,69 @@ def normalize_ifind_daily(frame: pd.DataFrame) -> pd.DataFrame:
     return result[CANONICAL_BAR_COLUMNS]
 
 
+def normalize_baostock_daily(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize BaoStock history while preserving its execution-status fields."""
+
+    _require_columns(
+        frame,
+        {
+            "date",
+            "code",
+            "open",
+            "high",
+            "low",
+            "close",
+            "preclose",
+            "volume",
+            "amount",
+            "tradestatus",
+            "isST",
+        },
+        "baostock.query_history_k_data_plus",
+    )
+    result = frame.rename(
+        columns={
+            "date": "trade_date",
+            "code": "symbol",
+            "open": "raw_open",
+            "high": "raw_high",
+            "low": "raw_low",
+            "close": "raw_close",
+            "preclose": "pre_close",
+        }
+    ).copy()
+    result["symbol"] = result["symbol"].astype(str).map(canonical_symbol)
+    result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce").dt.normalize()
+    for column in (
+        "raw_open",
+        "raw_high",
+        "raw_low",
+        "raw_close",
+        "pre_close",
+        "volume",
+        "amount",
+    ):
+        result[column] = pd.to_numeric(result[column], errors="coerce")
+    result["source"] = "baostock"
+    result["ingested_at"] = datetime.now(UTC)
+    status = result["tradestatus"].astype("string").str.strip()
+    st_status = result["isST"].astype("string").str.strip()
+    result["is_suspended"] = status.map({"0": True, "1": False}).astype("boolean")
+    result["is_st"] = st_status.map({"0": False, "1": True}).astype("boolean")
+    result["status_known"] = status.isin(["0", "1"]) & st_status.isin(["0", "1"])
+    return result[CANONICAL_BAR_COLUMNS + ["is_suspended", "is_st", "status_known"]]
+
+
 def canonical_symbol(code: str) -> str:
     """Convert a six-digit A-share code into ``000001.SZ`` style."""
 
-    clean = str(code).split(".")[0].lower().removeprefix("sh").removeprefix("sz").removeprefix("bj")
+    value = str(code).strip().lower()
+    parts = value.split(".")
+    if len(parts) == 2 and parts[0] in {"sh", "sz", "bj"}:
+        clean = parts[1]
+    else:
+        clean = parts[0]
+    clean = clean.removeprefix("sh").removeprefix("sz").removeprefix("bj")
     clean = clean.zfill(6)
     if clean.startswith(("4", "8", "9")):
         exchange = "BJ"

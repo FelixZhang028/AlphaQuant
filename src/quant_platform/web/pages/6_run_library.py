@@ -35,15 +35,39 @@ if not records:
     st.stop()
 
 catalog = run_catalog_frame(records, strategy_names)
+validity_summary: dict[str, dict[str, object]] = {}
+for record in records:
+    if record.status != RunStatus.SUCCESS:
+        continue
+    try:
+        summary = service.run_store.load_summary(record.run_id)
+    except Exception:
+        continue
+    validity_summary[record.run_id] = {
+        "validity_status": summary.get("validity_status", "INVALID"),
+        "metrics_reliable": bool(summary.get("metrics_reliable", False)),
+        "legacy_unverified": bool(summary.get("legacy_unverified", True)),
+    }
+catalog["validity_status"] = catalog["run_id"].map(
+    lambda run_id: validity_summary.get(str(run_id), {}).get("validity_status", "—")
+)
+catalog["metrics_reliable"] = catalog["run_id"].map(
+    lambda run_id: validity_summary.get(str(run_id), {}).get("metrics_reliable", False)
+)
+catalog["legacy_unverified"] = catalog["run_id"].map(
+    lambda run_id: validity_summary.get(str(run_id), {}).get("legacy_unverified", False)
+)
 successful_count = int(catalog["status"].eq(RunStatus.SUCCESS.value).sum())
 failed_count = int(catalog["status"].eq(RunStatus.FAILED.value).sum())
 single_count = int(catalog["run_kind"].eq("single").sum())
 experiment_count = len(catalog) - single_count
-metrics = st.columns(4)
+legacy_count = int(catalog["legacy_unverified"].eq(True).sum())
+metrics = st.columns(5)
 metrics[0].metric("全部记录", len(catalog))
 metrics[1].metric("成功", successful_count)
 metrics[2].metric("失败", failed_count)
-metrics[3].metric("实验子回测", experiment_count)
+metrics[3].metric("旧版未验证", legacy_count)
+metrics[4].metric("实验子回测", experiment_count)
 
 with st.expander("筛选记录", expanded=True):
     filter_columns = st.columns(4)
@@ -86,6 +110,9 @@ display_columns = [
     "run_label",
     "run_kind",
     "status",
+    "validity_status",
+    "metrics_reliable",
+    "legacy_unverified",
     "strategy",
     "start_date",
     "end_date",

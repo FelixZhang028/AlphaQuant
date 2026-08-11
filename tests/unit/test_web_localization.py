@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from quant_platform.web.localization import localize_frame, rebalance_label, status_label
+from quant_platform.web.localization import (
+    localize_frame,
+    localized_column_label,
+    rebalance_label,
+    status_label,
+)
 
 
 def test_localize_frame_translates_columns_and_enum_values() -> None:
@@ -49,3 +54,34 @@ def test_localize_frame_handles_already_renamed_columns_and_general_values() -> 
     assert result.iloc[0]["数据集"] == "股票日线行情"
     assert result.iloc[0]["frequency"] == "每周"
     assert result.iloc[0]["enabled"] == "是"
+
+
+def test_research_result_headers_are_fully_localized() -> None:
+    optimization_columns = [
+        "optimization_id",
+        "train_run_id",
+        "objective_value",
+        "risk_free_rate",
+        "best_day_return",
+        "max_drawdown_recovery_date",
+        "order_fill_rate",
+        "trade_win_rate",
+        "profit_factor",
+        "annualized_turnover",
+        "average_concentration_hhi",
+        "unknown_market_symbols",
+    ]
+    walk_forward_columns = [
+        "test_run_id",
+        "train_objective_value",
+        "test_cumulative_return",
+        "test_max_drawdown",
+        "test_total_transaction_cost",
+        "test_metrics_reliable",
+        "test_unknown_status_orders",
+    ]
+
+    for column in optimization_columns + walk_forward_columns:
+        label = localized_column_label(column)
+        assert label != column
+        assert "_" not in label

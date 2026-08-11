@@ -141,7 +141,10 @@ class OptimizationService:
             frame.get(request.objective, pd.Series(index=frame.index, dtype=float)),
             errors="coerce",
         )
-        eligible = frame["status"].eq("SUCCESS") & objective.notna()
+        reliable = frame.get(
+            "metrics_reliable", pd.Series(False, index=frame.index, dtype=bool)
+        ).eq(True)
+        eligible = frame["status"].eq("SUCCESS") & reliable & objective.notna()
         if request.max_drawdown_limit is not None:
             drawdown_source = (
                 frame["max_drawdown"]

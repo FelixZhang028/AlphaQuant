@@ -26,6 +26,7 @@ class _FakeBacktests:
                 "annual_return": short_window / 100.0,
                 "max_drawdown": -0.10,
                 "calmar": 1.0,
+                "metrics_reliable": True,
             }
         else:
             summary = {

@@ -83,7 +83,11 @@ COLUMN_LABELS: dict[str, str] = {
     "strategy": "策略",
     "strategy_id": "策略实例编号",
     "parameters": "策略参数",
+    "optimization_id": "参数优化编号",
+    "train_run_id": "训练期回测编号",
+    "test_run_id": "样本外回测编号",
     "objective_value": "优化指标值",
+    "train_objective_value": "训练期优化指标值",
     "eligible": "是否满足约束",
     "rank": "排名",
     "order_id": "委托编号",
@@ -125,17 +129,71 @@ COLUMN_LABELS: dict[str, str] = {
     "annual_return": "年化收益",
     "annual_volatility": "年化波动率",
     "downside_volatility": "下行波动率",
+    "risk_free_rate": "无风险利率",
+    "best_day_return": "最佳单日收益",
+    "worst_day_return": "最差单日收益",
+    "positive_day_ratio": "正收益交易日比例",
+    "positive_month_ratio": "正收益月份比例",
+    "return_observations": "收益率观测数",
     "sharpe": "夏普比率",
     "sortino": "索提诺比率",
     "calmar": "卡玛比率",
     "max_drawdown": "最大回撤",
+    "max_drawdown_start_date": "最大回撤开始日期",
+    "max_drawdown_trough_date": "最大回撤谷底日期",
+    "max_drawdown_recovery_date": "最大回撤恢复日期",
+    "max_drawdown_duration_trading_days": "最大回撤持续交易日",
     "total_transaction_cost": "总交易成本",
     "orders": "委托数",
     "fills": "成交数",
+    "filled_orders": "已成交委托数",
+    "rejected_orders": "已拒绝委托数",
+    "failed_orders": "失败委托数",
+    "order_fill_rate": "委托成交率",
+    "buy_fills": "买入成交数",
+    "sell_fills": "卖出成交数",
+    "closed_trades": "已平仓交易数",
+    "winning_trades": "盈利交易数",
+    "losing_trades": "亏损交易数",
+    "trade_win_rate": "交易胜率",
+    "average_trade_pnl": "平均每笔净盈亏",
+    "average_win": "平均盈利",
+    "average_loss": "平均亏损",
+    "payoff_ratio": "盈亏比",
+    "profit_factor": "利润因子",
+    "max_trade_profit": "单笔最大盈利",
+    "max_trade_loss": "单笔最大亏损",
+    "average_holding_days": "平均持仓天数",
+    "max_holding_days": "最长持仓天数",
+    "realized_gross_pnl": "已实现毛盈亏",
+    "realized_net_pnl": "已实现净盈亏",
+    "transaction_cost_to_initial_cash": "交易成本占初始资金比例",
+    "traded_notional": "累计成交金额",
+    "portfolio_turnover": "组合换手率",
+    "annualized_turnover": "年化换手率",
+    "average_position_count": "平均持仓数量",
+    "max_position_count": "最大持仓数量",
+    "average_exposure": "平均仓位",
+    "max_exposure": "最大仓位",
+    "average_cash_ratio": "平均现金比例",
+    "minimum_cash_ratio": "最低现金比例",
+    "time_in_market_ratio": "在场时间比例",
+    "max_single_position_weight": "最大单只股票权重",
+    "average_concentration_hhi": "平均持仓集中度",
+    "max_concentration_hhi": "最大持仓集中度",
+    "initial_cash": "初始资金",
+    "final_equity": "期末权益",
+    "risk_checks": "风控检查次数",
     "risk_rejections": "风控拒绝数",
     "risk_adjustments": "风控自动调整数",
     "validity_status": "结果可信度",
+    "metrics_reliable": "绩效指标可用",
+    "legacy_unverified": "旧版未验证",
+    "validity_audit_version": "审计版本",
     "evaluation_mode": "评价方式",
+    "unknown_market_rows": "未知市场状态记录数",
+    "unknown_market_symbols": "未知市场状态股票数",
+    "unknown_status_orders": "未知状态拒单数",
     "window": "滚动窗口",
     "train_start": "训练开始日期",
     "train_end": "训练结束日期",
@@ -216,6 +274,17 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
         "MISSING_PRICE": "价格缺失",
         "MISSING_ADJ_FACTOR": "复权因子缺失",
     },
+    "reject_reason": {
+        "MISSING_EXECUTION_BAR": "执行日缺少行情",
+        "SUSPENDED": "证券停牌",
+        "UNKNOWN_SUSPENSION_STATUS": "停牌状态未知",
+        "UNKNOWN_MARKET_STATUS": "交易状态未知",
+        "MARKET_DATA_NOT_TRADABLE": "行情数据不可用于成交",
+        "UNKNOWN_PRICE_LIMIT": "涨跌停价格未知",
+        "OPEN_AT_UPPER_LIMIT": "涨停开盘，买入被拒绝",
+        "OPEN_AT_LOWER_LIMIT": "跌停开盘，卖出被拒绝",
+        "INSUFFICIENT_CASH_OR_QUANTITY": "资金或可用数量不足",
+    },
     "list_status": {"L": "上市", "D": "退市", "P": "暂停上市"},
     "dataset": {
         "security_master": "证券主表",
@@ -270,7 +339,20 @@ def localize_frame(frame: pd.DataFrame) -> pd.DataFrame:
             result[column] = result[column].map({True: "是", False: "否"})
         else:
             result[column] = result[column].map(localize_value)
-    return result.rename(columns=COLUMN_LABELS)
+    labels = {column: localized_column_label(str(column)) for column in result.columns}
+    return result.rename(columns=labels)
+
+
+def localized_column_label(column: str) -> str:
+    """Return a Chinese display label, including walk-forward metric prefixes."""
+
+    if column in COLUMN_LABELS:
+        return COLUMN_LABELS[column]
+    if column.startswith("test_"):
+        base_label = COLUMN_LABELS.get(column.removeprefix("test_"))
+        if base_label is not None:
+            return f"样本外{base_label}"
+    return column
 
 
 def rebalance_label(value: str) -> str:

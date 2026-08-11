@@ -89,6 +89,8 @@ class PaperTradingService:
         self._write(running)
         try:
             completed = self.backtests.run(replace(request, end_date=end_date))
+            if not bool(completed.result.summary.get("metrics_reliable", False)):
+                raise ValueError("模拟账户结果未通过当前可信度审计")
             updated = replace(
                 running,
                 status="ACTIVE",

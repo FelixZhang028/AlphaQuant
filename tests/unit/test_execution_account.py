@@ -52,4 +52,35 @@ def test_limit_up_rejects_buy() -> None:
     orders, fills = NextOpenExecutionModel(ExecutionConfig()).execute([order], market, account)
 
     assert orders[0].status == OrderStatus.REJECTED
+    assert orders[0].reject_reason == "OPEN_AT_UPPER_LIMIT"
+    assert fills == []
+
+
+def test_unknown_market_status_is_rejected_by_default() -> None:
+    account = Account("test", 100_000)
+    order = Order.create(
+        "test", "000001.SZ", OrderSide.BUY, 1_000, date(2024, 1, 2), date(2024, 1, 3)
+    )
+    market = _market_row()
+    market.loc[0, "quality_status"] = "UNKNOWN_STATUS"
+
+    orders, fills = NextOpenExecutionModel(ExecutionConfig()).execute([order], market, account)
+
+    assert orders[0].status == OrderStatus.REJECTED
+    assert orders[0].reject_reason == "UNKNOWN_MARKET_STATUS"
+    assert fills == []
+
+
+def test_missing_price_limit_is_rejected_by_default() -> None:
+    account = Account("test", 100_000)
+    order = Order.create(
+        "test", "000001.SZ", OrderSide.BUY, 1_000, date(2024, 1, 2), date(2024, 1, 3)
+    )
+    market = _market_row()
+    market.loc[0, "up_limit"] = pd.NA
+
+    orders, fills = NextOpenExecutionModel(ExecutionConfig()).execute([order], market, account)
+
+    assert orders[0].status == OrderStatus.REJECTED
+    assert orders[0].reject_reason == "UNKNOWN_PRICE_LIMIT"
     assert fills == []

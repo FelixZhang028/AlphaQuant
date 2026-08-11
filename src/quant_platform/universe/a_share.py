@@ -41,13 +41,16 @@ class AShareUniverse(Universe):
             latest = group.iloc[-1]
             if pd.Timestamp(latest["trade_date"]) != cutoff:
                 continue
-            if str(latest.get("quality_status", "OK")) not in {"OK", "UNKNOWN_STATUS"}:
+            if str(latest.get("quality_status", "UNKNOWN_STATUS")) != "OK":
                 continue
-            if self.config.exclude_suspended and bool(latest.get("is_suspended", False)):
+            suspended = latest.get("is_suspended", pd.NA)
+            if self.config.exclude_suspended and (pd.isna(suspended) or bool(suspended)):
                 continue
-            if self.config.exclude_st and bool(latest.get("is_st", False)):
+            is_st = latest.get("is_st", pd.NA)
+            if self.config.exclude_st and (pd.isna(is_st) or bool(is_st)):
                 continue
-            if not bool(latest.get("is_listed", True)):
+            is_listed = latest.get("is_listed", pd.NA)
+            if pd.isna(is_listed) or not bool(is_listed):
                 continue
             average_amount = pd.to_numeric(group.tail(20)["amount"], errors="coerce").mean()
             if average_amount < self.config.minimum_average_amount:

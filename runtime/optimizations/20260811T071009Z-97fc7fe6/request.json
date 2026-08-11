@@ -1,0 +1,18 @@
+{
+  "optimization_id": "20260811T071009Z-97fc7fe6",
+  "objective": "sharpe",
+  "max_drawdown_limit": 0.3,
+  "parameter_grid": {
+    "short_window": [
+      20
+    ],
+    "long_window": [
+      60
+    ],
+    "minimum_average_amount": [
+      20000000.0
+    ]
+  },
+  "combination_count": 1,
+  "baseline_run_id": "a418f59c-fad6-4072-b7dc-3926d1469e37"
+}

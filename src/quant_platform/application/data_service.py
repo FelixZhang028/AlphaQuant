@@ -18,12 +18,14 @@ from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.core.exceptions import DataCapabilityNotSupported, DataUnavailableError
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
+from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.coverage import DatasetCoverage, calculate_daily_coverage
 from quant_platform.data.ifind_backfill import IFindRangeBackfill
 from quant_platform.data.network import (
     ProxyResilientAkShareClient,
     friendly_data_error,
 )
+from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
 from quant_platform.data.providers.ifind_provider import IFindDataProvider
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
@@ -80,6 +82,7 @@ class DataCenterService:
         app_config_path: str | Path = "configs/app.yaml",
         client: Any | None = None,
         ifind_client: Any | None = None,
+        baostock_client: Any | None = None,
     ) -> None:
         self.app_config_path = Path(app_config_path)
         self.app = load_yaml(self.app_config_path)
@@ -93,6 +96,7 @@ class DataCenterService:
         self.universe_config = load_yaml(universe_path)
         self.client = client
         self.ifind_client = ifind_client
+        self.baostock_client = baostock_client
         self.direct_fallback = bool(data_section.get("direct_fallback", True))
         source_config_path = data_section.get("source_config")
         self.source_config: dict[str, Any] = {}
@@ -157,7 +161,20 @@ class DataCenterService:
         for index, source in enumerate(self._market_sources()):
             provider_config = self.source_config.get("providers", {}).get(source, {})
             display_name = str(provider_config.get("display_name", source))
-            if source == "ifind":
+            if source == "baostock":
+                try:
+                    ready = (
+                        self.baostock_client is not None
+                        or importlib.util.find_spec("baostock") is not None
+                    )
+                except (ImportError, ValueError):
+                    ready = self.baostock_client is not None
+                detail = (
+                    "免费行情、停牌和历史 ST 状态来源"
+                    if ready
+                    else "未安装 BaoStock；更新时将自动回退"
+                )
+            elif source == "ifind":
                 config = provider_config
                 username_env = str(config.get("username_env", "IFIND_USERNAME"))
                 password_env = str(config.get("password_env", "IFIND_PASSWORD"))
@@ -418,7 +435,13 @@ class DataCenterService:
         fallback_enabled = self._fallback_enabled(allow_fallback)
         for source in sources:
             try:
-                if source == "ifind":
+                if source == "baostock":
+                    report = BaoStockRangeBackfill(
+                        self.raw_repository,
+                        self.repository,
+                        self._baostock_provider(),
+                    ).backfill(symbols, start_date, end_date)
+                elif source == "ifind":
                     report = IFindRangeBackfill(
                         self.raw_repository,
                         self.repository,
@@ -502,6 +525,9 @@ class DataCenterService:
             client=self.ifind_client,
             batch_size=int(config.get("batch_size", 3)),
         )
+
+    def _baostock_provider(self) -> BaoStockDataProvider:
+        return BaoStockDataProvider(client=self.baostock_client)
 
     def _load_local_environment(self) -> None:
         candidates = [

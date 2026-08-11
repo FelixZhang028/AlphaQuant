@@ -125,3 +125,67 @@ def test_manifest_provider_attempts_become_a_readable_route() -> None:
     assert bool(result.iloc[0]["fallback_used"])
     assert result.iloc[0]["requested_route"] == "ifind -> akshare"
     assert bool(result.iloc[0]["fallback_enabled"])
+
+
+def test_data_center_falls_back_when_baostock_is_unavailable(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    universe_path = tmp_path / "universe.yaml"
+    sources_path = tmp_path / "sources.yaml"
+    app_path = tmp_path / "app.yaml"
+    _write_yaml(universe_path, {"universe": {"symbols": ["000001.SZ"]}})
+    _write_yaml(
+        sources_path,
+        {
+            "providers": {
+                "baostock": {"enabled": True},
+                "akshare": {"enabled": True},
+            },
+            "routing": {"daily_bars": ["baostock", "akshare"]},
+            "quality": {"allow_fallback_provider": True},
+        },
+    )
+    _write_yaml(
+        app_path,
+        {
+            "app": {"runtime_dir": str(tmp_path / "runtime")},
+            "data": {
+                "repository": str(tmp_path / "market"),
+                "source_config": str(sources_path),
+            },
+            "universe": {"config": str(universe_path)},
+            "backtest": {"benchmark": "000300.SH"},
+        },
+    )
+    report = DataQualityReport(1, 0, 0, {}, {"UNKNOWN_STATUS": 1})
+
+    def fail_baostock(*args: object, **kwargs: object) -> DataQualityReport:
+        raise ConnectionError("BaoStock unavailable")
+
+    def pass_akshare(*args: object, **kwargs: object) -> DataQualityReport:
+        return report
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "quant_platform.application.data_service.BaoStockRangeBackfill.backfill",
+        fail_baostock,
+    )
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "quant_platform.application.data_service.AkShareRangeBackfill.backfill",
+        pass_akshare,
+    )
+    service = DataCenterService(
+        app_path, client=object(), baostock_client=object()
+    )
+
+    source, actual_report, attempts = service._run_market_backfill(
+        ["000001.SZ"], date(2024, 1, 2), date(2024, 1, 3)
+    )
+
+    assert source == "akshare"
+    assert actual_report is report
+    assert attempts[0]["source"] == "baostock"
+    assert attempts[0]["status"] == "failed"
+    assert attempts[1] == {"source": "akshare", "status": "success"}
+    status = service.market_source_status()
+    assert list(status["provider"]) == ["baostock", "akshare"]
+    assert list(status["readiness"]) == ["READY", "READY"]

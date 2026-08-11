@@ -10,14 +10,13 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
-import yaml
 
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.backtest.metrics import (
     calculate_drawdown_series,
     calculate_monthly_returns,
 )
-from quant_platform.backtest.validity import assess_backtest_validity
+from quant_platform.backtest.validity import load_persisted_validity
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.localization import localize_frame, rebalance_label
@@ -100,37 +99,10 @@ def _read_optional_frame(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path) if path.exists() else pd.DataFrame()
 
 
-def _load_validity(run_dir: Path, nav: pd.DataFrame) -> dict[str, Any]:
-    """Load a new report or audit a legacy result directly from its saved NAV."""
+def _load_validity(run_dir: Path) -> dict[str, Any]:
+    """Load a current report; old reports fail closed as unverified."""
 
-    report_path = run_dir / "validity_report.json"
-    if report_path.exists():
-        raw = json.loads(report_path.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
-    snapshot_path = run_dir / "config.snapshot.yaml"
-    try:
-        snapshot = yaml.safe_load(snapshot_path.read_text(encoding="utf-8")) or {}
-        backtest = snapshot.get("app", {}).get("backtest", {})
-        report = assess_backtest_validity(
-            nav,
-            start_date=pd.Timestamp(backtest["start_date"]).date(),
-            end_date=pd.Timestamp(backtest["end_date"]).date(),
-            evaluation_mode=str(backtest.get("evaluation_mode", "in_sample")),
-            fixed_universe=True,
-        )
-        return report.to_dict()
-    except Exception:
-        return {
-            "status": "WARNING",
-            "metrics_reliable": True,
-            "issues": [
-                {
-                    "code": "LEGACY_RESULT",
-                    "severity": "WARNING",
-                    "message": "这是旧版本结果，缺少完整的可信度报告。",
-                }
-            ],
-        }
+    return load_persisted_validity(run_dir)
 
 
 def _render_validity(report: dict[str, Any]) -> None:
@@ -156,6 +128,17 @@ def _render_validity(report: dict[str, Any]) -> None:
     maximum_gap = report.get("maximum_calendar_gap_days")
     if maximum_gap is not None:
         st.caption(f"净值日期最大间隔：{maximum_gap} 天。")
+    unknown_rows = int(report.get("unknown_market_rows", 0) or 0)
+    unknown_symbols = int(report.get("unknown_market_symbols", 0) or 0)
+    unknown_orders = int(report.get("unknown_status_orders", 0) or 0)
+    if unknown_rows:
+        st.caption(
+            f"交易状态未知：{unknown_rows:,} 行，涉及 {unknown_symbols:,} 只股票。"
+        )
+    if unknown_orders:
+        st.caption(f"因交易状态未知被拒绝的订单：{unknown_orders:,} 笔。")
+
+
 def _render_overview(summary: dict[str, Any], nav: pd.DataFrame) -> None:
     st.subheader("净值与回撤")
     chart = nav.copy()
@@ -300,7 +283,7 @@ def _render_result(run_dir: Path) -> None:
     orders = pd.read_parquet(run_dir / "orders.parquet")
     fills = pd.read_parquet(run_dir / "fills.parquet")
     trades = _read_optional_frame(run_dir / "closed_trades.parquet")
-    validity = _load_validity(run_dir, nav)
+    validity = _load_validity(run_dir)
     _render_validity(validity)
 
     _render_metric_grid(

@@ -8,7 +8,13 @@ import pandas as pd
 
 from quant_platform.accounts.account import Account
 from quant_platform.core.exceptions import AccountError
-from quant_platform.execution.models import Fill, Order, OrderSide, OrderStatus
+from quant_platform.execution.models import (
+    Fill,
+    Order,
+    OrderRejectReason,
+    OrderSide,
+    OrderStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -56,7 +62,10 @@ class NextOpenExecutionModel:
             quantity = self._executable_quantity(order, price, account)
             if quantity <= 0:
                 updated.append(
-                    order.with_status(OrderStatus.REJECTED, "insufficient cash or quantity")
+                    order.with_status(
+                        OrderStatus.REJECTED,
+                        OrderRejectReason.INSUFFICIENT_CASH_OR_QUANTITY.value,
+                    )
                 )
                 continue
             notional = quantity * price
@@ -84,26 +93,36 @@ class NextOpenExecutionModel:
 
     def _rejection_reason(self, order: Order, row: pd.Series | None) -> str | None:
         if row is None:
-            return "missing execution-day market data"
-        if bool(row.get("is_suspended", False)):
-            return "security suspended"
-        if self.config.reject_unknown_status and str(row.get("quality_status", "OK")) != "OK":
-            return f"market status is {row.get('quality_status')}"
+            return OrderRejectReason.MISSING_EXECUTION_BAR.value
+        suspended = row.get("is_suspended", pd.NA)
+        if pd.isna(suspended):
+            if self.config.reject_unknown_status:
+                return OrderRejectReason.UNKNOWN_SUSPENSION_STATUS.value
+        elif bool(suspended):
+            return OrderRejectReason.SUSPENDED.value
+        quality_status = row.get("quality_status", pd.NA)
+        if self.config.reject_unknown_status:
+            if pd.isna(quality_status) or str(quality_status) == "UNKNOWN_STATUS":
+                return OrderRejectReason.UNKNOWN_MARKET_STATUS.value
+            if str(quality_status) != "OK":
+                return OrderRejectReason.MARKET_DATA_NOT_TRADABLE.value
         raw_open = float(row["raw_open"])
         up_limit = row.get("up_limit")
         down_limit = row.get("down_limit")
+        if self.config.reject_unknown_status and (pd.isna(up_limit) or pd.isna(down_limit)):
+            return OrderRejectReason.UNKNOWN_PRICE_LIMIT.value
         if (
             order.side == OrderSide.BUY
             and pd.notna(up_limit)
             and raw_open >= float(up_limit) - 1e-9
         ):
-            return "opened at upper price limit"
+            return OrderRejectReason.OPEN_AT_UPPER_LIMIT.value
         if (
             order.side == OrderSide.SELL
             and pd.notna(down_limit)
             and raw_open <= float(down_limit) + 1e-9
         ):
-            return "opened at lower price limit"
+            return OrderRejectReason.OPEN_AT_LOWER_LIMIT.value
         return None
 
     def _executable_quantity(self, order: Order, price: float, account: Account) -> int:

@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import asdict, dataclass
 from datetime import date
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+CURRENT_AUDIT_VERSION = 2
+UNKNOWN_STATUS_REJECTION_REASONS = frozenset(
+    {
+        "UNKNOWN_MARKET_STATUS",
+        "UNKNOWN_SUSPENSION_STATUS",
+        "UNKNOWN_PRICE_LIMIT",
+    }
+)
 
 
 class ValidityStatus(StrEnum):
@@ -44,6 +55,12 @@ class BacktestValidityReport:
     issues: tuple[ValidityIssue, ...]
     observations: int
     maximum_calendar_gap_days: int
+    blocks_completion: bool
+    unknown_market_rows: int = 0
+    unknown_market_symbols: int = 0
+    unknown_status_orders: int = 0
+    audit_version: int = CURRENT_AUDIT_VERSION
+    legacy_unverified: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +71,12 @@ class BacktestValidityReport:
             ],
             "observations": self.observations,
             "maximum_calendar_gap_days": self.maximum_calendar_gap_days,
+            "blocks_completion": self.blocks_completion,
+            "unknown_market_rows": self.unknown_market_rows,
+            "unknown_market_symbols": self.unknown_market_symbols,
+            "unknown_status_orders": self.unknown_status_orders,
+            "audit_version": self.audit_version,
+            "legacy_unverified": self.legacy_unverified,
         }
 
 
@@ -63,6 +86,9 @@ def assess_backtest_validity(
     start_date: date,
     end_date: date,
     calendar: pd.DataFrame | None = None,
+    orders: pd.DataFrame | None = None,
+    unknown_market_rows: int = 0,
+    unknown_market_symbols: int = 0,
     evaluation_mode: str = "in_sample",
     fixed_universe: bool = True,
     maximum_allowed_gap_days: int = 20,
@@ -165,8 +191,33 @@ def assess_backtest_validity(
             )
         )
 
+    unknown_order_count = _unknown_status_order_count(orders)
+    if unknown_market_rows > 0:
+        issues.append(
+            ValidityIssue(
+                "UNKNOWN_MARKET_STATUS",
+                IssueSeverity.ERROR,
+                f"回测区间内有 {unknown_market_rows:,} 行行情缺少可验证的交易状态"
+                f"（涉及 {unknown_market_symbols:,} 只股票），绩效指标不可用于策略评价。",
+            )
+        )
+    if unknown_order_count > 0:
+        issues.append(
+            ValidityIssue(
+                "UNKNOWN_STATUS_ORDERS",
+                IssueSeverity.ERROR,
+                f"有 {unknown_order_count:,} 笔订单因交易状态未知被拒绝，"
+                "模拟组合已经受到数据缺口影响。",
+            )
+        )
+
     issues = _deduplicate_issues(issues)
     has_error = any(issue.severity == IssueSeverity.ERROR for issue in issues)
+    diagnostic_issue_codes = {"UNKNOWN_MARKET_STATUS", "UNKNOWN_STATUS_ORDERS"}
+    blocks_completion = any(
+        issue.severity == IssueSeverity.ERROR and issue.code not in diagnostic_issue_codes
+        for issue in issues
+    )
     status = (
         ValidityStatus.INVALID
         if has_error
@@ -180,7 +231,55 @@ def assess_backtest_validity(
         issues=tuple(issues),
         observations=len(nav_dates),
         maximum_calendar_gap_days=maximum_gap,
+        blocks_completion=blocks_completion,
+        unknown_market_rows=max(int(unknown_market_rows), 0),
+        unknown_market_symbols=max(int(unknown_market_symbols), 0),
+        unknown_status_orders=unknown_order_count,
     )
+
+
+def load_persisted_validity(run_dir: str | Path) -> dict[str, Any]:
+    """Load a current audit report or return a fail-closed legacy marker."""
+
+    report_path = Path(run_dir) / "validity_report.json"
+    try:
+        raw = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return legacy_unverified_report()
+    if not isinstance(raw, dict) or raw.get("audit_version") != CURRENT_AUDIT_VERSION:
+        return legacy_unverified_report()
+    return {str(key): value for key, value in raw.items()}
+
+
+def legacy_unverified_report() -> dict[str, Any]:
+    """Describe a result that predates the current execution-safety audit."""
+
+    return {
+        "status": ValidityStatus.INVALID.value,
+        "metrics_reliable": False,
+        "issues": [
+            {
+                "code": "LEGACY_UNVERIFIED",
+                "severity": IssueSeverity.ERROR.value,
+                "message": "该结果未经过当前版本的交易状态审计，只能用于历史排查。",
+            }
+        ],
+        "observations": 0,
+        "maximum_calendar_gap_days": 0,
+        "blocks_completion": False,
+        "unknown_market_rows": 0,
+        "unknown_market_symbols": 0,
+        "unknown_status_orders": 0,
+        "audit_version": 0,
+        "legacy_unverified": True,
+    }
+
+
+def _unknown_status_order_count(orders: pd.DataFrame | None) -> int:
+    if orders is None or orders.empty or "reject_reason" not in orders.columns:
+        return 0
+    reasons = orders["reject_reason"].astype("string")
+    return int(reasons.isin(UNKNOWN_STATUS_REJECTION_REASONS).sum())
 
 
 def _extract_dates(

@@ -29,6 +29,20 @@ class OrderStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class OrderRejectReason(StrEnum):
+    """Stable machine-readable reasons for rejecting simulated orders."""
+
+    MISSING_EXECUTION_BAR = "MISSING_EXECUTION_BAR"
+    SUSPENDED = "SUSPENDED"
+    UNKNOWN_SUSPENSION_STATUS = "UNKNOWN_SUSPENSION_STATUS"
+    UNKNOWN_MARKET_STATUS = "UNKNOWN_MARKET_STATUS"
+    MARKET_DATA_NOT_TRADABLE = "MARKET_DATA_NOT_TRADABLE"
+    UNKNOWN_PRICE_LIMIT = "UNKNOWN_PRICE_LIMIT"
+    OPEN_AT_UPPER_LIMIT = "OPEN_AT_UPPER_LIMIT"
+    OPEN_AT_LOWER_LIMIT = "OPEN_AT_LOWER_LIMIT"
+    INSUFFICIENT_CASH_OR_QUANTITY = "INSUFFICIENT_CASH_OR_QUANTITY"
+
+
 @dataclass(frozen=True)
 class Order:
     """Quantity order created after a signal for a later execution date."""

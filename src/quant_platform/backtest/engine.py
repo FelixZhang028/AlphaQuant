@@ -11,7 +11,7 @@ import pandas as pd
 from quant_platform.accounts.account import Account
 from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
-from quant_platform.backtest.validity import ValidityStatus, assess_backtest_validity
+from quant_platform.backtest.validity import assess_backtest_validity
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.execution.models import Fill, Order
@@ -234,26 +234,45 @@ class BacktestEngine:
             pending.setdefault(next_date, []).extend(orders)
 
         nav = pd.DataFrame(nav_rows)
-        validity = assess_backtest_validity(
-            nav,
-            start_date=start_date,
-            end_date=end_date,
-            calendar=calendar,
-            evaluation_mode=self.evaluation_mode,
-            fixed_universe=self.fixed_universe,
-        )
-        if validity.status == ValidityStatus.INVALID:
-            errors = "；".join(
-                issue.message for issue in validity.issues if issue.severity.value == "ERROR"
-            )
-            raise BacktestValidityError(errors or "回测有效性检查未通过")
-
         signals_frame = pd.DataFrame([signal.to_dict() for signal in all_signals])
         targets_frame = pd.DataFrame([asdict(target) for target in all_targets])
         orders_frame = pd.DataFrame([asdict(order) for order in all_orders])
         fills_frame = pd.DataFrame([asdict(fill) for fill in all_fills])
         positions_frame = pd.DataFrame(position_rows)
         risk_frame = pd.DataFrame(risk_rows, columns=RISK_EVENT_COLUMNS)
+        requested_bars = bars[
+            bars["trade_date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
+        ]
+        unknown_market = requested_bars[
+            requested_bars.get(
+                "quality_status",
+                pd.Series("UNKNOWN_STATUS", index=requested_bars.index, dtype="string"),
+            )
+            .astype("string")
+            .fillna("UNKNOWN_STATUS")
+            .ne("OK")
+        ]
+        validity = assess_backtest_validity(
+            nav,
+            start_date=start_date,
+            end_date=end_date,
+            calendar=calendar,
+            orders=orders_frame,
+            unknown_market_rows=len(unknown_market),
+            unknown_market_symbols=(
+                int(unknown_market["symbol"].nunique())
+                if "symbol" in unknown_market.columns
+                else 0
+            ),
+            evaluation_mode=self.evaluation_mode,
+            fixed_universe=self.fixed_universe,
+        )
+        if validity.blocks_completion:
+            errors = "；".join(
+                issue.message for issue in validity.issues if issue.severity.value == "ERROR"
+            )
+            raise BacktestValidityError(errors or "回测有效性检查未通过")
+
         analytics = analyze_backtest(
             nav,
             orders_frame,
@@ -278,6 +297,10 @@ class BacktestEngine:
                 "validity_status": validity.status.value,
                 "metrics_reliable": validity.metrics_reliable,
                 "evaluation_mode": self.evaluation_mode,
+                "validity_audit_version": validity.audit_version,
+                "unknown_market_rows": validity.unknown_market_rows,
+                "unknown_market_symbols": validity.unknown_market_symbols,
+                "unknown_status_orders": validity.unknown_status_orders,
             }
         )
         return BacktestResult(

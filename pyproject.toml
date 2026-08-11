@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "akshare",
+  "baostock>=0.9.3",
   "pandas>=2.0",
   "pyarrow",
   "PyYAML",
@@ -46,8 +47,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
   "quant_platform.data.akshare_backfill",
+  "quant_platform.data.baostock_backfill",
   "quant_platform.data.ifind_backfill",
   "quant_platform.data.providers.akshare_provider",
+  "quant_platform.data.providers.baostock_provider",
   "quant_platform.data.providers.ifind_provider",
   "quant_platform.data.providers.tushare_provider",
 ]

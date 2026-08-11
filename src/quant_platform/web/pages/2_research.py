@@ -98,6 +98,13 @@ except Exception as exc:
     st.error(f"无法读取基准回测：{exc}")
     st.stop()
 
+if not bool(baseline_summary.get("metrics_reliable", False)):
+    if bool(baseline_summary.get("legacy_unverified", False)):
+        st.error("该基准属于旧版未验证结果，不能用于参数优化或样本外验证。")
+    else:
+        st.error("该基准没有通过当前可信度审计，不能用于参数优化或样本外验证。")
+    st.stop()
+
 with st.container(border=True):
     st.subheader("基准回测摘要")
     st.caption(

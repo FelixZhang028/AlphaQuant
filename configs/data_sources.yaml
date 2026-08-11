@@ -1,30 +1,34 @@
 providers:
+  baostock:
+    display_name: BaoStock
+    enabled: true
+    priority: 1
   ifind:
     display_name: iFinD
     enabled: true
-    priority: 1
+    priority: 2
     username_env: IFIND_USERNAME
     password_env: IFIND_PASSWORD
     batch_size: 3
   tushare:
     display_name: Tushare
     enabled: false
-    priority: 2
+    priority: 3
     token_env: TUSHARE_TOKEN
   akshare:
     display_name: AkShare
     enabled: true
-    priority: 3
+    priority: 4
 
 routing:
   security_master: [akshare]
-  trade_calendar: [ifind, akshare]
-  daily_bars: [ifind, akshare]
-  adjustment_factors: [ifind]
+  trade_calendar: [baostock, ifind, akshare]
+  daily_bars: [baostock, ifind, akshare]
+  adjustment_factors: [baostock, ifind]
   price_limits: []
-  suspensions: [akshare]
+  suspensions: [baostock, akshare]
 
 quality:
-  unknown_status_policy: allow_trade
+  unknown_status_policy: reject_trade
   fail_on_missing_adjustment_factor: false
   allow_fallback_provider: true

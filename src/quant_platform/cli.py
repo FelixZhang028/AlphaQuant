@@ -10,14 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from quant_platform.application.backtest_service import BacktestService, parse_date
+from quant_platform.application.data_service import DataCenterService
 from quant_platform.backtest.engine import BacktestEngine
-from quant_platform.core.config import load_yaml, require_mapping
+from quant_platform.core.config import require_mapping
 from quant_platform.core.logging import configure_logging
-from quant_platform.data.akshare_backfill import AkShareRangeBackfill
-from quant_platform.data.repositories.parquet_repository import (
-    ParquetMarketDataRepository,
-)
-from quant_platform.data.repositories.raw_repository import RawDataRepository
 from quant_platform.sample_data import generate_sample_market_data
 
 
@@ -64,23 +60,13 @@ def command_backtest(args: argparse.Namespace) -> None:
 
 
 def command_data_backfill(args: argparse.Namespace) -> None:
-    """Backfill configured symbols from AkShare without a token."""
+    """Backfill configured symbols using the configured provider route."""
 
-    app = load_yaml(args.config)
-    data_config = require_mapping(app, "data")
-    repository = ParquetMarketDataRepository(data_config["repository"])
-    raw = RawDataRepository(Path(require_mapping(app, "app")["runtime_dir"]) / "raw")
-    universe_config = load_yaml(require_mapping(app, "universe")["config"])
-    symbols = [str(item) for item in require_mapping(universe_config, "universe")["symbols"]]
-    report = AkShareRangeBackfill(raw, repository).backfill(
-        symbols,
+    result = DataCenterService(args.config).update_market_data(
         parse_date(args.start_date),
         parse_date(args.end_date),
     )
-    print(
-        f"AkShare backfill complete: rows={report.rows} "
-        f"duplicates={report.duplicate_rows} status={report.status_counts}"
-    )
+    print(json.dumps(result.__dict__, ensure_ascii=False, indent=2, default=str))
 
 
 def command_strategies(args: argparse.Namespace) -> None:

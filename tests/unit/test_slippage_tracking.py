@@ -23,6 +23,8 @@ def test_next_open_fill_records_reference_price_and_slippage_cost() -> None:
             {
                 "symbol": "000001.SZ",
                 "raw_open": 10.0,
+                "up_limit": 11.0,
+                "down_limit": 9.0,
                 "is_suspended": False,
                 "quality_status": "OK",
             }

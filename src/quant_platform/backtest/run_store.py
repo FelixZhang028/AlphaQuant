@@ -12,6 +12,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from quant_platform.backtest.validity import load_persisted_validity
+
 
 class RunStatus(StrEnum):
     """Lifecycle states visible to every user interface."""
@@ -114,7 +116,17 @@ class BacktestRunStore:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError(f"Invalid summary for run {run_id}")
-        return {str(key): value for key, value in raw.items()}
+        summary = {str(key): value for key, value in raw.items()}
+        validity = load_persisted_validity(self.root / run_id)
+        summary.update(
+            {
+                "validity_status": validity["status"],
+                "metrics_reliable": validity["metrics_reliable"],
+                "legacy_unverified": validity.get("legacy_unverified", False),
+                "validity_audit_version": validity.get("audit_version", 0),
+            }
+        )
+        return summary
 
     def load_config(self, run_id: str) -> dict[str, Any]:
         """Load one run's immutable configuration snapshot."""
