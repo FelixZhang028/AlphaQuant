@@ -29,6 +29,11 @@ navigation = st.navigation(
         ],
         "研究与回测": [
             st.Page(
+                "pages/7_strategy_studio.py",
+                title="零代码策略工作台",
+                icon="🧩",
+            ),
+            st.Page(
                 "home.py",
                 title="单次回测与复盘",
                 icon="📈",

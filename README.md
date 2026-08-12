@@ -239,6 +239,8 @@ iFinD 日线行情
 
 ## 当前策略与回测规则
 
+新手可以从“零代码策略工作台”选择六种模板和保守、均衡、激进预设，或使用积木编辑器组合白名单指标，无需编写 Python。详细说明见 `docs/zero_code_strategy.md`。
+
 内置策略为 `a_share_momentum`，配置文件位于
 `configs/strategies/momentum.yaml`。主要逻辑：
 
