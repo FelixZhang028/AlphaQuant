@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from datetime import date
 
 from quant_platform.accounts.models import AccountSnapshot, Position
@@ -23,6 +22,7 @@ class Account:
         self.snapshots: list[AccountSnapshot] = []
         self.processed_fill_ids: set[str] = set()
         self.realized_pnl = 0.0
+        self._peak_equity = float(initial_cash)
 
     def start_day(self) -> None:
         """Release existing holdings for sale at the next trading day."""
@@ -36,9 +36,20 @@ class Account:
         if fill.fill_id in self.processed_fill_ids:
             raise AccountError(f"Fill already processed: {fill.fill_id}")
         cash = self.cash
-        positions = deepcopy(self.positions)
+        positions = self.positions.copy()
         realized_pnl = self.realized_pnl
-        position = positions.setdefault(fill.symbol, Position(symbol=fill.symbol))
+        existing = positions.get(fill.symbol)
+        position = (
+            Position(
+                symbol=fill.symbol,
+                quantity=existing.quantity,
+                available_quantity=existing.available_quantity,
+                average_cost=existing.average_cost,
+            )
+            if existing is not None
+            else Position(symbol=fill.symbol)
+        )
+        positions[fill.symbol] = position
         notional = fill.quantity * fill.price
         fees = fill.commission + fill.stamp_tax
 
@@ -77,8 +88,8 @@ class Account:
         equity = self.cash + market_value
         previous_equity = self.snapshots[-1].equity if self.snapshots else self.initial_cash
         daily_return = equity / previous_equity - 1.0 if previous_equity else 0.0
-        peak = max([snapshot.equity for snapshot in self.snapshots] + [self.initial_cash, equity])
-        drawdown = equity / peak - 1.0 if peak else 0.0
+        self._peak_equity = max(self._peak_equity, equity)
+        drawdown = equity / self._peak_equity - 1.0 if self._peak_equity else 0.0
         snapshot = AccountSnapshot(
             trade_date=trade_date,
             cash=self.cash,
