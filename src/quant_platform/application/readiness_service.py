@@ -138,7 +138,7 @@ class PlatformReadinessService:
         checks.append(
             ReadinessCheck(
                 "证券主表",
-                ReadinessStatus.READY if overview.security_count else ReadinessStatus.WARNING,
+                (ReadinessStatus.READY if overview.security_count else ReadinessStatus.WARNING),
                 (
                     f"已有 {overview.security_count:,} 只证券的名称和上市信息"
                     if overview.security_count
@@ -197,7 +197,7 @@ class PlatformReadinessService:
         checks.append(
             ReadinessCheck(
                 "数据质量",
-                ReadinessStatus.READY if quality_issues == 0 else ReadinessStatus.WARNING,
+                (ReadinessStatus.READY if quality_issues == 0 else ReadinessStatus.WARNING),
                 (
                     "未发现重复行情或关键价格缺失"
                     if quality_issues == 0
@@ -233,10 +233,9 @@ def platform_needs_onboarding(app_config_path: str | Path = "configs/app.yaml") 
         settings = universe_service.load()
         if not settings.symbols:
             return True
-        path = universe_service.repository.root / "daily_bars.parquet"
-        if not path.exists():
+        bars = universe_service.repository.read_table("daily_bars")
+        if bars.empty or not {"symbol", "trade_date"}.issubset(bars.columns):
             return True
-        bars = pd.read_parquet(path, columns=["symbol", "trade_date"])
         selected = bars[bars["symbol"].isin(settings.symbols)]
         required_rows = max(settings.minimum_history_days, 2)
         counts = selected.groupby("symbol", observed=True)["trade_date"].nunique()
