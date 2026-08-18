@@ -17,13 +17,13 @@ iFinD 不可用时自动回退 AkShare；证券主表与基准指数仍使用 Ak
 ## 查看状态
 
 ```powershell
-python -m quant_platform.data_cli --config configs/app.yaml status
+python -m quant_platform.cli --config configs/app.yaml status
 ```
 
 ## 更新数据
 
 ```powershell
-python -m quant_platform.data_cli --config configs/app.yaml update `
+python -m quant_platform.cli --config configs/app.yaml update `
   --start-date 20230101 --end-date 20241231
 ```
 
