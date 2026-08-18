@@ -94,10 +94,15 @@ class BacktestEngine:
         if bars.empty:
             raise ValueError("No daily bars available for backtest")
         bars["trade_date"] = pd.to_datetime(bars["trade_date"]).dt.normalize()
+        bars = bars.sort_values("trade_date").reset_index(drop=True)
         missing_fields = sorted(self.strategy.required_fields.difference(bars.columns))
         if missing_fields:
             raise ValueError(f"Market data does not satisfy strategy fields: {missing_fields}")
         rebalance_dates = self._rebalance_dates(dates)
+        bars_by_date: dict[date, pd.DataFrame] = {
+            timestamp.date(): group for timestamp, group in bars.groupby("trade_date", sort=False)
+        }
+        empty_day = bars.iloc[0:0].copy()
 
         account = Account(account_id=self.strategy.strategy_id, initial_cash=initial_cash)
         last_closing_prices: dict[str, float] = {}
@@ -113,18 +118,20 @@ class BacktestEngine:
 
         for index, trade_date in enumerate(dates):
             account.start_day()
-            day_rows = bars[bars["trade_date"] == pd.Timestamp(trade_date)]
+            day_rows = bars_by_date.get(trade_date, empty_day)
             executed_orders, fills = self.execution_model.execute(
                 pending.pop(trade_date, []), day_rows, account
             )
             all_orders.extend(executed_orders)
             all_fills.extend(fills)
 
-            closing_prices = {
-                str(row["symbol"]): float(row["raw_close"])
-                for _, row in day_rows.iterrows()
-                if pd.notna(row["raw_close"])
-            }
+            closing_prices: dict[str, float] = {}
+            if not day_rows.empty:
+                valid = day_rows[["symbol", "raw_close"]].dropna(subset=["raw_close"])
+                closing_prices = {
+                    str(symbol): float(price)
+                    for symbol, price in zip(valid["symbol"], valid["raw_close"], strict=True)
+                }
             last_closing_prices.update(closing_prices)
             snapshot = account.mark_to_market(trade_date, last_closing_prices)
             nav_rows.append(asdict(snapshot))
@@ -162,7 +169,8 @@ class BacktestEngine:
                     "target_count": len(daily_risk.targets),
                     "total_weight": sum(target.target_weight for target in daily_risk.targets),
                     "max_weight": max(
-                        (target.target_weight for target in daily_risk.targets), default=0.0
+                        (target.target_weight for target in daily_risk.targets),
+                        default=0.0,
                     ),
                     "current_total_weight": daily_risk.current_total_weight,
                     "current_max_weight": daily_risk.current_max_weight,
@@ -187,7 +195,7 @@ class BacktestEngine:
 
             if trade_date not in rebalance_dates or index + 1 >= len(dates):
                 continue
-            history = bars[bars["trade_date"] <= pd.Timestamp(trade_date)]
+            history = self._history_through(bars, trade_date)
             symbols = self.universe.select(trade_date, history)
             context = StrategyContext.create(
                 trade_date,
@@ -260,9 +268,7 @@ class BacktestEngine:
             orders=orders_frame,
             unknown_market_rows=len(unknown_market),
             unknown_market_symbols=(
-                int(unknown_market["symbol"].nunique())
-                if "symbol" in unknown_market.columns
-                else 0
+                int(unknown_market["symbol"].nunique()) if "symbol" in unknown_market.columns else 0
             ),
             evaluation_mode=self.evaluation_mode,
             fixed_universe=self.fixed_universe,
@@ -342,3 +348,10 @@ class BacktestEngine:
         frame["period"] = periods
         tails = frame.groupby("period", observed=True).tail(1)
         return {timestamp.date() for timestamp in tails["trade_date"]}
+
+    @staticmethod
+    def _history_through(bars: pd.DataFrame, trade_date: date) -> pd.DataFrame:
+        """Return all bars up to ``trade_date`` using an already-sorted frame."""
+
+        position = bars["trade_date"].searchsorted(pd.Timestamp(trade_date), side="right")
+        return bars.iloc[: int(position)]
