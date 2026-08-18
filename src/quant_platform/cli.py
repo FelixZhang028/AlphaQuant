@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +48,7 @@ def command_backtest(args: argparse.Namespace) -> None:
     request = service.default_request()
     request = replace(
         request,
-        start_date=parse_date(args.start_date) if args.start_date else request.start_date,
+        start_date=(parse_date(args.start_date) if args.start_date else request.start_date),
         end_date=parse_date(args.end_date) if args.end_date else request.end_date,
         initial_cash=(
             float(args.initial_cash) if args.initial_cash is not None else request.initial_cash
@@ -66,7 +66,35 @@ def command_data_backfill(args: argparse.Namespace) -> None:
         parse_date(args.start_date),
         parse_date(args.end_date),
     )
-    print(json.dumps(result.__dict__, ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2, default=str))
+
+
+def command_data_status(args: argparse.Namespace) -> None:
+    """Show local data coverage and version manifests."""
+
+    overview = DataCenterService(args.config).overview()
+    print(json.dumps(overview.to_dict(), ensure_ascii=False, indent=2, default=str))
+
+
+def command_data_update(args: argparse.Namespace) -> None:
+    """Update selected local data-center datasets."""
+
+    service = DataCenterService(args.config)
+    results = service.update_all(
+        parse_date(args.start_date),
+        parse_date(args.end_date),
+        include_security_master=not args.skip_security_master,
+        include_market=not args.skip_market,
+        include_benchmark=not args.skip_benchmark,
+    )
+    print(
+        json.dumps(
+            [asdict(result) for result in results],
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    )
 
 
 def command_strategies(args: argparse.Namespace) -> None:
@@ -107,6 +135,19 @@ def make_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--start-date", required=True)
     backfill.add_argument("--end-date", required=True)
     backfill.set_defaults(func=command_data_backfill)
+
+    status = subparsers.add_parser("status", help="show local data coverage and versions")
+    _add_config_argument(status)
+    status.set_defaults(func=command_data_status)
+
+    update = subparsers.add_parser("update", help="update selected local data-center datasets")
+    _add_config_argument(update)
+    update.add_argument("--start-date", required=True)
+    update.add_argument("--end-date", required=True)
+    update.add_argument("--skip-security-master", action="store_true")
+    update.add_argument("--skip-market", action="store_true")
+    update.add_argument("--skip-benchmark", action="store_true")
+    update.set_defaults(func=command_data_update)
 
     strategies = subparsers.add_parser(
         "strategies", help="list automatically discovered strategies"

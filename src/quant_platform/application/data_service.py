@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
-import json
 import logging
 import os
 from collections.abc import Callable
@@ -14,8 +12,13 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform.application.data_source_resolver import DataSourceResolver
+from quant_platform.application.manifest_summary import add_provider_route_summary
 from quant_platform.core.config import load_yaml, require_mapping
-from quant_platform.core.exceptions import DataCapabilityNotSupported, DataUnavailableError
+from quant_platform.core.exceptions import (
+    DataCapabilityNotSupported,
+    DataUnavailableError,
+)
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
@@ -25,8 +28,6 @@ from quant_platform.data.network import (
     ProxyResilientAkShareClient,
     friendly_data_error,
 )
-from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
-from quant_platform.data.providers.ifind_provider import IFindDataProvider
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -102,6 +103,12 @@ class DataCenterService:
         self.source_config: dict[str, Any] = {}
         if source_config_path and Path(str(source_config_path)).exists():
             self.source_config = load_yaml(source_config_path)
+        self.sources = DataSourceResolver(
+            self.app_config_path,
+            self.source_config,
+            ifind_client=self.ifind_client,
+            baostock_client=self.baostock_client,
+        )
         self._network_client: ProxyResilientAkShareClient | None = None
 
     @property
@@ -140,7 +147,7 @@ class DataCenterService:
         manifests = self.repository.read_table("data_manifests")
         if not manifests.empty:
             manifests = manifests.sort_values("completed_at", ascending=False).head(100)
-            manifests = self._add_provider_route_summary(manifests)
+            manifests = add_provider_route_summary(manifests)
         return DataCenterOverview(
             security_count=int(master["symbol"].nunique()) if not master.empty else 0,
             configured_symbol_count=len(self.configured_symbols),
@@ -149,26 +156,20 @@ class DataCenterService:
             benchmark=benchmark,
             per_symbol=per_symbol,
             manifests=manifests,
-            security_master=master.sort_values("symbol") if not master.empty else master,
+            security_master=(master.sort_values("symbol") if not master.empty else master),
             benchmark_bars=benchmark_bars,
         )
 
     def market_source_status(self) -> pd.DataFrame:
         """Return configuration readiness without contacting external providers."""
 
-        self._load_local_environment()
+        self.sources.load_local_environment()
         rows: list[dict[str, Any]] = []
-        for index, source in enumerate(self._market_sources()):
+        for index, source in enumerate(self.sources.market_sources()):
             provider_config = self.source_config.get("providers", {}).get(source, {})
             display_name = str(provider_config.get("display_name", source))
             if source == "baostock":
-                try:
-                    ready = (
-                        self.baostock_client is not None
-                        or importlib.util.find_spec("baostock") is not None
-                    )
-                except (ImportError, ValueError):
-                    ready = self.baostock_client is not None
+                ready = self.baostock_client is not None or self.sources.sdk_ready("baostock")
                 detail = (
                     "免费行情、停牌和历史 ST 状态来源"
                     if ready
@@ -179,10 +180,7 @@ class DataCenterService:
                 username_env = str(config.get("username_env", "IFIND_USERNAME"))
                 password_env = str(config.get("password_env", "IFIND_PASSWORD"))
                 credentials_ready = bool(os.getenv(username_env) and os.getenv(password_env))
-                try:
-                    sdk_ready = importlib.util.find_spec("iFinDPy") is not None
-                except (ImportError, ValueError):
-                    sdk_ready = False
+                sdk_ready = self.sources.sdk_ready("iFinDPy")
                 ready = credentials_ready and sdk_ready
                 if ready:
                     detail = "SDK 与账号已配置；更新时优先使用"
@@ -211,56 +209,9 @@ class DataCenterService:
 
     @staticmethod
     def _add_provider_route_summary(manifests: pd.DataFrame) -> pd.DataFrame:
-        result = manifests.copy()
+        """Backward-compatible wrapper around the extracted helper."""
 
-        def summarize(value: object) -> tuple[str, bool, str, bool | None]:
-            try:
-                parameters = json.loads(str(value))
-            except (json.JSONDecodeError, TypeError, ValueError):
-                return "", False, "", None
-            attempts = parameters.get("provider_attempts", [])
-            if not isinstance(attempts, list):
-                attempts = []
-            labels: list[str] = []
-            failed = False
-            succeeded = False
-            for attempt in attempts:
-                if not isinstance(attempt, dict):
-                    continue
-                source = str(attempt.get("source", ""))
-                status = str(attempt.get("status", ""))
-                labels.append(f"{source}:{status}")
-                failed = failed or status == "failed"
-                succeeded = succeeded or status == "success"
-            requested = parameters.get(
-                "requested_sources", parameters.get("configured_sources", [])
-            )
-            requested_route = (
-                " -> ".join(str(source) for source in requested)
-                if isinstance(requested, list)
-                else ""
-            )
-            fallback = parameters.get("fallback_enabled")
-            fallback_enabled = fallback if isinstance(fallback, bool) else None
-            return (
-                " -> ".join(labels),
-                failed and succeeded,
-                requested_route,
-                fallback_enabled,
-            )
-
-        if "parameters_json" not in result.columns:
-            result["provider_route"] = ""
-            result["fallback_used"] = False
-            result["requested_route"] = ""
-            result["fallback_enabled"] = pd.NA
-            return result
-        summaries = result["parameters_json"].map(summarize)
-        result["provider_route"] = summaries.map(lambda item: item[0])
-        result["fallback_used"] = summaries.map(lambda item: item[1])
-        result["requested_route"] = summaries.map(lambda item: item[2])
-        result["fallback_enabled"] = summaries.map(lambda item: item[3])
-        return result
+        return add_provider_route_summary(manifests)
 
     def update_security_master(self) -> DataUpdateResult:
         """Refresh and version the current full A-share security list."""
@@ -289,8 +240,8 @@ class DataCenterService:
         """Refresh stock bars using a validated per-update provider order."""
 
         selected = symbols or self.configured_symbols
-        sources = self._resolve_market_sources(source_order)
-        fallback_enabled = self._fallback_enabled(allow_fallback)
+        sources = self.sources.resolve_market_sources(source_order)
+        fallback_enabled = self.sources.fallback_enabled(allow_fallback)
         parameters: dict[str, Any] = {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -326,12 +277,10 @@ class DataCenterService:
             save_manifest(self.repository, completed)
             return self._result(
                 completed,
-                f"行情更新完成（来源：{self._source_display_name(source)}）",
+                f"行情更新完成（来源：{self.sources.source_display_name(source)}）",
             )
         except Exception as exc:
-            failed = DataManifest.start(
-                "daily_bars", " -> ".join(sources), parameters
-            ).fail(exc)
+            failed = DataManifest.start("daily_bars", " -> ".join(sources), parameters).fail(exc)
             save_manifest(self.repository, failed)
             raise
 
@@ -431,21 +380,21 @@ class DataCenterService:
     ) -> tuple[str, Any, list[dict[str, str]]]:
         attempts: list[dict[str, str]] = []
         failures: list[str] = []
-        sources = self._resolve_market_sources(source_order)
-        fallback_enabled = self._fallback_enabled(allow_fallback)
+        sources = self.sources.resolve_market_sources(source_order)
+        fallback_enabled = self.sources.fallback_enabled(allow_fallback)
         for source in sources:
             try:
                 if source == "baostock":
                     report = BaoStockRangeBackfill(
                         self.raw_repository,
                         self.repository,
-                        self._baostock_provider(),
+                        self.sources.baostock_provider(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "ifind":
                     report = IFindRangeBackfill(
                         self.raw_repository,
                         self.repository,
-                        self._ifind_provider(),
+                        self.sources.ifind_provider(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "akshare":
                     report = AkShareRangeBackfill(
@@ -470,84 +419,10 @@ class DataCenterService:
             "All configured market-data sources failed; " + "; ".join(failures)
         )
 
-    def _market_sources(self) -> list[str]:
-        routing = self.source_config.get("routing", {})
-        configured = routing.get("daily_bars", ["akshare"])
-        providers = self.source_config.get("providers", {})
-        enabled = [
-            str(name)
-            for name in configured
-            if bool(providers.get(str(name), {}).get("enabled", True))
-        ]
-        return enabled or ["akshare"]
-
-    def _source_display_name(self, source: str) -> str:
-        providers = self.source_config.get("providers", {})
-        config = providers.get(source, {}) if isinstance(providers, dict) else {}
-        return str(config.get("display_name", source)) if isinstance(config, dict) else source
-
     def _resolve_market_sources(self, requested: list[str] | None) -> list[str]:
-        configured = self._market_sources()
-        if requested is None:
-            return configured
-        unique = list(dict.fromkeys(str(source).strip().lower() for source in requested))
-        unique = [source for source in unique if source]
-        if not unique:
-            raise ValueError("At least one market-data source must be selected")
-        unavailable = [source for source in unique if source not in configured]
-        if unavailable:
-            raise ValueError(
-                "Market-data sources are disabled or not routed for daily bars: "
-                + ", ".join(unavailable)
-            )
-        return unique
+        """Backward-compatible wrapper around the extracted resolver."""
 
-    def _fallback_enabled(self, requested: bool | None) -> bool:
-        if requested is not None:
-            return requested
-        quality = self.source_config.get("quality", {})
-        return bool(quality.get("allow_fallback_provider", True))
-
-    def _ifind_provider(self) -> IFindDataProvider:
-        self._load_local_environment()
-        config = self.source_config.get("providers", {}).get("ifind", {})
-        username_env = str(config.get("username_env", "IFIND_USERNAME"))
-        password_env = str(config.get("password_env", "IFIND_PASSWORD"))
-        username = os.getenv(username_env)
-        password = os.getenv(password_env)
-        if self.ifind_client is None and (not username or not password):
-            raise DataUnavailableError(
-                f"iFinD credentials are not configured in {username_env}/{password_env}"
-            )
-        return IFindDataProvider(
-            username,
-            password,
-            client=self.ifind_client,
-            batch_size=int(config.get("batch_size", 3)),
-        )
-
-    def _baostock_provider(self) -> BaoStockDataProvider:
-        return BaoStockDataProvider(client=self.baostock_client)
-
-    def _load_local_environment(self) -> None:
-        candidates = [
-            Path.cwd() / ".env",
-            self.app_config_path.parent / ".env",
-            self.app_config_path.parent.parent / ".env",
-        ]
-        for path in dict.fromkeys(candidates):
-            if not path.is_file():
-                continue
-            for raw_line in path.read_text(encoding="utf-8").splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key:
-                    os.environ.setdefault(key, value)
-            return
+        return self.sources.resolve_market_sources(requested)
 
     def _capture_failure(
         self,

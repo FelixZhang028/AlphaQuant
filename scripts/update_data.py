@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from quant_platform.data_cli import main  # noqa: E402
+from quant_platform.cli import main  # noqa: E402
 
 
 def _command_arguments(arguments: list[str]) -> list[str]:
