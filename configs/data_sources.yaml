@@ -5,7 +5,7 @@ providers:
     priority: 1
   ifind:
     display_name: iFinD
-    enabled: true
+    enabled: false
     priority: 2
     username_env: IFIND_USERNAME
     password_env: IFIND_PASSWORD
@@ -19,12 +19,21 @@ providers:
     display_name: AkShare
     enabled: true
     priority: 4
+  pytdx:
+    display_name: PyTDX
+    enabled: true
+    priority: 5
+    timeout: 3
+    retries: 1
+    max_servers: 8
+    max_pages: 20
+    servers: []
 
 routing:
   security_master: [akshare]
-  trade_calendar: [baostock, ifind, akshare]
-  daily_bars: [baostock, ifind, akshare]
-  adjustment_factors: [baostock, ifind]
+  trade_calendar: [baostock, akshare]
+  daily_bars: [baostock, akshare, pytdx]
+  adjustment_factors: [baostock]
   price_limits: []
   suspensions: [baostock, akshare]
 

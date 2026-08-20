@@ -189,3 +189,56 @@ def test_data_center_falls_back_when_baostock_is_unavailable(
     status = service.market_source_status()
     assert list(status["provider"]) == ["baostock", "akshare"]
     assert list(status["readiness"]) == ["READY", "READY"]
+
+
+def test_data_center_can_route_to_pytdx(tmp_path: Path, monkeypatch: object) -> None:
+    universe_path = tmp_path / "universe.yaml"
+    sources_path = tmp_path / "sources.yaml"
+    app_path = tmp_path / "app.yaml"
+    _write_yaml(universe_path, {"universe": {"symbols": ["000001.SZ"]}})
+    _write_yaml(
+        sources_path,
+        {
+            "providers": {"pytdx": {"enabled": True, "servers": ["mock:7709"]}},
+            "routing": {"daily_bars": ["pytdx"]},
+        },
+    )
+    _write_yaml(
+        app_path,
+        {
+            "app": {"runtime_dir": str(tmp_path / "runtime")},
+            "data": {
+                "repository": str(tmp_path / "market"),
+                "source_config": str(sources_path),
+            },
+            "universe": {"config": str(universe_path)},
+            "backtest": {"benchmark": "000300.SH"},
+        },
+    )
+    report = DataQualityReport(1, 0, 0, {}, {"MISSING_ADJ_FACTOR": 1})
+
+    def pass_pytdx(self: object, *args: object, **kwargs: object) -> DataQualityReport:
+        self.metadata = {"server": "mock:7709", "inserted_rows": 1}  # type: ignore[attr-defined]
+        return report
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "quant_platform.application.data_service.PyTdxRangeBackfill.backfill", pass_pytdx
+    )
+    service = DataCenterService(app_path, pytdx_client_factory=lambda: object())
+
+    source, actual_report, attempts = service._run_market_backfill(
+        ["000001.SZ"], date(2024, 1, 2), date(2024, 1, 3)
+    )
+
+    assert source == "pytdx"
+    assert actual_report is report
+    assert attempts == [
+        {
+            "source": "pytdx",
+            "status": "success",
+            "server": "mock:7709",
+            "inserted_rows": "1",
+        }
+    ]
+    status = service.market_source_status()
+    assert status.iloc[0]["readiness"] == "READY"

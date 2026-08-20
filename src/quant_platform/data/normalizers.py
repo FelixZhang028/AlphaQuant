@@ -212,6 +212,49 @@ def normalize_baostock_daily(frame: pd.DataFrame) -> pd.DataFrame:
     return result[CANONICAL_BAR_COLUMNS + ["is_suspended", "is_st", "status_known"]]
 
 
+def normalize_pytdx_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Normalize PyTDX unadjusted daily bars; stock volume becomes shares."""
+
+    aliases = {
+        "datetime": "trade_date",
+        "date": "trade_date",
+        "open": "raw_open",
+        "high": "raw_high",
+        "low": "raw_low",
+        "close": "raw_close",
+        "vol": "volume",
+    }
+    result = frame.rename(columns=aliases).copy()
+    if "trade_date" not in result.columns and {"year", "month", "day"}.issubset(result.columns):
+        result["trade_date"] = pd.to_datetime(
+            result[["year", "month", "day"]], errors="coerce"
+        )
+    _require_columns(
+        result,
+        {
+            "trade_date",
+            "raw_open",
+            "raw_high",
+            "raw_low",
+            "raw_close",
+            "volume",
+            "amount",
+        },
+        "pytdx.get_security_bars",
+    )
+    result["symbol"] = canonical_symbol(symbol)
+    result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce").dt.normalize()
+    result = result.sort_values(["symbol", "trade_date"])
+    for column in ("raw_open", "raw_high", "raw_low", "raw_close", "volume", "amount"):
+        result[column] = pd.to_numeric(result[column], errors="coerce")
+    # TDX stock daily bars report volume in lots; canonical volume uses shares.
+    result["volume"] = result["volume"] * 100.0
+    result["pre_close"] = result.groupby("symbol", observed=True)["raw_close"].shift(1)
+    result["source"] = "pytdx"
+    result["ingested_at"] = datetime.now(UTC)
+    return result[CANONICAL_BAR_COLUMNS]
+
+
 def canonical_symbol(code: str) -> str:
     """Convert a six-digit A-share code into ``000001.SZ`` style."""
 
