@@ -79,16 +79,19 @@ if not records:
 
 record_by_id = {record.run_id: record for record in records}
 run_ids = list(record_by_id)
+
+# 清理失效的 session_state 值，避免 selectbox 因 key 对应无效值而异常
 preferred = st.session_state.get("research_baseline_run_id")
-baseline_index = run_ids.index(preferred) if preferred in run_ids else 0
+if preferred is not None and preferred not in run_ids:
+    del st.session_state["research_baseline_run_id"]
+
 baseline_id = st.selectbox(
     "基准回测",
     run_ids,
-    index=baseline_index,
     format_func=lambda run_id: format_run_label(record_by_id[run_id], strategy_names),
     help="实验会继承该回测的策略、资金、持仓数量、调仓频率和风险配置。",
+    key="research_baseline_run_id",
 )
-st.session_state["research_baseline_run_id"] = baseline_id
 
 try:
     baseline = service.request_from_run(baseline_id)

@@ -15,10 +15,14 @@ dependencies = [
   "pyarrow",
   "PyYAML",
   "streamlit",
+  "pydantic>=2.5",
+  "requests>=2.31",
+  "rich>=13.0",
 ]
 
 [project.optional-dependencies]
 tushare = ["tushare"]
+tdx = ["pytdx==1.72"]
 dev = ["pytest>=8", "ruff", "mypy", "pandas-stubs", "types-PyYAML"]
 
 [project.scripts]
@@ -49,9 +53,11 @@ module = [
   "quant_platform.data.akshare_backfill",
   "quant_platform.data.baostock_backfill",
   "quant_platform.data.ifind_backfill",
+  "quant_platform.data.pytdx_backfill",
   "quant_platform.data.providers.akshare_provider",
   "quant_platform.data.providers.baostock_provider",
   "quant_platform.data.providers.ifind_provider",
+  "quant_platform.data.providers.pytdx_provider",
   "quant_platform.data.providers.tushare_provider",
 ]
 warn_return_any = false

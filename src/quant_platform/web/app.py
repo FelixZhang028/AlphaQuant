@@ -50,6 +50,7 @@ navigation = st.navigation(
                 icon="🧪",
             ),
             st.Page("pages/6_run_library.py", title="回测记录库", icon="🗂️"),
+            st.Page("pages/8_agent_lab.py", title="智能体分析台", icon="🤖"),
         ],
         "数据与交易": [
             st.Page("pages/1_data_management.py", title="数据管理", icon="🗃️"),

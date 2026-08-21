@@ -47,6 +47,8 @@ Thumbs.db
 /runtime/runs/
 /runtime/state/
 /runtime/user_strategies/
+/runtime/agent_cache/
+/runtime/agent_runs/
 *.pt
 *.pth
 *.onnx

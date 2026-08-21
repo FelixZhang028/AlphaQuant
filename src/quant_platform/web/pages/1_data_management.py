@@ -58,13 +58,16 @@ if not overview.manifests.empty:
     if not successful_market.empty:
         source = str(successful_market.iloc[0]["source"])
         last_market_source = provider_labels.get(source, source)
-columns = st.columns(6)
-columns[0].metric("证券主表", f"{overview.security_count:,}")
-columns[1].metric("配置股票", overview.configured_symbol_count)
-columns[2].metric("行情覆盖率", f"{market.coverage_ratio:.2%}")
-columns[3].metric("行情记录", f"{market.rows:,}")
-columns[4].metric("未知状态记录", f"{market.unknown_status_rows:,}")
-columns[5].metric("最近行情来源", last_market_source)
+# ── 核心指标概览卡片 ──────────────────────────────────────────────
+with st.container(border=True):
+    st.caption("数据中心概览")
+    columns = st.columns(6)
+    columns[0].metric("证券主表", f"{overview.security_count:,}")
+    columns[1].metric("配置股票", overview.configured_symbol_count)
+    columns[2].metric("行情覆盖率", f"{market.coverage_ratio:.2%}")
+    columns[3].metric("行情记录", f"{market.rows:,}")
+    columns[4].metric("未知状态记录", f"{market.unknown_status_rows:,}")
+    columns[5].metric("最近行情来源", last_market_source)
 
 with st.expander("行情数据源", expanded=True):
     if not source_status.empty:

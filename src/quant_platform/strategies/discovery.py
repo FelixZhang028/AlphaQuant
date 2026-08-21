@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import pkgutil
 from importlib import import_module
 from typing import Any
@@ -10,6 +11,8 @@ from typing import Any
 from quant_platform.core.exceptions import PluginError
 from quant_platform.strategies.base import Strategy
 from quant_platform.strategies.spec import StrategyMetadata
+
+log = logging.getLogger(__name__)
 
 
 class StrategyCatalog:
@@ -28,7 +31,16 @@ class StrategyCatalog:
         for module_info in pkgutil.iter_modules(package_paths):
             if module_info.name.startswith("_"):
                 continue
-            module = import_module(f"{self.package_name}.{module_info.name}")
+            try:
+                module = import_module(f"{self.package_name}.{module_info.name}")
+            except Exception as exc:  # noqa: BLE001 - 单个模块导入失败不应中断整个发现流程
+                log.warning(
+                    "策略模块导入失败，已跳过: %s.%s: %s",
+                    self.package_name,
+                    module_info.name,
+                    exc,
+                )
+                continue
             for _, candidate in inspect.getmembers(module, inspect.isclass):
                 if (
                     candidate is Strategy
