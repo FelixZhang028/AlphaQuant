@@ -12,7 +12,7 @@
 
 ## 已完成
 
-- [x]
+- [x] 新增「自定义策略（Python）」进阶模式：BaseStrategy 基类（__init__ 签名自省生成自由参数表单）、register_strategy 装饰器（mmlab 风格注册）、用户策略加载器（受限命名空间执行与校验）、UserStrategyStore 持久化、StrategyCatalog/BacktestService 集成、Streamlit 页面（编写/上传/我的策略）、单元测试与文档；94 个测试通过。
 
 ---
 

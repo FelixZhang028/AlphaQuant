@@ -75,15 +75,20 @@ accounts = papers.list_accounts()
 if not accounts:
     st.stop()
 account_by_id = {account.account_id: account for account in accounts}
+
+# 清理失效的 session_state 值，避免 selectbox 因 key 对应无效值而异常
 preferred = st.session_state.get("paper_account_id")
+if preferred is not None and preferred not in account_by_id:
+    del st.session_state["paper_account_id"]
+
 selected_id = st.selectbox(
     "模拟账户",
     list(account_by_id),
-    index=(list(account_by_id).index(preferred) if preferred in account_by_id else 0),
     format_func=lambda account_id: (
         f"{account_by_id[account_id].display_name} | "
         f"{status_label(account_by_id[account_id].status)} | {account_id}"
     ),
+    key="paper_account_id",
 )
 account = account_by_id[selected_id]
 request = account.request
