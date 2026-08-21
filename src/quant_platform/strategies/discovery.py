@@ -76,3 +76,15 @@ class StrategyCatalog:
             raise PluginError(f"Unknown strategy plugin: {plugin_name}") from exc
         validated = strategy_class.metadata().validate_parameters(parameters)
         return strategy_class.from_parameters(strategy_id, validated)
+
+    def register_classes(self, classes: dict[str, type[Strategy]]) -> None:
+        """Register externally discovered strategies (e.g. user strategies).
+
+        Duplicate plugin names are rejected so user code cannot shadow or
+        override a built-in strategy.
+        """
+
+        for name, cls in classes.items():
+            if name in self._strategies:
+                raise PluginError(f"Strategy plugin already registered: {name}")
+            self._strategies[name] = cls

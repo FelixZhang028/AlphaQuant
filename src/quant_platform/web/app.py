@@ -34,6 +34,11 @@ navigation = st.navigation(
                 icon="🧩",
             ),
             st.Page(
+                "pages/8_custom_strategy.py",
+                title="自定义策略（Python）",
+                icon="🐍",
+            ),
+            st.Page(
                 "home.py",
                 title="单次回测与复盘",
                 icon="📈",

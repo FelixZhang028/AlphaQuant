@@ -13,6 +13,7 @@ from quant_platform.backtest.engine import BacktestEngine
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.run_store import BacktestRunStore
 from quant_platform.core.config import load_yaml, require_mapping
+from quant_platform.core.exceptions import PluginError
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -23,6 +24,8 @@ from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.discovery import StrategyCatalog
 from quant_platform.strategies.spec import StrategyMetadata
 from quant_platform.universe.a_share import AShareUniverse, AShareUniverseConfig
+from quant_platform.user_strategies.loader import UserStrategyLoader
+from quant_platform.user_strategies.store import UserStrategyStore
 
 
 def parse_date(value: date | str) -> date:
@@ -70,8 +73,13 @@ class BacktestService:
         strategy_catalog: StrategyCatalog | None = None,
     ) -> None:
         self.app_config_path = Path(app_config_path)
-        self.catalog = strategy_catalog or StrategyCatalog()
         self.configs = self._load_component_configs()
+        self.user_strategy_errors: tuple[tuple[str, str], ...] = ()
+        if strategy_catalog is not None:
+            self.catalog = strategy_catalog
+        else:
+            self.catalog = StrategyCatalog()
+            self.user_strategy_errors = self._load_user_strategies()
 
     @property
     def runs_root(self) -> Path:
@@ -90,6 +98,34 @@ class BacktestService:
         """List automatically discovered strategies."""
 
         return self.catalog.metadata()
+
+    @property
+    def user_strategy_root(self) -> Path:
+        """Return the directory where user-authored strategies are persisted."""
+
+        runtime_dir = require_mapping(self.configs["app"], "app").get("runtime_dir", "runtime")
+        return Path(str(runtime_dir)) / "user_strategies"
+
+    def _load_user_strategies(self) -> tuple[tuple[str, str], ...]:
+        """Load persisted user strategies into the catalog, reporting failures."""
+
+        store = UserStrategyStore(self.user_strategy_root)
+        loader = UserStrategyLoader()
+        errors: list[tuple[str, str]] = []
+        for record in store.list():
+            try:
+                code = record.read_code()
+            except OSError as exc:
+                errors.append((record.plugin_name, str(exc)))
+                continue
+            result = loader.load_source(code, label=record.plugin_name)
+            if result.strategies:
+                try:
+                    self.catalog.register_classes(result.strategies)
+                except PluginError as exc:
+                    errors.append((record.plugin_name, str(exc)))
+            errors.extend(result.errors)
+        return tuple(errors)
 
     def default_request(self) -> BacktestRequest:
         """Build UI/CLI defaults from the configured strategy and application."""

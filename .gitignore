@@ -46,6 +46,7 @@ Thumbs.db
 /runtime/sample_market/
 /runtime/runs/
 /runtime/state/
+/runtime/user_strategies/
 *.pt
 *.pth
 *.onnx

@@ -25,6 +25,7 @@
 - 保存原始快照、标准化 Parquet 数据、覆盖率报告和数据版本记录；
 - 从 `src/quant_platform/strategies` 自动发现策略；
 - 在网页中选择策略、修改参数并运行回测；
+- 在网页中编写或上传 Python 策略，继承 `BaseStrategy` 并注册后直接回测；
 - T 日收盘生成信号，T+1 开盘模拟成交；
 - 处理 A 股 100 股交易单位、佣金、最低佣金、印花税和固定滑点；
 - 单独记录参考开盘价、实际模拟成交价和滑点成本；
@@ -239,7 +240,9 @@ iFinD 日线行情
 
 ## 当前策略与回测规则
 
-新手可以从“零代码策略工作台”选择六种模板和保守、均衡、激进预设，或使用积木编辑器组合白名单指标，无需编写 Python。详细说明见 `docs/zero_code_strategy.md`。
+新手可以从"零代码策略工作台"选择六种模板和保守、均衡、激进预设，或使用积木编辑器组合白名单指标，无需编写 Python。详细说明见 `docs/zero_code_strategy.md`。
+
+有基础的用户可以在"自定义策略（Python）"页面编写或上传 `.py` 策略，继承 `BaseStrategy` 并注册后直接回测，参数由 `__init__` 签名自动生成表单。详细说明见 `docs/custom_strategy.md`。
 
 内置策略为 `a_share_momentum`，配置文件位于
 `configs/strategies/momentum.yaml`。主要逻辑：
@@ -298,7 +301,9 @@ iFinD 日线行情
 
 ## 新增自己的策略
 
-在 `src/quant_platform/strategies` 新建 `.py` 文件并实现 `Strategy`：
+推荐方式：在网页"自定义策略（Python）"中编写或上传策略，继承 `BaseStrategy` 并注册即可，无需改动源码。详细说明见 `docs/custom_strategy.md`。
+
+如需内置为平台插件，也可在 `src/quant_platform/strategies` 新建 `.py` 文件并实现 `Strategy`：
 
 ```python
 from typing import Any, ClassVar
@@ -391,9 +396,9 @@ python -m ruff check .
 python -m mypy src
 ```
 
-当前有 37 个自动化测试，覆盖配置、数据标准化、AkShare 网络回退、数据中心、
-策略发现、防未来数据访问、订单生命周期、滑点、FIFO完整交易、绩效指标、风控、
-运行状态、参数优化、模拟账户和完整回测流程。
+当前有 94 个自动化测试，覆盖配置、数据标准化、AkShare 网络回退、数据中心、
+策略发现、自定义策略加载与注册、防未来数据访问、订单生命周期、滑点、FIFO完整交易、
+绩效指标、风控、运行状态、参数优化、模拟账户和完整回测流程。
 
 ## 项目结构
 
