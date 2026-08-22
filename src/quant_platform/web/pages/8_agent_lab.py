@@ -1,4 +1,7 @@
-"""智能体分析台：对单只股票运行 LLM 多智能体研究流水线并展示中间产物。"""
+"""智能体分析台：对单只股票运行 LLM 多智能体研究流水线并展示中间产物。
+
+支持：选择数据来源（行情 + 新闻）、专家先验知识、分析后与 AI 对话交锋（人为介入）。
+"""
 
 from __future__ import annotations
 
@@ -7,24 +10,57 @@ import datetime as dt
 import streamlit as st
 
 from quant_platform.agents_bridge import AgentRunner
+from quant_platform.agents_bridge.llm_settings import (
+    DEFAULT_SETTINGS_PATH,
+    PROVIDER_CATALOG,
+    LLMSettingsStore,
+)
+from quant_platform.agents_bridge.prior_knowledge import PriorKnowledgeStore
+from quant_platform.agents_bridge.proxy_settings import (
+    DEFAULT_PROXY_ADDRESS,
+    ProxySettingsStore,
+)
+from quant_platform.agents_bridge.sources import NEWS_SOURCES, STOCK_SOURCES
+from quant_platform.application.universe_service import normalize_a_share_symbol
 from quant_platform.core.config import load_yaml, require_mapping
+from quant_platform.core.exceptions import ConfigurationError
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
+from quant_platform.web.agent_trace import LiveTrace, inject_trace_css, render_replay
+from trading_agents.data.names import CN_NAME_OVERRIDES
+from trading_agents.orchestrator.events import EventBus
 
-# provider → (显示图标, 说明)
-_LLM_PROVIDERS: dict[str, tuple[str, str]] = {
-    "mock": ("🧪", "mock 离线确定，零成本，结果可复现"),
-    "kimi": ("🌙", "Kimi 开放平台（Moonshot）"),
-    "openai": ("🅾️", "OpenAI GPT 系列"),
-    "deepseek": ("🔮", "DeepSeek"),
-    "qwen": ("🌀", "通义千问（阿里云）"),
-    "glm": ("📐", "智谱 GLM"),
-    "ollama": ("🖥️", "Ollama 本地模型"),
-    "custom": ("⚙️", "自定义 OpenAI 兼容端点"),
-}
+inject_trace_css()
+
 _STATUS_LABELS = {"approved": "批准", "rejected": "拒绝", "conditional": "有条件批准"}
 _ACTION_LABELS = {"buy": "买入", "sell": "卖出", "hold": "持有"}
+
+
+@st.cache_data(ttl=300)
+def _load_security_names(repository_path: str) -> dict[str, str]:
+    """从证券主数据 parquet 读 {symbol: name} 映射；读失败返回空表。"""
+    try:
+        table = ParquetMarketDataRepository(repository_path).read_table("security_master")
+    except Exception:  # noqa: BLE001 - 缺表/损坏时降级为无名称
+        return {}
+    if table is None or table.empty or "symbol" not in table.columns:
+        return {}
+    name_col = table["name"] if "name" in table.columns else ""
+    names: dict[str, str] = {}
+    for symbol, name in zip(table["symbol"], name_col, strict=False):
+        if symbol:
+            names[str(symbol)] = str(name) if name else ""
+    return names
+
+
+def _resolve_symbol_name(symbol: str, repository_path: str) -> str | None:
+    """按证券主数据 → CN_NAME_OVERRIDES 的顺序查名称；查不到返回 None。"""
+    names = _load_security_names(repository_path)
+    name = names.get(symbol) or names.get(symbol.split(".")[0])
+    if name:
+        return name
+    return CN_NAME_OVERRIDES.get(symbol.split(".")[0])
 
 
 def _enum_text(value: object) -> str:
@@ -32,9 +68,79 @@ def _enum_text(value: object) -> str:
     return str(getattr(value, "value", value))
 
 
+def _battle_context(state, decision) -> str:
+    """把分析结果压成一段供"与 AI 交锋"引用的上下文。"""
+    lines = [
+        f"标的: {decision.ticker}",
+        f"分析日期: {decision.trade_date}",
+        "最终决策: "
+        f"{_enum_text(decision.status)} / {_enum_text(decision.final_action)} / "
+        f"仓位 {float(decision.final_position_pct):.1%}",
+    ]
+    if decision.rationale_chain:
+        lines.append("理由链: " + "；".join(str(item) for item in decision.rationale_chain))
+    if decision.rejection_reason:
+        lines.append(f"拒绝原因: {decision.rejection_reason}")
+    if state is not None:
+        if state.reports:
+            for dimension, report in state.reports.items():
+                lines.append(f"[{dimension}] 评分{float(report.score):+.2f}：{report.summary}")
+        if state.debate is not None:
+            if state.debate.bull_summary:
+                lines.append(f"多方总结: {state.debate.bull_summary}")
+            if state.debate.bear_summary:
+                lines.append(f"空方总结: {state.debate.bear_summary}")
+        if state.proposal is not None and state.proposal.rationale:
+            lines.append(f"提案理由: {state.proposal.rationale}")
+    return "\n".join(lines)
+
+
+@st.dialog("配置 LLM API")
+def _config_dialog(provider: str) -> None:
+    """弹窗：配置 Base URL / API Key / 模型，仅保存到本地。"""
+    spec = PROVIDER_CATALOG[provider]
+    store = LLMSettingsStore()
+    saved = store.get(provider)
+
+    st.markdown("**API Key 仅保存在本地**，不会上传或提交到代码仓库。")
+    st.caption(f"配置文件：`{DEFAULT_SETTINGS_PATH}`（已加入 .gitignore）。")
+
+    base_url = st.text_input(
+        "Base URL",
+        value=saved["base_url"] or spec.default_base_url or "https://api.openai.com/v1",
+        help="OpenAI 兼容端点，通常以 /v1 结尾。",
+    )
+    api_key = st.text_input(
+        "API Key",
+        value=saved["api_key"],
+        type="password",
+        help=f"留空则回退到环境变量 {spec.env_key_name or '（无）'}。",
+    )
+    if spec.models:
+        models = list(spec.models)
+        current = saved["model"] or spec.default_model
+        model_index = models.index(current) if current in models else 0
+        model = st.selectbox("模型", models, index=model_index)
+    else:
+        model = st.text_input("模型名称", value=saved["model"] or spec.default_model)
+
+    if st.button("保存到本地", type="primary"):
+        store.save(
+            provider,
+            base_url=base_url.strip(),
+            api_key=api_key.strip(),
+            model=model.strip(),
+        )
+        st.session_state["llm_config_flash"] = f"{spec.display_name} 配置已保存到本地"
+        st.rerun()
+
+
 st.title("智能体分析台")
 st.caption("单票 LLM 多智能体研究：分析师团队 → 多空辩论 → 交易员提案 → 风控 → 组合经理审批。")
 st.info("本页面仅供研究，不构成投资建议；Trader 提案中的止损价不进入平台回测执行层。")
+
+if st.session_state.pop("llm_config_flash", None):
+    st.success("LLM 配置已保存到本地。")
 
 config_path = st.sidebar.text_input(
     "应用配置", "configs/app.yaml", key="agent_lab_config_path"
@@ -47,93 +153,235 @@ except Exception as exc:
     st.error(f"无法加载数据仓库配置：{exc}")
     st.stop()
 
+store = LLMSettingsStore()
+prior_store = PriorKnowledgeStore()
+proxy_store = ProxySettingsStore()
+proxy_settings = proxy_store.load()
+
+st.subheader("模型与 API 配置")
+provider = st.selectbox(
+    "LLM Provider",
+    list(PROVIDER_CATALOG),
+    format_func=lambda key: f"{key} — {PROVIDER_CATALOG[key].display_name}",
+    help="mock 离线确定、零成本；其余 Provider 需配置 API Key。",
+)
+spec = PROVIDER_CATALOG[provider]
+resolved = store.resolve(provider)
+key_status = (
+    "已配置"
+    if resolved["api_key"]
+    else ("无需" if not spec.requires_key else "未配置")
+)
+st.caption(
+    f"当前模型：{resolved['model'] or '—'} ｜ API Key：{key_status}"
+    + (f" ｜ Base URL：{resolved['base_url']}" if provider == "custom" else "")
+)
+if spec.requires_key:
+    if st.button(
+        f"配置 {spec.display_name}（Base URL / API Key / 模型）", key=f"cfg_{provider}"
+    ):
+        _config_dialog(provider)
+
+st.subheader("数据来源")
+stock_source = st.selectbox(
+    "股票行情来源",
+    list(STOCK_SOURCES),
+    format_func=lambda key: STOCK_SOURCES[key],
+    help="本地行情离线稳定；AkShare / 同花顺 / 东方财富 / yfinance 需联网。",
+)
+news_all = st.checkbox(
+    "全选所有新闻来源",
+    value=False,
+    help="全选会依次抓取多个新闻源，耗时明显增加。",
+)
+if news_all:
+    selected_news = tuple(NEWS_SOURCES)
+    st.warning("已全选所有新闻来源：抓取与清洗耗时将明显增加。")
+else:
+    selected_news = tuple(
+        st.multiselect(
+            "新闻来源（可多选）",
+            list(NEWS_SOURCES),
+            format_func=lambda key: NEWS_SOURCES[key],
+            help="新闻是增强输入；抓取失败自动降级为空，不影响行情分析。",
+        )
+    )
+    if len(selected_news) >= 2:
+        st.warning(f"已选择 {len(selected_news)} 个新闻来源，耗时将增加。")
+
+with st.expander("网络代理", expanded=False):
+    st.caption("海外数据源（yfinance/curl_cffi）不读系统代理，需显式指定。")
+    proxy_enabled = st.checkbox(
+        "请求海外数据源（yfinance）时启用代理",
+        value=bool(proxy_settings["enabled"]),
+    )
+    proxy_address = st.text_input(
+        "代理地址",
+        value=str(proxy_settings["address"]),
+        placeholder=DEFAULT_PROXY_ADDRESS,
+        help="本机 Clash 默认端口 7897/7890，按你的实际端口填写。",
+    )
+    if st.button("保存代理设置", key="save_proxy_settings"):
+        proxy_store.save(proxy_enabled, proxy_address or DEFAULT_PROXY_ADDRESS)
+        st.success("代理设置已保存到本地。")
+
+if stock_source == "yfinance" and proxy_enabled:
+    st.caption(f"本次将对 yfinance 启用代理：{proxy_address or DEFAULT_PROXY_ADDRESS}")
+else:
+    st.caption("代理设置对当前数据来源不生效（仅 yfinance 走代理）。")
+
+with st.expander("专家先验知识（可选）", expanded=False):
+    st.caption("把你的见解或网络观点作为先验知识加入，各方向 AI Agent 分析时会优先参考。")
+    with st.form("prior_knowledge_form"):
+        pk_content = st.text_area(
+            "先验知识内容",
+            height=80,
+            placeholder="例如：该股近期有大额解禁压力，行业政策有收紧迹象，需谨慎……",
+        )
+        pk_source = st.text_input("来源", placeholder="我的观点 / 网页链接 / 某分析师")
+        pk_add = st.form_submit_button("添加先验知识")
+    if pk_add:
+        try:
+            prior_store.add(pk_content, pk_source)
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+    entries = prior_store.list()
+    if entries:
+        for entry in entries:
+            columns = st.columns([8, 1])
+            columns[0].caption(f"【来源：{entry.source}】{entry.content}")
+            if columns[1].button("删除", key=f"del_pk_{entry.id}"):
+                prior_store.delete(entry.id)
+                st.rerun()
+        st.caption(f"共 {len(entries)} 条先验知识，将注入本次分析。")
+    else:
+        st.caption("暂无先验知识。")
+
+symbol_input = st.text_input("股票代码", "600519", key="agent_lab_symbol").strip()
+symbol = symbol_input
+if symbol_input:
+    try:
+        normalized = normalize_a_share_symbol(symbol_input)
+    except ConfigurationError:
+        st.caption(f"未按 A 股规则识别，将按原样使用：{symbol_input}")
+    else:
+        symbol = normalized
+        name = _resolve_symbol_name(normalized, repository_path)
+        if name:
+            st.caption(f"已识别：{normalized} ｜ {name}")
+        else:
+            st.caption(
+                f"已识别：{normalized} ｜ 名称未知"
+                "（可先在数据管理页更新证券主数据）"
+            )
+
 with st.form("agent_lab_form"):
     left, right = st.columns(2)
     with left:
-        symbol = st.text_input("股票代码", "600519.SH").strip()
         trade_date = st.date_input("分析日期", dt.date.today())
         lookback_days = st.number_input(
             "回看天数", min_value=20, max_value=250, value=60, step=10
         )
     with right:
-        llm_provider = st.selectbox(
-            "LLM Provider",
-            list(_LLM_PROVIDERS),
-            format_func=lambda p: f"{_LLM_PROVIDERS[p][0]} {p} — {_LLM_PROVIDERS[p][1]}",
-            help="mock 离线确定，其他 provider 需配置对应 API Key 环境变量。",
-        )
         debate_rounds = st.slider("辩论轮数", min_value=0, max_value=4, value=1)
         use_cache = st.checkbox(
-            "使用缓存", value=True, help="命中磁盘缓存时直接展示缓存决策，不重复调用 LLM。"
+            "使用缓存",
+            value=True,
+            help="命中磁盘缓存时直接展示缓存决策，不重复调用 LLM。取消勾选可实时查看完整分析过程。",
         )
-
-    # 自定义模型扩展输入
-    custom_base_url = ""
-    custom_model = ""
-    if llm_provider == "custom":
-        st.divider()
-        st.caption("自定义模型配置")
-        custom_left, custom_right = st.columns(2)
-        with custom_left:
-            custom_base_url = st.text_input(
-                "Base URL",
-                value="https://api.openai.com/v1",
-                help="OpenAI 兼容的聊天补全端点，需以 /v1 结尾。",
-            )
-        with custom_right:
-            custom_model = st.text_input(
-                "模型名称",
-                value="gpt-4o-mini",
-                help="该端点支持的模型名。",
-            )
-        st.info(
-            "自定义端点通过环境变量 `OPENAI_COMPAT_API_KEY` 读取 API Key；"
-            "如需使用其他环境变量名，请在 trading_agents/config.py 中修改。"
+        human_intervention = st.checkbox(
+            "人为介入（分析后与 AI 对话交锋）",
+            value=False,
+            help="勾选后，分析完成可与 AI 就结论对话，提出你的观点或质疑。",
         )
 
     submitted = st.form_submit_button("运行分析", type="primary")
 
-if not submitted:
-    st.stop()
-
-if not symbol:
-    st.error("请输入股票代码。")
-    st.stop()
-
-try:
-    history = repository.get_daily_bars(symbols=[symbol], end_date=trade_date)
-    history = history.sort_values("trade_date").tail(int(lookback_days)).reset_index(drop=True)
-except Exception as exc:
-    st.error(f"读取行情数据失败：{exc}")
-    st.stop()
-
-if history.empty:
-    st.error(f"{symbol} 在 {trade_date} 及之前没有可用行情数据，请先在数据管理页更新行情。")
-    st.stop()
-
-runner = AgentRunner(
-    llm_provider=llm_provider,
-    debate_rounds=int(debate_rounds),
-    use_cache=use_cache,
-    base_url=custom_base_url or None,
-    model=custom_model or None,
-)
-state = None
-try:
-    with st.spinner("正在运行多智能体流水线……"):
+if submitted:
+    if not symbol:
+        st.error("请输入股票代码。")
+        st.stop()
+    if spec.requires_key and not resolved["api_key"]:
+        st.error(
+            f"{spec.display_name} 未配置 API Key。请点击上方「配置 {spec.display_name}」"
+            "填写，或设置环境变量后重试。"
+        )
+        st.stop()
+    if provider == "custom" and not resolved["base_url"]:
+        st.error("自定义端点需要填写 Base URL。请点击上方「配置」按钮填写。")
+        st.stop()
+    try:
+        history = repository.get_daily_bars(symbols=[symbol], end_date=trade_date)
+        history = (
+            history.sort_values("trade_date").tail(int(lookback_days)).reset_index(drop=True)
+        )
+    except Exception as exc:
+        st.error(f"读取行情数据失败：{exc}")
+        st.stop()
+    if stock_source == "local" and history.empty:
+        st.error(f"{symbol} 在 {trade_date} 及之前没有可用行情数据，请先在数据管理页更新行情。")
+        st.stop()
+    runner = AgentRunner(
+        llm_provider=provider,
+        debate_rounds=int(debate_rounds),
+        use_cache=use_cache,
+        base_url=resolved["base_url"] or None,
+        model=resolved["model"] or None,
+        api_key=resolved["api_key"] or None,
+        prior_knowledge=prior_store.render(),
+        stock_source=stock_source,
+        news_sources=selected_news,
+        proxy_enabled=proxy_enabled,
+        proxy_address=proxy_address or DEFAULT_PROXY_ADDRESS,
+    )
+    state = None
+    trace_log: list = []
+    try:
         if use_cache:
-            # 优先查缓存；未命中时 decide() 内部会跑完整流水线并写缓存
-            decision = runner.decide(symbol, trade_date, history)
+            with st.spinner("正在读取缓存或运行流水线（勾选缓存时不展示过程）……"):
+                decision = runner.decide(symbol, trade_date, history)
         else:
-            state = runner.decide_full(symbol, trade_date, history)
+            st.subheader("分析过程")
+            trace = LiveTrace()
+            bus = EventBus()
+            bus.subscribe(trace.on_node)
+            state = runner.decide_full(
+                symbol, trade_date, history, event_bus=bus, reporter=trace.on_agent
+            )
             decision = state.decision
-except Exception as exc:
-    st.error(f"智能体分析运行失败：{exc}")
+            trace_log = trace.trace_log
+    except Exception as exc:
+        st.error(f"智能体分析运行失败：{exc}")
+        st.stop()
+    if decision is None:
+        st.error("流水线未产出决策。")
+        st.stop()
+    st.session_state["battle_history"] = []
+    st.session_state["agent_lab_run"] = {
+        "decision": decision,
+        "state": state,
+        "runner": runner,
+        "human_intervention": human_intervention,
+        "battle_context": _battle_context(state, decision),
+        "trace_log": trace_log,
+    }
+
+run = st.session_state.get("agent_lab_run")
+if run is None:
     st.stop()
 
-if decision is None:
-    st.error("流水线未产出决策。")
-    st.stop()
+decision = run["decision"]
+state = run["state"]
+runner = run["runner"]
+human_intervention = run["human_intervention"]
+battle_context = run["battle_context"]
+
+# rerun 后重绘分析过程（终态 stepper + 过程卡片）
+trace_log = run.get("trace_log") or []
+if trace_log:
+    with st.expander("分析过程回放", expanded=True):
+        render_replay(trace_log)
 
 # 顶部 PM 决策卡片
 st.subheader("组合经理决策")
@@ -157,81 +405,102 @@ if decision.rationale_chain:
 
 if state is None:
     st.caption('本次结果来自决策缓存，仅展示最终决策；取消勾选"使用缓存"可查看完整中间产物。')
-    st.stop()
+else:
+    # 分析师报告
+    if state.reports:
+        with st.expander("分析师报告", expanded=False):
+            for dimension, report in state.reports.items():
+                st.markdown(
+                    f"**{dimension}** ｜ 评分 {float(report.score):+.2f} ｜ "
+                    f"置信度 {float(report.confidence):.2f}"
+                )
+                st.write(report.summary)
+                for finding in report.key_findings:
+                    st.write(f"- {finding}")
+                if report.red_flags:
+                    st.write("风险提示：" + "；".join(str(flag) for flag in report.red_flags))
+                st.divider()
 
-# 分析师报告
-if state.reports:
-    with st.expander("分析师报告", expanded=False):
-        for dimension, report in state.reports.items():
-            st.markdown(
-                f"**{dimension}** ｜ 评分 {float(report.score):+.2f} ｜ "
-                f"置信度 {float(report.confidence):.2f}"
+    # 多空辩论
+    if state.debate is not None:
+        with st.expander("多空辩论全文", expanded=False):
+            for turn in state.debate.turns:
+                stance = "多方" if turn.stance == "bull" else "空方"
+                st.markdown(f"**第 {turn.round} 轮 · {stance}**")
+                st.write(turn.argument)
+                if turn.response_to_opponent:
+                    st.caption(f"回应对方：{turn.response_to_opponent}")
+            if state.debate.bull_summary:
+                st.write(f"多方总结：{state.debate.bull_summary}")
+            if state.debate.bear_summary:
+                st.write(f"空方总结：{state.debate.bear_summary}")
+
+    # Trader 提案
+    if state.proposal is not None:
+        proposal = state.proposal
+        with st.expander("Trader 提案", expanded=False):
+            st.metric(
+                "建议动作",
+                _ACTION_LABELS.get(_enum_text(proposal.action), _enum_text(proposal.action)),
             )
-            st.write(report.summary)
-            for finding in report.key_findings:
-                st.write(f"- {finding}")
-            if report.red_flags:
-                st.write("风险提示：" + "；".join(str(flag) for flag in report.red_flags))
-            st.divider()
+            columns = st.columns(4)
+            columns[0].metric("建议仓位", f"{float(proposal.position_pct):.1%}")
+            columns[1].metric("置信度", f"{float(proposal.confidence):.2f}")
+            columns[2].metric(
+                "止损价", f"{proposal.stop_loss:.2f}" if proposal.stop_loss is not None else "—"
+            )
+            columns[3].metric(
+                "目标价",
+                f"{proposal.target_price:.2f}" if proposal.target_price is not None else "—",
+            )
+            st.caption("止损价与目标价仅供研究参考，不进入平台回测执行层。")
+            st.write(f"持有周期：{proposal.holding_horizon}")
+            st.write(f"提案理由：{proposal.rationale}")
 
-# 多空辩论
-if state.debate is not None:
-    with st.expander("多空辩论全文", expanded=False):
-        for turn in state.debate.turns:
-            stance = "多方" if turn.stance == "bull" else "空方"
-            st.markdown(f"**第 {turn.round} 轮 · {stance}**")
-            st.write(turn.argument)
-            if turn.response_to_opponent:
-                st.caption(f"回应对方：{turn.response_to_opponent}")
-        if state.debate.bull_summary:
-            st.write(f"多方总结：{state.debate.bull_summary}")
-        if state.debate.bear_summary:
-            st.write(f"空方总结：{state.debate.bear_summary}")
+    # 风控评估
+    if state.risk is not None:
+        risk = state.risk
+        with st.expander("风控评估", expanded=False):
+            columns = st.columns(3)
+            columns[0].metric("是否否决", "是" if risk.veto else "否")
+            columns[1].metric("波动水平", risk.volatility_level)
+            columns[2].metric("估计最大回撤", f"{float(risk.max_drawdown_est):.1%}")
+            if risk.veto_reason:
+                st.warning(f"否决原因：{risk.veto_reason}")
+            if risk.conditions:
+                st.write("通过条件：" + "；".join(str(item) for item in risk.conditions))
+            if risk.commentary:
+                st.write(risk.commentary)
 
-# Trader 提案
-if state.proposal is not None:
-    proposal = state.proposal
-    with st.expander("Trader 提案", expanded=False):
-        st.metric(
-            "建议动作", _ACTION_LABELS.get(_enum_text(proposal.action), _enum_text(proposal.action))
-        )
-        columns = st.columns(4)
-        columns[0].metric("建议仓位", f"{float(proposal.position_pct):.1%}")
-        columns[1].metric("置信度", f"{float(proposal.confidence):.2f}")
-        columns[2].metric(
-            "止损价", f"{proposal.stop_loss:.2f}" if proposal.stop_loss is not None else "—"
-        )
-        columns[3].metric(
-            "目标价",
-            f"{proposal.target_price:.2f}" if proposal.target_price is not None else "—",
-        )
-        st.caption("止损价与目标价仅供研究参考，不进入平台回测执行层。")
-        st.write(f"持有周期：{proposal.holding_horizon}")
-        st.write(f"提案理由：{proposal.rationale}")
+    # 模拟成交（T+1 语义，仅供核对）
+    if state.fill is not None:
+        with st.expander("模拟成交", expanded=False):
+            st.write(
+                f"动作 {_enum_text(state.fill.action)}，数量 {state.fill.quantity:.0f} 股，"
+                f"成交价 {state.fill.price:.2f}（基准 {state.fill.reference_price:.2f}），"
+                f"费用 {state.fill.commission:.2f}，交收日 {state.fill.settlement_date}"
+            )
 
-# 风控评估
-if state.risk is not None:
-    risk = state.risk
-    with st.expander("风控评估", expanded=False):
-        columns = st.columns(3)
-        columns[0].metric("是否否决", "是" if risk.veto else "否")
-        columns[1].metric("波动水平", risk.volatility_level)
-        columns[2].metric("估计最大回撤", f"{float(risk.max_drawdown_est):.1%}")
-        if risk.veto_reason:
-            st.warning(f"否决原因：{risk.veto_reason}")
-        if risk.conditions:
-            st.write("通过条件：" + "；".join(str(item) for item in risk.conditions))
-        if risk.commentary:
-            st.write(risk.commentary)
+    if state.error:
+        st.warning(f"流水线记录了非致命错误：{state.error}")
 
-# 模拟成交（T+1 语义，仅供核对）
-if state.fill is not None:
-    with st.expander("模拟成交", expanded=False):
-        st.write(
-            f"动作 {_enum_text(state.fill.action)}，数量 {state.fill.quantity:.0f} 股，"
-            f"成交价 {state.fill.price:.2f}（基准 {state.fill.reference_price:.2f}），"
-            f"费用 {state.fill.commission:.2f}，交收日 {state.fill.settlement_date}"
-        )
-
-if state.error:
-    st.warning(f"流水线记录了非致命错误：{state.error}")
+# 人为介入：与 AI 对话交锋
+if human_intervention:
+    st.divider()
+    st.subheader("与 AI 对话交锋")
+    st.caption("提出你的观点或质疑，AI 会带着完整分析上下文回应；可来回交锋，也可选择相信 AI。")
+    if "battle_history" not in st.session_state:
+        st.session_state["battle_history"] = []
+    for role, text in st.session_state["battle_history"]:
+        with st.chat_message(role):
+            st.write(text)
+    user_message = st.chat_input("输入你的观点 / 质疑 AI 的结论……")
+    if user_message:
+        st.session_state["battle_history"].append(("user", user_message))
+        with st.spinner("AI 正在回应……"):
+            try:
+                reply = runner.battle(battle_context, user_message)
+            except Exception as exc:  # noqa: BLE001 - 交锋失败降级提示
+                reply = f"（AI 回应失败：{exc}）"
+        st.session_state["battle_history"].append(("assistant", reply))
+        st.rerun()
