@@ -38,6 +38,10 @@ class Trader(BaseAgent):
             f"ticker={snapshot.ticker.symbol}\n"
             f"trade_date={snapshot.as_of_date.isoformat()}\n"
             f"last_close={snapshot.last_close}\n"
+        )
+        if snapshot.prior_knowledge.strip():
+            content += f"\n专家先验知识（务必参考）:\n{snapshot.prior_knowledge}\n"
+        content += (
             f"分析报告:\n{reports_txt}\n\n辩论记录:\n{debate_txt}\n"
             f"多方总结: {debate.bull_summary}\n空方总结: {debate.bear_summary}\n"
         )

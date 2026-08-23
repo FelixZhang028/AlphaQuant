@@ -91,6 +91,7 @@ class PipelineContext:
     portfolio: Portfolio = field(default_factory=Portfolio)
     token_ledger: TokenLedger = field(default_factory=TokenLedger)
     agent_reporter: AgentReporter | None = None  # agent 级进度回调（TUI 用）
+    prior_knowledge: str = ""  # 专家先验知识，注入各 Agent
 
 
 # ------------------------------------------------------------ 节点实现 ----
@@ -119,6 +120,7 @@ def _node_fetch_data(state: PipelineState, ctx: PipelineContext) -> None:
         else:
             raise
     state.snapshot = validate_snapshot(snapshot, state.trade_date)  # 防未来函数
+    state.snapshot.prior_knowledge = ctx.prior_knowledge
     _backfill_outcomes(state, ctx)
 
 
