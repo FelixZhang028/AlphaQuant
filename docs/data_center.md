@@ -1,7 +1,8 @@
 # 数据中心第一版
 
-数据中心使用 iFinD、AkShare 和本地 Parquet。股票池日线优先从 iFinD 获取，
-iFinD 不可用时自动回退 AkShare；证券主表与基准指数仍使用 AkShare。数据中心提供三个独立数据集：
+数据中心使用 BaoStock、AkShare、PyTDX 和本地 Parquet。股票池历史日线优先从
+BaoStock 获取，失败时依次回退 AkShare 和 PyTDX。PyTDX 只补充本地缺失记录，
+不会覆盖已有行情；证券主表与基准指数仍使用 AkShare。数据中心提供三个独立数据集：
 
 - `security_master`：当前沪深京A股证券列表；
 - `daily_bars`：配置股票池的未复权及前复权日线；

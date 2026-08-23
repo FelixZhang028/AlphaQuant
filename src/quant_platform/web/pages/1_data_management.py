@@ -33,7 +33,7 @@ def _download_csv(
 
 
 st.title("数据管理")
-st.caption("按 iFinD → AkShare 的优先顺序更新行情，检查覆盖率并记录数据版本。")
+st.caption("按配置的数据源顺序更新行情，检查覆盖率并记录数据版本。")
 
 config_path = st.sidebar.text_input("数据管理配置", "configs/app.yaml", key="data_config_path")
 try:

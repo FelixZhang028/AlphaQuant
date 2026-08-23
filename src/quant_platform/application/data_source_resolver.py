@@ -11,6 +11,7 @@ from typing import Any
 from quant_platform.core.exceptions import DataUnavailableError
 from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
 from quant_platform.data.providers.ifind_provider import IFindDataProvider
+from quant_platform.data.providers.pytdx_provider import PyTdxDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,13 @@ class DataSourceResolver:
         *,
         ifind_client: Any | None = None,
         baostock_client: Any | None = None,
+        pytdx_client_factory: Any | None = None,
     ) -> None:
         self.app_config_path = app_config_path
         self.source_config = source_config
         self.ifind_client = ifind_client
         self.baostock_client = baostock_client
+        self.pytdx_client_factory = pytdx_client_factory
 
     def market_sources(self) -> list[str]:
         """Return enabled and routed sources for daily bars."""
@@ -115,6 +118,19 @@ class DataSourceResolver:
 
     def baostock_provider(self) -> BaoStockDataProvider:
         return BaoStockDataProvider(client=self.baostock_client)
+
+    def pytdx_provider(self) -> PyTdxDataProvider:
+        """Build the optional PyTDX adapter from source configuration."""
+
+        config = self.source_config.get("providers", {}).get("pytdx", {})
+        return PyTdxDataProvider(
+            servers=config.get("servers", []),
+            timeout=float(config.get("timeout", 3.0)),
+            retries=int(config.get("retries", 1)),
+            max_servers=int(config.get("max_servers", 8)),
+            max_pages=int(config.get("max_pages", 20)),
+            client_factory=self.pytdx_client_factory,
+        )
 
     def sdk_ready(self, module_name: str) -> bool:
         """Return whether an optional third-party SDK is importable."""

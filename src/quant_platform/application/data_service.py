@@ -28,6 +28,7 @@ from quant_platform.data.network import (
     ProxyResilientAkShareClient,
     friendly_data_error,
 )
+from quant_platform.data.pytdx_backfill import PyTdxRangeBackfill
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -84,6 +85,7 @@ class DataCenterService:
         client: Any | None = None,
         ifind_client: Any | None = None,
         baostock_client: Any | None = None,
+        pytdx_client_factory: Any | None = None,
     ) -> None:
         self.app_config_path = Path(app_config_path)
         self.app = load_yaml(self.app_config_path)
@@ -108,6 +110,7 @@ class DataCenterService:
             self.source_config,
             ifind_client=self.ifind_client,
             baostock_client=self.baostock_client,
+            pytdx_client_factory=pytdx_client_factory,
         )
         self._network_client: ProxyResilientAkShareClient | None = None
 
@@ -193,6 +196,16 @@ class DataCenterService:
             elif source == "akshare":
                 ready = True
                 detail = "公开数据备用来源"
+            elif source == "pytdx":
+                ready = (
+                    self.sources.pytdx_client_factory is not None
+                    or self.sources.sdk_ready("pytdx")
+                )
+                detail = (
+                    "通达信日线缺口补充来源；不会覆盖已有行情"
+                    if ready
+                    else "未安装 PyTDX；更新时将跳过并报告失败"
+                )
             else:
                 ready = False
                 detail = "项目尚未实现此数据源"
@@ -402,11 +415,23 @@ class DataCenterService:
                         self.repository,
                         client=self._akshare_client(),
                     ).backfill(symbols, start_date, end_date)
+                elif source == "pytdx":
+                    backfill = PyTdxRangeBackfill(
+                        self.raw_repository,
+                        self.repository,
+                        self.sources.pytdx_provider(),
+                    )
+                    report = backfill.backfill(symbols, start_date, end_date)
                 else:
                     raise DataCapabilityNotSupported(
                         f"Market-data source {source} has no range-backfill adapter"
                     )
-                attempts.append({"source": source, "status": "success"})
+                success = {"source": source, "status": "success"}
+                if source == "pytdx":
+                    success.update(
+                        {key: str(value) for key, value in backfill.metadata.items()}
+                    )
+                attempts.append(success)
                 return source, report, attempts
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
