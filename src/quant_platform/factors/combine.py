@@ -10,12 +10,18 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pandas as pd
 
 from quant_platform.factors.base import FACTOR_COLUMNS, FactorDefinition
-from quant_platform.factors.preprocess import zscore
+from quant_platform.factors.preprocess import (
+    FactorPreprocessConfig,
+    preprocess_factor_frames,
+    zscore,
+)
 
 
 def combine_factors(
@@ -23,12 +29,14 @@ def combine_factors(
     weights: dict[str, float],
     *,
     directions: dict[str, int] | None = None,
+    preprocess: FactorPreprocessConfig | None = None,
 ) -> pd.DataFrame:
     """把多个因子长表合成为一个因子长表。
 
     - ``frames``：因子名 -> 因子标准长表；
     - ``weights``：因子名 -> 权重（自动归一化，允许 0）；
-    - ``directions``：因子名 -> 方向（1 或 -1），缺省视为 1。
+    - ``directions``：因子名 -> 方向（1 或 -1），缺省视为 1；
+    - ``preprocess``：合成前清洗配置，研究评估与回测应传入同一份配置。
     """
 
     if not frames:
@@ -40,8 +48,9 @@ def combine_factors(
     if total <= 0:
         raise ValueError("权重之和不能为 0")
 
+    cleaned_frames = preprocess_factor_frames(frames, preprocess)
     merged: pd.DataFrame | None = None
-    for name, frame in frames.items():
+    for name, frame in cleaned_frames.items():
         weight = float(weights.get(name, 0.0)) / total
         direction = (directions or {}).get(name, 1)
         if direction not in (1, -1):
@@ -49,9 +58,7 @@ def combine_factors(
         adjusted = frame.copy()
         adjusted["value"] = pd.to_numeric(adjusted["value"], errors="coerce") * direction
         normalized = zscore(adjusted.dropna(subset=["value"]))
-        normalized = normalized.rename(columns={"value": name})[
-            ["date", "symbol", name]
-        ]
+        normalized = normalized.rename(columns={"value": name})[["date", "symbol", name]]
         normalized[name] = normalized[name] * weight
         merged = (
             normalized
@@ -66,6 +73,29 @@ def combine_factors(
     result = merged[["date", "symbol", "value"]].copy()
     result["date"] = pd.to_datetime(result["date"]).dt.normalize()
     return result.sort_values(["date", "symbol"]).reset_index(drop=True)[FACTOR_COLUMNS]
+
+
+def positive_ic_weights(
+    rank_ics: Mapping[str, float],
+) -> tuple[dict[str, float], list[str]]:
+    """用方向调整后的正 Rank IC 生成归一化权重。
+
+    负值、零值和非有限值说明因子在训练期未按声明方向生效，不能通过取绝对值
+    变成正权重；这些因子会被拒绝并返回给调用方提示。
+    """
+
+    accepted: dict[str, float] = {}
+    rejected: list[str] = []
+    for name, value in rank_ics.items():
+        resolved = float(value)
+        if math.isfinite(resolved) and resolved > 0.0:
+            accepted[name] = resolved
+        else:
+            rejected.append(name)
+    if not accepted:
+        raise ValueError("训练期没有 Rank IC 为正的有效因子")
+    total = sum(accepted.values())
+    return ({name: value / total for name, value in accepted.items()}, rejected)
 
 
 def correlation_matrix(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -115,9 +145,7 @@ def drop_highly_correlated(
     kept: list[str] = []
     dropped: list[str] = []
     for name in order:
-        if any(
-            abs(float(corr.loc[name, other])) >= threshold for other in kept
-        ):
+        if any(abs(float(corr.loc[name, other])) >= threshold for other in kept):
             dropped.append(name)
         else:
             kept.append(name)
@@ -130,6 +158,7 @@ class CompositeFactor(FactorDefinition):
 
     components: tuple[FactorDefinition, ...] = field(default_factory=tuple)
     weights: dict[str, float] = field(default_factory=dict)
+    preprocess: FactorPreprocessConfig = field(default_factory=FactorPreprocessConfig)
 
     def __post_init__(self) -> None:
         if not self.components:
@@ -140,9 +169,7 @@ class CompositeFactor(FactorDefinition):
         unknown = sorted(set(self.weights).difference(names))
         if unknown:
             raise ValueError(f"权重包含未知成分因子: {unknown}")
-        object.__setattr__(
-            self, "min_history", max(item.min_history for item in self.components)
-        )
+        object.__setattr__(self, "min_history", max(item.min_history for item in self.components))
         required: list[str] = []
         for item in self.components:
             for field_name in item.required_fields:
@@ -154,4 +181,9 @@ class CompositeFactor(FactorDefinition):
         frames = {item.name: item.compute(bars) for item in self.components}
         directions = {item.name: item.direction for item in self.components}
         weights = {name: float(self.weights.get(name, 1.0)) for name in frames}
-        return combine_factors(frames, weights, directions=directions)
+        return combine_factors(
+            frames,
+            weights,
+            directions=directions,
+            preprocess=self.preprocess,
+        )
