@@ -16,7 +16,9 @@ Python OpenSSL 栈的 TLS 指纹直接 RST 断连（curl/浏览器正常），�
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
+import time
 from pathlib import Path
 
 import requests
@@ -35,13 +37,41 @@ _QUOTE_PATHS = [
 ]
 _KLINE_PATHS = ["push2his.eastmoney.com/api/qt/stock/kline/get"]
 _SINA_KLINE_URL = (
-    "https://quotes.sina.cn/cn/api/jsonp_v2.php/x/"
+    "quotes.sina.cn/cn/api/jsonp_v2.php/x/"
     "CN_MarketDataService.getKLineData"
 )
 _UT = "7eea3edcaed734bea9cbfc24409ed989"
 _QUOTE_FIELDS = "f57,f58,f43,f44,f45,f46,f47,f48,f60,f116,f117,f127,f128,f170"
 
+# 新浪对无浏览器 UA 的请求会返回反盗链脚本（仅 location.href 重定向，无数据）。
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+_SINA_HEADERS = {
+    "Referer": "https://finance.sina.com.cn",
+    "User-Agent": _UA,
+    "Accept": "*/*",
+}
+
 _CN_CODE_RE = re.compile(r"(\d{6})")
+
+
+def extract_jsonp_array(text: str) -> list | None:
+    """从 JSONP 响应中提取数组；容忍 ``/*...*/`` 注释前缀与重定向脚本。
+
+    新浪新版响应形如 ``/*<script>location.href=\\'//sina.com\\';</script>*/\nx([...])``，
+    反盗链时则只返回注释脚本（无括号、无数据）。去掉注释块后再定位括号。
+    """
+    cleaned = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    lpar = cleaned.find("(")
+    rpar = cleaned.rfind(")")
+    if lpar < 0 or rpar <= lpar:
+        return None
+    try:
+        return json.loads(cleaned[lpar + 1:rpar])
+    except json.JSONDecodeError:
+        return None
 
 
 def normalize_secid(symbol: str) -> str:
@@ -75,11 +105,13 @@ class _Transport:
     1. HTTP 直连（国内站点常规路径，trust_env=False 绕开系统代理）
     2. HTTPS 直连
     3. HTTPS 走系统代理（VPN 全局接管时可能唯一可达）
-    首个成功组合缓存复用。
+    首个成功组合缓存复用；``ok`` 回调校验响应内容（如 K 线为空视为失败，
+    继续尝试下一通道），全部失败后整体重试一次（东财间歇性 RST 常见）。
     """
 
-    def __init__(self, timeout: int = 10) -> None:
+    def __init__(self, timeout: int = 10, retries: int = 1) -> None:
         self._timeout = timeout
+        self._retries = retries
         self._direct = requests.Session()
         self._direct.trust_env = False  # 直连：不读系统代理
         self._proxied = requests.Session()  # 默认读系统代理
@@ -91,31 +123,44 @@ class _Transport:
         self._working: tuple[str, str, requests.Session] | None = None
 
     def get_json(
-        self, paths: list[str] | str, params: dict, headers: dict | None = None
+        self,
+        paths: list[str] | str,
+        params: dict,
+        headers: dict | None = None,
+        ok=None,
     ) -> requests.Response:
         if isinstance(paths, str):
             paths = [paths]
-        combos: list[tuple[str, str, requests.Session]] = (
-            [self._working] if self._working else []  # type: ignore[list-item]
-        )
+        combos: list[tuple[str, str, requests.Session]] = []
+        # 缓存的可用通道只在请求同一 API 路径时复用；跨接口（如新浪）复用
+        # 会把上一接口的参数打到错误主机上，必须排除。
+        if self._working and self._working[0] in paths:
+            combos.append(self._working)
         for path in paths:
             for scheme, session in self._channels:
                 cand = (path, scheme, session)
                 if cand != self._working:
                     combos.append(cand)
         last_exc: Exception | None = None
-        for path, scheme, session in combos:
-            try:
-                r = session.get(
-                    f"{scheme}://{path}", params=params,
-                    headers=headers or {}, timeout=self._timeout,
-                )
-                r.raise_for_status()
-                self._working = (path, scheme, session)
-                return r
-            except Exception as exc:  # noqa: BLE001 - 逐通道回退
-                last_exc = exc
-                log.debug("数据通道 %s://%s 失败: %s", scheme, path, exc)
+        for attempt in range(self._retries + 1):
+            for path, scheme, session in combos:
+                try:
+                    r = session.get(
+                        f"{scheme}://{path}", params=params,
+                        headers=headers or {}, timeout=self._timeout,
+                    )
+                    r.raise_for_status()
+                    if ok is not None and not ok(r):
+                        raise RuntimeError(f"{scheme}://{path} 内容不可用")
+                    self._working = (path, scheme, session)
+                    return r
+                except Exception as exc:  # noqa: BLE001 - 逐通道回退
+                    last_exc = exc
+                    log.debug("数据通道 %s://%s 失败: %s", scheme, path, exc)
+            if attempt < self._retries:
+                log.warning("数据接口所有通道失败，%s 秒后整体重试（第 %d 次）",
+                            (attempt + 1), attempt + 1)
+                time.sleep(0.8 * (attempt + 1))
         raise RuntimeError(f"数据接口所有通道均不可用: {last_exc}")
 
 
@@ -205,8 +250,15 @@ class EastMoneyProvider(DataProvider):
 
     # ------------------------------------------------------------ 内部 ----
     def _quote(self, secid: str) -> dict:
+        def _ok(r: requests.Response) -> bool:
+            try:
+                return bool(r.json().get("data"))
+            except Exception:  # noqa: BLE001 - 内容不可用视为通道失败
+                return False
+
         r = self._transport.get_json(
-            _QUOTE_PATHS, dict(secid=secid, fltt=2, invt=2, fields=_QUOTE_FIELDS)
+            _QUOTE_PATHS, dict(secid=secid, fltt=2, invt=2, fields=_QUOTE_FIELDS),
+            ok=_ok,
         )
         data = r.json().get("data")
         if not data:
@@ -221,6 +273,13 @@ class EastMoneyProvider(DataProvider):
             return self._download_bars_sina(symbol, start, end)
 
     def _download_bars_em(self, symbol: str, start: dt.date, end: dt.date) -> list[OHLCVBar]:
+        def _ok(r: requests.Response) -> bool:
+            try:
+                data = r.json().get("data") or {}
+                return bool(data.get("klines"))
+            except Exception:  # noqa: BLE001 - 内容不可用视为通道失败
+                return False
+
         r = self._transport.get_json(
             _KLINE_PATHS,
             dict(
@@ -229,6 +288,7 @@ class EastMoneyProvider(DataProvider):
                 fields2="f51,f52,f53,f54,f55,f56",
                 beg=start.strftime("%Y%m%d"), end=end.strftime("%Y%m%d"), ut=_UT,
             ),
+            ok=_ok,
         )
         data = r.json().get("data")
         if not data or not data.get("klines"):
@@ -246,23 +306,21 @@ class EastMoneyProvider(DataProvider):
         return bars
 
     def _download_bars_sina(self, symbol: str, start: dt.date, end: dt.date) -> list[OHLCVBar]:
-        """新浪日线（不复权）作为东财 K 线的兜底。"""
-        days = (end - start).days + 10
+        """新浪日线（不复权）作为东财 K 线的兜底。
+
+        注意：新浪 ``datalen`` 返回的是**截止今天**最近 N 根，而非截止
+        ``end``；因此按 ``今天 - start`` 推算所需根数（上限 1023），
+        再按 [start, end] 过滤。历史回测日期（如 2025-06-03）因此可用。
+        """
+        days_needed = int((dt.date.today() - start).days * 1.5) + 10
         r = self._transport.get_json(
             _SINA_KLINE_URL,
-            dict(symbol=sina_symbol(symbol), scale=240, ma="no", datalen=min(days, 1023)),
-            headers={"Referer": "https://finance.sina.com.cn"},
+            dict(symbol=sina_symbol(symbol), scale=240, ma="no", datalen=min(days_needed, 1023)),
+            headers=_SINA_HEADERS,
         )
-        text = r.text
-        # JSONP 包裹：x([...])；新浪还在开头插了一段注释
-        lpar, rpar = text.find("("), text.rfind(")")
-        if lpar < 0 or rpar <= lpar:
-            raise RuntimeError(f"sina kline: unexpected payload for {symbol}")
-        import json
-
-        data = json.loads(text[lpar + 1: rpar])
+        data = extract_jsonp_array(r.text)
         if not data:
-            raise RuntimeError(f"sina returned no kline for {symbol}")
+            raise RuntimeError(f"sina kline: unexpected payload for {symbol}")
         bars: list[OHLCVBar] = []
         for item in data:
             day = dt.date.fromisoformat(item["day"])

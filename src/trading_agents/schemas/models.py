@@ -53,6 +53,7 @@ class MarketSnapshot(BaseModel):
     index: str = ""  # 所属基准指数
     fundamentals: dict[str, float | str] = Field(default_factory=dict)
     news: list[str] = Field(default_factory=list)  # 截至 as_of_date 的新闻标题
+    prior_knowledge: str = ""  # 专家先验知识（用户见解/网络观点，注入各 Agent）
 
     @property
     def last_bar(self) -> OHLCVBar | None:

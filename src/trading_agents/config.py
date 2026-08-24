@@ -17,11 +17,11 @@ from pydantic import BaseModel, Field
 PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "mock": "mock-llm",
     "openai": "gpt-4o-mini",
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-v4-pro",
     "qwen": "qwen-plus",
     "glm": "glm-4-plus",
     "ollama": "qwen2.5:7b",
-    "kimi": "kimi-k3",
+    "kimi": "kimi-k2.6",
 }
 
 

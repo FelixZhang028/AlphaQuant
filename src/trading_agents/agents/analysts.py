@@ -72,6 +72,11 @@ def snapshot_context(snapshot: MarketSnapshot) -> str:
         + "; ".join(f"{b.date} C={b.close} V={b.volume}" for b in snapshot.bars[-5:]),
         "新闻条目: " + (" | ".join(snapshot.news) if snapshot.news else "（无）"),
     ]
+    if snapshot.prior_knowledge.strip():
+        lines.insert(
+            3,
+            "专家先验知识（用户/外部观点，务必优先参考）:\n" + snapshot.prior_knowledge,
+        )
     return "\n".join(lines)
 
 

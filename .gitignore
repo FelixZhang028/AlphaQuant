@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest_root/
+.pytest_tmp/
+pytest-of-Administrator/
 .mypy_cache/
 .ruff_cache/
 
@@ -49,6 +52,8 @@ Thumbs.db
 /runtime/user_strategies/
 /runtime/agent_cache/
 /runtime/agent_runs/
+/runtime/llm_settings.json
+/runtime/prior_knowledge.json
 *.pt
 *.pth
 *.onnx

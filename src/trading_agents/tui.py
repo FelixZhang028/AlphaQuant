@@ -45,7 +45,9 @@ from trading_agents.schemas import (
 )
 
 _PROVIDERS = ["mock", "kimi", "openai", "deepseek", "qwen", "glm", "ollama"]
-_DATA_SOURCES = ["stub", "yfinance", "eastmoney"]
+_DATA_SOURCES = [
+    "stub", "yfinance", "eastmoney", "akshare", "tonghuashun", "auto",
+]
 
 # 各 provider 可选模型（TUI 单选列表；kimi 模型以 platform.kimi.com/docs/models 为准）
 PROVIDER_MODELS: dict[str, list[str]] = {

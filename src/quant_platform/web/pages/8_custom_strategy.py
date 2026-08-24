@@ -67,8 +67,14 @@ def _save_user_strategy(
     display_name: str,
     description: str,
     source: str,
+    *,
+    risk_acknowledged: bool = False,
 ) -> None:
-    """Load code, validate the registered class, and persist it."""
+    """Load code, validate the registered class, and persist it.
+
+    A static safety report gates the save: blockers abort it, warnings require
+    the user to tick the acknowledgement checkbox first.
+    """
 
     if not code.strip():
         st.error("策略代码不能为空。")
@@ -80,6 +86,21 @@ def _save_user_strategy(
         if not result.errors:
             st.error("没有发现已注册的策略，请使用 @register_strategy(\"标识\") 装饰策略类。")
         return
+    report = result.safety_report
+    if report is not None and report.blocked:
+        st.error("安全检查未通过，已阻止保存。请先修复以下问题：")
+        for issue in report.blockers:
+            where = f"第 {issue.line} 行：" if issue.line else ""
+            st.error(f"· [{issue.code}] {where}{issue.message}")
+        return
+    if report is not None and report.warnings:
+        st.warning("安全检查发现以下风险点：")
+        for issue in report.warnings:
+            where = f"第 {issue.line} 行：" if issue.line else ""
+            st.warning(f"· [{issue.code}] {where}{issue.message}")
+        if not risk_acknowledged:
+            st.warning("请勾选“我已了解上述风险”确认框后再次保存。")
+            return
     if len(result.strategies) > 1:
         st.warning("代码注册了多个策略，本次只保存第一个。")
     plugin_name, cls = next(iter(result.strategies.items()))
@@ -165,10 +186,19 @@ with editor_tab:
     with st.form("custom_strategy_editor_form"):
         display_name = st.text_input("策略显示名（可选，默认用标识）", key="editor_display_name")
         description = st.text_area("策略说明（可选）", height=70, key="editor_description")
+        acknowledged = st.checkbox(
+            "我已了解上述风险（保存时若提示安全风险需勾选）", key="editor_risk_ack"
+        )
         submitted = st.form_submit_button("注册并保存", type="primary")
     if submitted:
         _save_user_strategy(
-            store, loader, code, display_name, description, source="editor"
+            store,
+            loader,
+            code,
+            display_name,
+            description,
+            source="editor",
+            risk_acknowledged=acknowledged,
         )
 
 with upload_tab:
@@ -188,6 +218,9 @@ with upload_tab:
                 upload_description = st.text_area(
                     "策略说明（可选）", height=70, key="upload_description"
                 )
+                upload_acknowledged = st.checkbox(
+                    "我已了解上述风险（保存时若提示安全风险需勾选）", key="upload_risk_ack"
+                )
                 upload_submitted = st.form_submit_button("注册并保存该文件", type="primary")
             if upload_submitted:
                 _save_user_strategy(
@@ -197,6 +230,7 @@ with upload_tab:
                     upload_display_name,
                     upload_description,
                     source="upload",
+                    risk_acknowledged=upload_acknowledged,
                 )
 
 with library_tab:

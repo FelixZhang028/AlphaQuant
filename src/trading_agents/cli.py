@@ -37,8 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="LLM provider: mock/openai/deepseek/qwen/glm/ollama")
     p.add_argument("--model", default=None,
                    help="LLM 模型名（默认按 provider 自动选择，如 deepseek 用 deepseek-chat）")
-    p.add_argument("--data", default="stub", choices=["stub", "yfinance", "eastmoney"],
-                   help="数据源：stub=离线合成(默认) / yfinance=美股 / eastmoney=A股")
+    p.add_argument("--data", default="stub",
+                   choices=["stub", "yfinance", "eastmoney", "akshare", "tonghuashun", "auto"],
+                   help="数据源：stub=离线合成(默认) / yfinance=美股 / eastmoney=A股东财 / "
+                        "akshare=A股akshare / tonghuashun=A股同花顺 / auto=多源自动降级")
     p.add_argument("--market", default="CN", help="市场，默认 CN")
     p.add_argument("--base-dir", default=None, help="运行产物根目录（默认 ./runs）")
     p.add_argument("--debate-rounds", type=int, default=None, help="辩论轮数，默认 2")
@@ -65,6 +67,27 @@ def build_context(config: TradingConfig, data_source: str) -> PipelineContext:
         from trading_agents.data.eastmoney import EastMoneyProvider
 
         provider = EastMoneyProvider(cache_path=config.sqlite_path)
+    elif data_source == "akshare":
+        from trading_agents.data.akshare_provider import AkshareProvider
+
+        provider = AkshareProvider(cache_path=config.sqlite_path)
+    elif data_source == "tonghuashun":
+        from trading_agents.data.tonghuashun import TonghuashunProvider
+
+        provider = TonghuashunProvider(cache_path=config.sqlite_path)
+    elif data_source == "auto":
+        from trading_agents.data.akshare_provider import AkshareProvider
+        from trading_agents.data.eastmoney import EastMoneyProvider
+        from trading_agents.data.fallback import FallbackProvider
+        from trading_agents.data.tonghuashun import TonghuashunProvider
+
+        provider = FallbackProvider(
+            [
+                EastMoneyProvider(cache_path=config.sqlite_path),
+                AkshareProvider(cache_path=config.sqlite_path),
+                TonghuashunProvider(cache_path=config.sqlite_path),
+            ]
+        )
     else:
         provider = StubDataProvider()
     return PipelineContext(
