@@ -12,10 +12,12 @@ import pandas as pd
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
+from quant_platform.backtest.diagnosis import generate_diagnosis
 from quant_platform.backtest.metrics import (
     calculate_drawdown_series,
     calculate_monthly_returns,
 )
+from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import load_persisted_validity
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
@@ -266,6 +268,40 @@ def _render_position_metrics(
         st.dataframe(localize_frame(latest_positions), width="stretch", hide_index=True)
 
 
+def _render_diagnosis(
+    run_dir: Path,
+    summary: dict[str, Any],
+    nav: pd.DataFrame,
+    orders: pd.DataFrame,
+    fills: pd.DataFrame,
+    trades: pd.DataFrame,
+    positions: pd.DataFrame,
+    validity: dict[str, Any],
+) -> None:
+    """Render the plain-language diagnosis in a collapsed expander."""
+
+    result = BacktestResult(
+        run_id=run_dir.name,
+        nav=nav,
+        signals=_read_optional_frame(run_dir / "signals.parquet"),
+        targets=_read_optional_frame(run_dir / "target_positions.parquet"),
+        orders=orders,
+        fills=fills,
+        trades=trades,
+        positions=positions,
+        risk_events=_read_optional_frame(run_dir / "risk_events.parquet"),
+        summary=summary,
+        validity=validity,
+    )
+    report = generate_diagnosis(result)
+    with st.expander("通俗诊断", expanded=False):
+        st.caption("以下内容为基于回测数据的通俗解读，仅供参考，不构成投资建议。")
+        for section in report.sections:
+            st.markdown(f"**{section.title}**")
+            for bullet in section.bullets:
+                st.markdown(f"- {bullet}")
+
+
 def _render_result(run_dir: Path) -> None:
     """Render persisted artifacts for one completed run."""
 
@@ -299,6 +335,8 @@ def _render_result(run_dir: Path) -> None:
             ("总交易成本", "total_transaction_cost", "money"),
         ],
     )
+
+    _render_diagnosis(run_dir, summary, nav, orders, fills, trades, positions, validity)
 
     overview_tab, return_tab, trade_tab, position_tab, detail_tab = st.tabs(
         ["概览", "收益与风险", "交易与成本", "持仓分析", "订单明细"]
@@ -338,6 +376,16 @@ default_index = (
     else 0
 )
 
+# 因子研究室「一键转换成选股策略」跳转过来时，自动选中因子合成策略并带入参数。
+factor_payload = st.session_state.pop("factor_composite_payload", None)
+factor_payload_values: dict[str, Any] | None = None
+if factor_payload and "factor_composite" in plugin_names:
+    default_index = plugin_names.index("factor_composite")
+    factor_payload_values = {
+        "factors_json": json.dumps(factor_payload, ensure_ascii=False)
+    }
+    st.info("已从因子研究室带入合成因子参数，确认区间后点击「运行回测」。")
+
 with st.expander("新建回测", expanded=True):
     selected_plugin = st.selectbox(
         "策略",
@@ -352,6 +400,8 @@ with st.expander("新建回测", expanded=True):
         if selected_plugin == default_request.strategy_plugin
         else metadata.defaults()
     )
+    if factor_payload_values and selected_plugin == "factor_composite":
+        configured_values = {**configured_values, **factor_payload_values}
     with st.form("backtest_form"):
         strategy_id = st.text_input(
             "策略实例编号",

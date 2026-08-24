@@ -1,8 +1,12 @@
 akshare
+baostock>=0.9.3
 pandas>=2.0
 pyarrow
 PyYAML
 streamlit
+pydantic>=2.5
+requests>=2.31
+rich>=13.0
 
 [dev]
 pytest>=8
@@ -10,6 +14,9 @@ ruff
 mypy
 pandas-stubs
 types-PyYAML
+
+[tdx]
+pytdx==1.72
 
 [tushare]
 tushare

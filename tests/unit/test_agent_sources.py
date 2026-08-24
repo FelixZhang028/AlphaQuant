@@ -75,7 +75,9 @@ def test_news_aware_provider_injects_news(monkeypatch) -> None:
 def test_runner_builds_stock_provider_by_source(tmp_path: Path) -> None:
     from quant_platform.agents_bridge.runner import AgentRunner
 
-    history = pd.DataFrame(columns=["trade_date", "raw_open", "raw_high", "raw_low", "raw_close", "volume"])
+    history = pd.DataFrame(
+        columns=["trade_date", "raw_open", "raw_high", "raw_low", "raw_close", "volume"]
+    )
     runner = AgentRunner.__new__(AgentRunner)
     runner.cache_dir = tmp_path
     runner.stock_source = "local"

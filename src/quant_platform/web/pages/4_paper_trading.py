@@ -103,9 +103,20 @@ last_date.metric("已推进至", account.last_date or "尚未运行")
 if account.error:
     st.error(account.error)
 
+checklist = papers.go_live_checklist(account.account_id)
+with st.expander("上线前检查清单", expanded=checklist.blocked):
+    icons = {"blocker": "❌", "warning": "⚠️", "info": "ℹ️"}
+    for item in checklist.items:
+        icon = "✅" if item.passed else icons.get(item.severity, "⚠️")
+        st.markdown(f"{icon} **{item.title}**：{item.detail}")
+if checklist.blocked:
+    st.warning("存在未通过的阻断项，请先处理后再推进模拟账户。")
+
 with st.form("advance_paper_account"):
     target_date = st.date_input("推进至日期", value=date.today())
-    advanced = st.form_submit_button("运行模拟交易", type="primary")
+    advanced = st.form_submit_button(
+        "运行模拟交易", type="primary", disabled=checklist.blocked
+    )
 if advanced:
     try:
         with st.spinner("正在推进模拟账户……"):

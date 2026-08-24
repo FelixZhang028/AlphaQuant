@@ -6,7 +6,10 @@ from pathlib import Path
 
 import streamlit as st
 
+<<<<<<< HEAD
 from quant_platform.application.readiness_service import platform_needs_onboarding
+=======
+>>>>>>> alpha_v2
 from quant_platform.web.theme import inject_global_css
 
 LOGO_PATH = Path(__file__).parent / "assets" / "alphaquant-logo.png"
@@ -20,8 +23,11 @@ st.set_page_config(
 st.logo(str(LOGO_PATH), size="large", icon_image=str(LOGO_PATH))
 
 inject_global_css()
+<<<<<<< HEAD
 
 needs_onboarding = platform_needs_onboarding()
+=======
+>>>>>>> alpha_v2
 
 navigation = st.navigation(
     {
@@ -30,10 +36,27 @@ navigation = st.navigation(
                 "welcome.py",
                 title="开始使用",
                 icon=":material/flag:",
+<<<<<<< HEAD
                 default=needs_onboarding,
             ),
         ],
         "策略研究": [
+=======
+                default=True,
+            ),
+        ],
+        "策略研究": [
+            st.Page(
+                "pages/0_strategy_hub.py",
+                title="策略创作中心",
+                icon=":material/hub:",
+            ),
+            st.Page(
+                "pages/10_nl_strategy.py",
+                title="自然语言建策略",
+                icon=":material/chat:",
+            ),
+>>>>>>> alpha_v2
             st.Page(
                 "pages/7_strategy_studio.py",
                 title="零代码策略工作台",
@@ -45,6 +68,14 @@ navigation = st.navigation(
                 icon=":material/code:",
             ),
             st.Page(
+<<<<<<< HEAD
+=======
+                "pages/9_factor_lab.py",
+                title="因子研究室",
+                icon=":material/science:",
+            ),
+            st.Page(
+>>>>>>> alpha_v2
                 "pages/8_agent_lab.py",
                 title="智能体分析台",
                 icon=":material/psychology:",
@@ -55,7 +86,10 @@ navigation = st.navigation(
                 "home.py",
                 title="单次回测与复盘",
                 icon=":material/candlestick_chart:",
+<<<<<<< HEAD
                 default=not needs_onboarding,
+=======
+>>>>>>> alpha_v2
             ),
             st.Page(
                 "pages/2_research.py",

@@ -102,21 +102,34 @@ class UserStrategyLoadResult:
 
     strategies: dict[str, type[Strategy]]
     errors: tuple[tuple[str, str], ...]
+    safety_report: Any = None
 
 
 class UserStrategyLoader:
     """Execute user source in a restricted namespace and collect registrations."""
 
-    def load_source(self, source: str, *, label: str = "strategy") -> UserStrategyLoadResult:
-        """Compile and execute one source string, returning registered classes."""
+    def load_source(
+        self, source: str, *, label: str = "strategy", run_safety: bool = True
+    ) -> UserStrategyLoadResult:
+        """Compile and execute one source string, returning registered classes.
 
+        When ``run_safety`` is true (default) and the source compiles, an
+        AST-based safety report from ``user_strategies.safety`` is attached to
+        the result. Imported lazily to avoid a circular dependency.
+        """
+
+        from quant_platform.user_strategies.safety import check_strategy_source
+
+        safety_report = check_strategy_source(source) if run_safety else None
         _clear_user_registry()
         try:
             code = compile(source, f"<user_strategy:{label}>", "exec")
             exec(code, _build_namespace())
         except Exception as exc:
             _clear_user_registry()
-            return UserStrategyLoadResult({}, ((label, f"{type(exc).__name__}: {exc}"),))
+            return UserStrategyLoadResult(
+                {}, ((label, f"{type(exc).__name__}: {exc}"),), safety_report
+            )
         registered = _registered_user_strategies()
         strategies: dict[str, type[Strategy]] = {}
         errors: list[tuple[str, str]] = []
@@ -127,7 +140,7 @@ class UserStrategyLoader:
             except (PluginError, ConfigurationError, ValueError) as exc:
                 errors.append((name, str(exc)))
         _clear_user_registry()
-        return UserStrategyLoadResult(strategies, tuple(errors))
+        return UserStrategyLoadResult(strategies, tuple(errors), safety_report)
 
     @staticmethod
     def _validate(name: str, cls: type[Strategy]) -> None:

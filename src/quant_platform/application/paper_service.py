@@ -6,11 +6,14 @@ import json
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
 from quant_platform.risk.config import RiskLimits
+
+if TYPE_CHECKING:
+    from quant_platform.application.paper_checklist import GoLiveChecklist
 
 
 @dataclass(frozen=True)
@@ -117,6 +120,13 @@ class PaperTradingService:
             return None
         path = self.backtests.runs_root / account.last_run_id
         return path if path.exists() else None
+
+    def go_live_checklist(self, account_id: str) -> GoLiveChecklist:
+        """Evaluate the pre-flight checklist before advancing the account."""
+
+        from quant_platform.application.paper_checklist import evaluate_go_live_checklist
+
+        return evaluate_go_live_checklist(self, account_id)
 
     def _read(self, account_id: str) -> PaperAccountRecord:
         path = self.root / account_id / "account.json"
