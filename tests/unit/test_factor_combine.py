@@ -11,6 +11,11 @@ from quant_platform.factors.combine import (
     combine_factors,
     correlation_matrix,
     drop_highly_correlated,
+    positive_ic_weights,
+)
+from quant_platform.factors.preprocess import (
+    FactorPreprocessConfig,
+    preprocess_factor_frames,
 )
 
 
@@ -58,12 +63,54 @@ def test_combine_rejects_unknown_weight_and_zero_total() -> None:
         combine_factors({"a": a}, {"a": 0.0})
 
 
+def test_combine_applies_winsorization_from_shared_config() -> None:
+    frame = _frame({"AAA": 0.0, "BBB": 1.0, "CCC": 2.0, "DDD": 3.0, "EEE": 100.0})
+    plain = combine_factors({"a": frame}, {"a": 1.0})
+    cleaned = combine_factors(
+        {"a": frame},
+        {"a": 1.0},
+        preprocess=FactorPreprocessConfig(winsorize=True),
+    )
+
+    assert not plain["value"].equals(cleaned["value"])
+
+
+def test_median_fill_aligns_rows_missing_from_one_factor() -> None:
+    complete = _frame({"AAA": 1.0, "BBB": 2.0, "CCC": 3.0})
+    incomplete = _frame({"AAA": 10.0, "BBB": 20.0})
+
+    cleaned = preprocess_factor_frames(
+        {"complete": complete, "incomplete": incomplete},
+        FactorPreprocessConfig(fill_method="median"),
+    )
+
+    filled = cleaned["incomplete"]
+    ccc = filled[filled["symbol"] == "CCC"]
+    assert len(ccc) == 2
+    assert list(ccc["value"]) == pytest.approx([15.0, 15.0])
+
+
+def test_positive_ic_weights_reject_non_positive_factors_and_normalizes() -> None:
+    weights, rejected = positive_ic_weights(
+        {"good": 0.03, "better": 0.06, "wrong_way": -0.04, "missing": float("nan")}
+    )
+
+    assert weights == pytest.approx({"good": 1 / 3, "better": 2 / 3})
+    assert rejected == ["wrong_way", "missing"]
+    with pytest.raises(ValueError, match="没有 Rank IC 为正"):
+        positive_ic_weights({"bad": -0.1, "zero": 0.0})
+
+
 def test_correlation_matrix_detects_identical_factors() -> None:
-    a = _frame({"AAA": 1.0, "BBB": 2.0, "CCC": 3.0, "DDD": 4.0},
-               dates=["2024-01-02", "2024-01-03", "2024-01-04"])
+    a = _frame(
+        {"AAA": 1.0, "BBB": 2.0, "CCC": 3.0, "DDD": 4.0},
+        dates=["2024-01-02", "2024-01-03", "2024-01-04"],
+    )
     b = a.copy()
-    c = _frame({"AAA": 4.0, "BBB": 3.0, "CCC": 2.0, "DDD": 1.0},
-               dates=["2024-01-02", "2024-01-03", "2024-01-04"])
+    c = _frame(
+        {"AAA": 4.0, "BBB": 3.0, "CCC": 2.0, "DDD": 1.0},
+        dates=["2024-01-02", "2024-01-03", "2024-01-04"],
+    )
     corr = correlation_matrix({"a": a, "b": b, "c": c})
     assert corr.loc["a", "b"] == pytest.approx(1.0)
     assert corr.loc["a", "c"] == pytest.approx(-1.0)
@@ -99,9 +146,11 @@ def test_composite_factor_merges_metadata_and_computes() -> None:
         display_name="合成",
         components=(a, b),
         weights={"fa": 1.0, "fb": 1.0},
+        preprocess=FactorPreprocessConfig(winsorize=True, fill_method="median"),
     )
     assert composite.min_history == 30
     assert composite.required_fields == ("adjusted_close",)
+    assert composite.preprocess.winsorize is True
     result = composite.compute(pd.DataFrame())
     assert not result.empty
 
@@ -111,6 +160,4 @@ def test_composite_factor_rejects_empty_and_duplicate() -> None:
         CompositeFactor(name="x", display_name="x", components=(), weights={})
     a = _ConstantFactor("fa", 1.0)
     with pytest.raises(ValueError, match="重复"):
-        CompositeFactor(
-            name="x", display_name="x", components=(a, a), weights={"fa": 1.0}
-        )
+        CompositeFactor(name="x", display_name="x", components=(a, a), weights={"fa": 1.0})
