@@ -711,6 +711,13 @@ _LANDING_CSS = """
     padding: 0 0 4rem;
     max-width: none;
 }
+/* Streamlit 会在根级 VerticalBlock 的每个子区块之间自动加入 1rem gap。
+   首页最前面的 CSS 注入和固定导航都是零高度区块，会在 hero 前累计出 2rem
+   空带；只清除首页根级 gap，各内容区块继续使用自身 padding 控制间距。 */
+[data-testid="stMainBlockContainer"]:has(.st-key-aq_hero_wrap)
+    > [data-testid="stVerticalBlock"] {
+    gap: 0;
+}
 /* 整页统一深蓝丝绸背景：与 hero 同一渐变、同一角度，fixed 铺满视口并无缝衔接；
    html/body/stApp 也要覆盖，否则页面最顶端会漏出一条深色底 */
 html:has(.st-key-aq_hero_wrap),
