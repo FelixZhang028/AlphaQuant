@@ -91,8 +91,6 @@ button[kind="primary"],
     font-weight: 600;
     transition: background 0.18s ease;
 }
-<<<<<<< HEAD
-=======
 /* 白底按钮内的文字统一为黑色：全局 `p, li, label` 浅灰规则会盖过
    按钮继承色，必须显式覆盖内部元素 */
 button[kind="primary"] p,
@@ -103,7 +101,6 @@ button[kind="primary"] div,
 [data-testid="stFormSubmitButton"] button[kind="primary"] div {
     color: #0f1115;
 }
->>>>>>> alpha_v2
 button[kind="primary"]:hover {
     background: #e6e8ec;
     box-shadow: none;
@@ -322,8 +319,6 @@ _LANDING_CSS = """
     .aq-hero-grid { grid-template-columns: 1fr; }
     .aq-term { display: none; }
 }
-<<<<<<< HEAD
-=======
 /* ============ Hero 底部向下滚动指示（毛玻璃胶囊 + 上下浮动） ============ */
 .aq-scroll-hint {
     position: absolute;
@@ -363,7 +358,6 @@ _LANDING_CSS = """
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(2px); }
 }
->>>>>>> alpha_v2
 .aq-hero-eyebrow {
     font-size: 0.95rem;
     font-weight: 600;
@@ -497,16 +491,6 @@ _LANDING_CSS = """
 [data-testid="stForm"] [data-testid="stTextInput"] input:focus {
     box-shadow: none !important;
 }
-<<<<<<< HEAD
-.aq-launcher-hint {
-    color: #81858c;
-    font-size: 0.82rem;
-    text-align: center;
-    margin-top: 0.6rem;
-    animation: aqFadeUp 0.55s ease-out 0.3s both;
-}
-=======
->>>>>>> alpha_v2
 
 /* ============ 特性 chips ============ */
 .aq-hero-chips {
@@ -727,11 +711,6 @@ _LANDING_CSS = """
     padding: 0 0 4rem;
     max-width: none;
 }
-<<<<<<< HEAD
-/* 主页内隐藏 Streamlit 自带顶栏（避免与顶部悬浮导航条重叠；导航由图内导航条承担） */
-[data-testid="stAppViewContainer"]:has(.st-key-aq_hero_wrap) [data-testid="stHeader"] {
-    display: none;
-=======
 /* Streamlit 会在根级 VerticalBlock 的每个子区块之间自动加入 1rem gap。
    首页最前面的 CSS 注入和固定导航都是零高度区块，会在 hero 前累计出 2rem
    空带；只清除首页根级 gap，各内容区块继续使用自身 padding 控制间距。 */
@@ -755,18 +734,13 @@ body:has(.st-key-aq_hero_wrap),
 [data-testid="stApp"]:has(.st-key-aq_hero_wrap) [data-testid="stToolbar"] {
     display: none;
     background: transparent;
->>>>>>> alpha_v2
 }
 /* 隐藏顶栏后同时去掉其占位，主内容顶到视口最上沿 */
 [data-testid="stAppViewContainer"]:has(.st-key-aq_hero_wrap) [data-testid="stMain"] {
     margin-top: 0;
 }
 /* 内容区块在零内边距容器里恢复居中留白 */
-<<<<<<< HEAD
-.st-key-aq_sec_launcher,
-=======
 .st-key-aq_sec_guide,
->>>>>>> alpha_v2
 .st-key-aq_sec_modules,
 .st-key-aq_sec_status,
 .st-key-aq_sec_runs,
@@ -777,13 +751,10 @@ body:has(.st-key-aq_hero_wrap),
     padding-left: 3rem;
     padding-right: 3rem;
 }
-<<<<<<< HEAD
-=======
 /* 「新手上路」紧跟 hero 之后，标题位于区块左上，不留大块空白 */
 .st-key-aq_sec_guide {
     padding-top: 2.5rem;
 }
->>>>>>> alpha_v2
 .st-key-aq_hero_wrap {
     position: relative;
     margin: 0;
@@ -932,15 +903,9 @@ body:has(.st-key-aq_hero_wrap),
 }
 
 /* ============ 下滑渐入（scroll-driven，无 JS；不支持时直接可见） ============ */
-<<<<<<< HEAD
-@supports (animation-timeline: view()) {
-    .st-key-aq_sec_launcher,
-    .st-key-aq_sec_modules,
-=======
 /* 注：「新手上路」区块的渐入规则单独在下方维护（大标题 + 逐级延迟）；
    「模块直达」需要继续滚动一段后才缓缓出现，同样单独维护 */
 @supports (animation-timeline: view()) {
->>>>>>> alpha_v2
     .st-key-aq_sec_status,
     .st-key-aq_sec_runs,
     .st-key-aq_sec_detail {
@@ -948,8 +913,6 @@ body:has(.st-key-aq_hero_wrap),
         animation-timeline: view();
         animation-range: entry 0% entry 45%;
     }
-<<<<<<< HEAD
-=======
     /* 模块直达：滚动到更近、过程更长的缓慢渐入，与「新手上路」在时间上拉开 */
     .st-key-aq_sec_modules {
         animation: aqFadeUp linear both;
@@ -1036,8 +999,8 @@ body:has(.st-key-aq_hero_wrap),
 }
 
 /* 六张步骤卡等高对齐：列拉伸、卡片撑满、按钮吸底。
-   列 → stVerticalBlock → stElementContainer → 卡片边框层 的整条链都要撑满，
-   否则中间某一环塌陷会导致卡片底边（按钮）参差不齐 */
+   不依赖 Streamlit 通用包装层的高度；直接使用每张步骤卡的 key 定位，
+   避免 primary / secondary 按钮生成不同 DOM 时出现卡片高度不一致。 */
 .st-key-aq_sec_guide [data-testid="stHorizontalBlock"] {
     align-items: stretch;
     gap: 1rem;
@@ -1061,24 +1024,34 @@ body:has(.st-key-aq_hero_wrap),
     display: flex;
     flex-direction: column;
 }
-.st-key-aq_sec_guide [data-testid="stVerticalBlockBorderWrapper"] {
+/* key 可能落在边框层本身，也可能落在其外层，因此同时覆盖两种 DOM。 */
+[class*="st-key-aq_guide_step_"],
+[class*="st-key-aq_guide_step_"] [data-testid="stVerticalBlockBorderWrapper"] {
     flex: 1 1 auto;
-    /* 固定等高：Streamlit 各版本列内包裹层级不一，flex 拉伸链容易在
-       中间某环塌陷导致卡片参差不齐；固定高度可保证六张卡底边严格对齐 */
-    height: 220px;
+    box-sizing: border-box;
+    width: 100%;
+    height: 220px !important;
+    min-height: 220px !important;
     display: flex;
     flex-direction: column;
 }
-.st-key-aq_sec_guide [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {
+[class*="st-key-aq_guide_step_"] [data-testid="stVerticalBlock"] {
     flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
 }
-.st-key-aq_sec_guide
-    [data-testid="stVerticalBlockBorderWrapper"]
-    [data-testid="stVerticalBlock"]
-    [data-testid="stElementContainer"]:last-child {
+[class*="st-key-aq_guide_step_"] [data-testid="stElementContainer"]:last-child {
     margin-top: auto;
+}
+/* 主按钮与次按钮使用同一几何尺寸，只有颜色不同。 */
+[class*="st-key-aq_guide_step_"] [data-testid="stButton"],
+[class*="st-key-aq_guide_step_"] [data-testid="stButton"] > button {
+    width: 100%;
+}
+[class*="st-key-aq_guide_step_"] [data-testid="stButton"] > button {
+    height: 2.5rem;
+    min-height: 2.5rem;
 }
 /* 步骤卡 hover 微浮起，与模块卡一致 */
 .st-key-aq_sec_guide [data-testid="stVerticalBlockBorderWrapper"] {
@@ -1089,9 +1062,8 @@ body:has(.st-key-aq_hero_wrap),
 }
 /* 说明文字统一预留两行高度：个别步骤说明只有一行（如②股票池），
    不补齐会导致该卡内容更矮、底边与其余五张卡对不齐 */
-.st-key-aq_sec_guide [data-testid="stCaptionContainer"] {
+[class*="st-key-aq_guide_step_"] [data-testid="stCaptionContainer"] {
     min-height: 2.5rem;
->>>>>>> alpha_v2
 }
 
 /* ============ 最近运行 ============ */
@@ -1252,26 +1224,17 @@ def render_hero(
     topbar: str = "",
     terminal: tuple[str, ...] = (),
     terminal_title: str = "alphaquant — zsh",
-<<<<<<< HEAD
-=======
     scroll_hint: str = "",
->>>>>>> alpha_v2
 ) -> None:
     """渲染落地 hero（Harness 风格）：深蓝丝绸光带面板 + 字标 + 悬浮终端卡。
 
     ``terminal`` 的每一项为一行终端 HTML（可用 aq-term-prompt/ok/dim 类）；
-<<<<<<< HEAD
-    ``topbar`` 为 :func:`topbar_html` 的输出，悬浮在 hero 面板顶部。
-=======
     ``topbar`` 为 :func:`topbar_html` 的输出，悬浮在 hero 面板顶部；
     ``scroll_hint`` 非空时在 hero 底部居中渲染毛玻璃「向下滚动」指示。
->>>>>>> alpha_v2
     """
     badge_html = f'<span class="aq-hero-badge">{badge}</span>' if badge else ""
     eyebrow_html = f'<div class="aq-hero-eyebrow">{eyebrow}</div>' if eyebrow else ""
     accent_html = f' <span class="aq-accent">{accent}</span>' if accent else ""
-<<<<<<< HEAD
-=======
     scroll_hint_html = ""
     if scroll_hint:
         scroll_hint_html = (
@@ -1281,7 +1244,6 @@ def render_hero(
             '<path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/>'
             "</svg></div>"
         )
->>>>>>> alpha_v2
     term_html = ""
     if terminal:
         lines = "\n".join(terminal)
@@ -1309,35 +1271,13 @@ def render_hero(
     </div>
     {term_html}
   </div>
-<<<<<<< HEAD
-=======
   {scroll_hint_html}
->>>>>>> alpha_v2
 </div>
 """,
         unsafe_allow_html=True,
     )
 
 
-<<<<<<< HEAD
-def render_launcher(
-    form_key: str, placeholder: str, hint: str, submit_label: str = "打开"
-) -> str:
-    """渲染启动器输入框，返回用户输入的关键词（已去除首尾空白）。"""
-    with st.form(form_key, border=False):
-        columns = st.columns([6, 1], gap="small")
-        query = columns[0].text_input(
-            "启动器", placeholder=placeholder, label_visibility="collapsed"
-        )
-        submitted = columns[1].form_submit_button(submit_label, use_container_width=True)
-    st.markdown(f'<div class="aq-launcher-hint">{hint}</div>', unsafe_allow_html=True)
-    if submitted:
-        return query.strip()
-    return ""
-
-
-=======
->>>>>>> alpha_v2
 def render_section(title: str, hint: str = "") -> None:
     """渲染区块标题行。"""
     hint_html = f'<span class="aq-section-hint">{hint}</span>' if hint else ""

@@ -1,12 +1,8 @@
 """落地主页：DeepSeek Harness 着陆页风格，由本地配置与数据状态驱动。
 
 布局：顶部品牌条（LOGO+名字 / 中英文切换）→ hero（深蓝丝绸光带面板：介绍 +
-<<<<<<< HEAD
-悬浮终端卡 + 胶囊功能键）→ 启动器 → 模块直达 → 平台状态 → 最近运行。
-=======
 悬浮终端卡 + 胶囊功能键 + 向下滚动指示）→ 新手上路（独占一屏）→ 模块直达 →
 平台状态 → 最近运行。
->>>>>>> alpha_v2
 """
 
 from __future__ import annotations
@@ -14,65 +10,26 @@ from __future__ import annotations
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
-<<<<<<< HEAD
-=======
 from quant_platform.application.paper_service import PaperTradingService
->>>>>>> alpha_v2
 from quant_platform.application.readiness_service import (
     PlatformReadinessService,
     ReadinessStatus,
 )
-<<<<<<< HEAD
-from quant_platform.backtest.run_store import RunStatus
-=======
 from quant_platform.application.strategy_studio_service import StrategyStudioService
 from quant_platform.backtest.run_store import RunStatus
 from quant_platform.web.guide import StepState, build_guide_steps
->>>>>>> alpha_v2
 from quant_platform.web.run_comparison import RUN_KIND_LABELS
 from quant_platform.web.run_labels import format_run_label
 from quant_platform.web.theme import (
     github_link_html,
     render_check_row,
     render_hero,
-<<<<<<< HEAD
-    render_launcher,
-=======
->>>>>>> alpha_v2
     render_module_card,
     render_run_row,
     render_section,
     topbar_html,
 )
 
-<<<<<<< HEAD
-# 启动器关键词 → 页面路由（顺序即优先级）
-LAUNCHER_ROUTES: list[tuple[str, str]] = [
-    ("回测", "home.py"),
-    ("复盘", "home.py"),
-    ("数据", "pages/1_data_management.py"),
-    ("优化", "pages/2_research.py"),
-    ("研究", "pages/2_research.py"),
-    ("风险", "pages/3_risk_management.py"),
-    ("模拟", "pages/4_paper_trading.py"),
-    ("交易", "pages/4_paper_trading.py"),
-    ("股票池", "pages/5_universe_management.py"),
-    ("股票", "pages/5_universe_management.py"),
-    ("记录", "pages/6_run_library.py"),
-    ("历史", "pages/6_run_library.py"),
-    ("自定义", "pages/8_custom_strategy.py"),
-    ("智能体", "pages/8_agent_lab.py"),
-    ("策略", "pages/7_strategy_studio.py"),
-    ("backtest", "home.py"),
-    ("data", "pages/1_data_management.py"),
-    ("agent", "pages/8_agent_lab.py"),
-    ("strategy", "pages/7_strategy_studio.py"),
-    ("risk", "pages/3_risk_management.py"),
-    ("paper", "pages/4_paper_trading.py"),
-    ("universe", "pages/5_universe_management.py"),
-    ("history", "pages/6_run_library.py"),
-]
-
 _STATE_TO_DOT = {
     ReadinessStatus.READY: "ok",
     ReadinessStatus.WARNING: "warn",
@@ -86,21 +43,6 @@ _RUN_TO_DOT = {
     RunStatus.FAILED: "err",
 }
 
-=======
-_STATE_TO_DOT = {
-    ReadinessStatus.READY: "ok",
-    ReadinessStatus.WARNING: "warn",
-    ReadinessStatus.ACTION: "err",
-}
-
-_RUN_TO_DOT = {
-    RunStatus.SUCCESS: "ok",
-    RunStatus.RUNNING: "warn",
-    RunStatus.CREATED: "idle",
-    RunStatus.FAILED: "err",
-}
-
->>>>>>> alpha_v2
 # ── 中英文案（主页范围内） ─────────────────────────────────────────
 _TEXT: dict[str, dict[str, object]] = {
     "zh": {
@@ -119,16 +61,9 @@ _TEXT: dict[str, dict[str, object]] = {
         "term_comment": "# 分析师团队 → 多空辩论 → 风控 → PM 审批",
         "term_decision": "决策完成：买入 · 目标仓位 60.0%",
         "term_backtest": "回测完成：年化 18.2% · 最大回撤 -8.4%",
-<<<<<<< HEAD
-        "launcher_ph": "输入模块关键词，如：回测 / 数据 / 策略 / 智能体",
-        "launcher_hint": "支持：回测、复盘、数据、优化、风险、模拟、股票池、记录、自定义、智能体",
-        "launcher_btn": "打开",
-        "launcher_miss": "没有找到匹配的模块，试试输入：回测 / 数据 / 策略 / 智能体",
-=======
         "scroll_hint": "向下滚动",
         "sec_guide": "新手上路",
         "sec_guide_hint": "按顺序完成六步，即可从数据走到模拟交易；高级参数在各页面内折叠隐藏",
->>>>>>> alpha_v2
         "sec_modules": "模块直达",
         "sec_modules_hint": "从任意卡片进入对应工作台",
         "open": "打开",
@@ -172,17 +107,9 @@ _TEXT: dict[str, dict[str, object]] = {
         "term_comment": "# analysts → bull/bear debate → risk → PM approval",
         "term_decision": "Decision: BUY · target position 60.0%",
         "term_backtest": "Backtest done: 18.2% ann. · -8.4% max drawdown",
-<<<<<<< HEAD
-        "launcher_ph": "Type a keyword: backtest / data / strategy / agent",
-        "launcher_hint": "Supports: backtest, data, research, risk, paper, "
-        "universe, history, agent",
-        "launcher_btn": "Open",
-        "launcher_miss": "No matching module. Try: backtest / data / strategy / agent",
-=======
         "scroll_hint": "Scroll down",
         "sec_guide": "Getting Started",
         "sec_guide_hint": "Follow the six steps from data to paper trading",
->>>>>>> alpha_v2
         "sec_modules": "Modules",
         "sec_modules_hint": "Jump into any workbench",
         "open": "Open",
@@ -214,12 +141,9 @@ _TEXT: dict[str, dict[str, object]] = {
 _MODULES: dict[str, list[tuple[str, str, str, str, str]]] = {
     # icon, title, desc, page, footer 模板键或原文
     "zh": [
-<<<<<<< HEAD
-=======
         ("hub", "策略创作中心",
          "模板、积木、自然语言、Python 四种方式创建策略，统一注册与回测。",
          "pages/0_strategy_hub.py", "统一入口"),
->>>>>>> alpha_v2
         ("candlestick_chart", "单次回测与复盘",
          "选择策略并运行一次完整回测，查看收益、回撤与可信度审计。", "home.py", ""),
         ("widgets", "零代码策略工作台",
@@ -231,15 +155,12 @@ _MODULES: dict[str, list[tuple[str, str, str, str, str]]] = {
         ("psychology", "智能体分析台",
          "LLM 多智能体协作完成行情解读、因子研究与交易分析。",
          "pages/8_agent_lab.py", "多智能体研究"),
-<<<<<<< HEAD
-=======
         ("science", "因子研究室",
          "内置量价因子的 IC、分层收益与稳定性评估，支持多因子合成选股。",
          "pages/9_factor_lab.py", "IC · 分层 · 合成"),
         ("chat", "自然语言建策略",
          "用一句话描述策略，大模型转成结构化规则，确认后保存。",
          "pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
->>>>>>> alpha_v2
         ("database", "数据管理",
          "下载证券主表、股票日线与基准行情，检查覆盖率和数据质量。",
          "pages/1_data_management.py", ""),
@@ -260,12 +181,9 @@ _MODULES: dict[str, list[tuple[str, str, str, str, str]]] = {
          "pages/5_universe_management.py", ""),
     ],
     "en": [
-<<<<<<< HEAD
-=======
         ("hub", "Strategy Hub",
          "Templates, blocks, natural language or Python — one registration flow.",
          "pages/0_strategy_hub.py", "Unified entry"),
->>>>>>> alpha_v2
         ("candlestick_chart", "Backtest & Review",
          "Run a full backtest with a strategy; inspect returns, drawdowns and audits.",
          "home.py", ""),
@@ -278,15 +196,12 @@ _MODULES: dict[str, list[tuple[str, str, str, str, str]]] = {
         ("psychology", "Agent Lab",
          "LLM multi-agent research: market reading, factor study, trade analysis.",
          "pages/8_agent_lab.py", "Multi-agent research"),
-<<<<<<< HEAD
-=======
         ("science", "Factor Lab",
          "IC, quantile returns and stability for built-in factors; composite scoring.",
          "pages/9_factor_lab.py", "IC · Groups · Composite"),
         ("chat", "NL Strategy Builder",
          "Describe a strategy in one sentence; the LLM drafts structured rules.",
          "pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
->>>>>>> alpha_v2
         ("database", "Data Management",
          "Fetch security master, daily bars and benchmarks; check coverage & quality.",
          "pages/1_data_management.py", ""),
@@ -325,18 +240,6 @@ def _check_state(report, item: str) -> str:
     return "idle"
 
 
-<<<<<<< HEAD
-def _route(query: str) -> str | None:
-    """按关键词解析目标页面。"""
-    lowered = query.lower()
-    for keyword, page in LAUNCHER_ROUTES:
-        if keyword.lower() in lowered:
-            return page
-    return None
-
-
-=======
->>>>>>> alpha_v2
 def _render_stickybar(report) -> None:
     """顶部悬浮导航条：网页名 / 语言切换 / GitHub（带图标）。
 
@@ -390,10 +293,7 @@ def _render_hero(report) -> None:
             '<span class="aq-term-prompt">$</span> alphaquant backtest --strategy momentum',
             f'<span class="aq-term-ok">✓</span> {_t("term_backtest")}',
         ),
-<<<<<<< HEAD
-=======
         scroll_hint=_t("scroll_hint"),
->>>>>>> alpha_v2
     )
     with st.container(key="aq_hero_ctas"):
         columns = st.columns([1, 1, 1, 1, 4])
@@ -409,22 +309,6 @@ def _render_hero(report) -> None:
                     st.switch_page(page)
 
 
-<<<<<<< HEAD
-def _render_launcher() -> None:
-    """渲染启动器：输入关键词回车直达目标模块。"""
-    query = render_launcher(
-        "welcome_launcher",
-        _t("launcher_ph"),
-        _t("launcher_hint"),
-        submit_label=_t("launcher_btn"),
-    )
-    if query:
-        page = _route(query)
-        if page:
-            st.switch_page(page)
-        else:
-            st.toast(_t("launcher_miss"))
-=======
 _GUIDE_ICONS = {StepState.DONE: "✅", StepState.CURRENT: "👉", StepState.TODO: "⬜"}
 
 
@@ -467,7 +351,6 @@ def _render_guide(report, config_path: str) -> None:
                     ),
                 ):
                     st.switch_page(step.page)
->>>>>>> alpha_v2
 
 
 def _render_modules(report) -> None:
@@ -581,13 +464,8 @@ def main() -> None:
     with st.container(key="aq_hero_wrap"):
         _render_hero(report)
 
-<<<<<<< HEAD
-    with st.container(key="aq_sec_launcher"):
-        _render_launcher()
-=======
     with st.container(key="aq_sec_guide"):
         _render_guide(report, config_path)
->>>>>>> alpha_v2
     with st.container(key="aq_sec_modules"):
         _render_modules(report)
     with st.container(key="aq_sec_status"):
