@@ -93,7 +93,7 @@ def _build_namespace() -> dict[str, Any]:
     safe_builtins["__import__"] = _safe_import
     for name in ("open", "exec", "eval", "compile", "input", "breakpoint", "__loader__"):
         safe_builtins[name] = _forbidden(name)
-    return {"__name__": "alphaquant_user_strategy", "__builtins__": safe_builtins}
+    return {"__name__": "fellowquant_user_strategy", "__builtins__": safe_builtins}
 
 
 @dataclass(frozen=True)

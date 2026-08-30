@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 from dataclasses import asdict
 from datetime import date, timedelta
 
@@ -35,7 +40,7 @@ def _download_csv(
 st.title("数据管理")
 st.caption("按配置的数据源顺序更新行情，检查覆盖率并记录数据版本。")
 
-config_path = st.sidebar.text_input("数据管理配置", "configs/app.yaml", key="data_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     service = DataCenterService(config_path)
     overview = service.overview()

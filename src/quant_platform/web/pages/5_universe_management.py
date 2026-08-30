@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import pandas as pd
 import streamlit as st
 
@@ -14,7 +19,7 @@ from quant_platform.web.localization import localize_frame
 st.title("股票池管理")
 st.caption("直接添加、搜索或移除股票。保存后，数据更新和新回测会自动使用当前股票池。")
 
-config_path = st.sidebar.text_input("股票池配置", "configs/app.yaml", key="universe_app_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     service = UniverseManagementService(config_path)
     settings = service.load()

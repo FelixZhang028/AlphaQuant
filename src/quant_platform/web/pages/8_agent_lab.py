@@ -5,6 +5,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import datetime as dt
 
 import streamlit as st
@@ -142,9 +147,7 @@ st.info("本页面仅供研究，不构成投资建议；Trader 提案中的止�
 if st.session_state.pop("llm_config_flash", None):
     st.success("LLM 配置已保存到本地。")
 
-config_path = st.sidebar.text_input(
-    "应用配置", "configs/app.yaml", key="agent_lab_config_path"
-)
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     app_config = load_yaml(config_path)
     repository_path = require_mapping(app_config, "data")["repository"]

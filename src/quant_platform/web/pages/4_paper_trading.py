@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import json
 from dataclasses import replace
 from datetime import date
@@ -20,7 +25,7 @@ st.info(
     "它不是实时行情撮合，也不会连接真实券商。"
 )
 
-config_path = st.sidebar.text_input("模拟交易配置", "configs/app.yaml", key="paper_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     backtests = BacktestService(config_path)
     papers = PaperTradingService(backtests)

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import json
 import math
 from dataclasses import replace
 from pathlib import Path
+from textwrap import dedent
 from typing import Any
 
 import pandas as pd
@@ -23,6 +29,269 @@ from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
+
+
+# 侧栏「隐藏/显示」由 Streamlit 原生收起/展开控件提供（见 theme.py
+# 顶部注释），本页不再单独维护。
+
+# 工作台视觉层：只作用于当前回测页，避免覆盖其它功能页的已有布局。
+# 逻辑组件、参数键、提交行为和结果数据均保持不变。
+st.markdown(
+    dedent("""
+    <div class="aq-workbench-page-marker" aria-hidden="true"></div>
+    <style>
+      :root {
+        --aq-bg: #04060e;
+        --aq-panel: rgba(13, 28, 52, .78);
+        --aq-panel-strong: rgba(17, 36, 66, .94);
+        --aq-line: rgba(126, 200, 255, .18);
+        --aq-line-soft: rgba(255, 255, 255, .10);
+        --aq-text: #f5f7f8;
+        --aq-muted: #98b0c2;
+        --aq-teal: #7ec8ff;
+        --aq-ember: #ffb454;
+      }
+
+      html:has(.aq-workbench-page-marker),
+      html:has(.aq-workbench-page-marker) body,
+      html:has(.aq-workbench-page-marker) [data-testid="stAppViewContainer"] {
+        background:
+          radial-gradient(72rem 34rem at 78% -8%, rgba(37, 99, 235, .22), transparent 63%),
+          radial-gradient(48rem 28rem at 18% 20%, rgba(255, 180, 84, .08), transparent 70%),
+          var(--aq-bg) !important;
+      }
+
+      html:has(.aq-workbench-page-marker) [data-testid="stMainBlockContainer"] {
+        width: min(1180px, calc(100vw - 2rem)) !important;
+        max-width: 1180px !important;
+        margin: 0 auto !important;
+        padding: clamp(3rem, 6vw, 5.5rem) clamp(1rem, 3vw, 2.25rem) 5rem !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stMainBlockContainer"] > div {
+        gap: 1.05rem !important;
+      }
+
+      html:has(.aq-workbench-page-marker) h1 {
+        margin: 0 0 .45rem !important;
+        color: var(--aq-text) !important;
+        font-size: clamp(2.35rem, 4.4vw, 4.2rem) !important;
+        font-weight: 650 !important;
+        letter-spacing: -.055em !important;
+        line-height: .98 !important;
+        text-shadow: 0 0 34px rgba(126, 200, 255, .10);
+      }
+      html:has(.aq-workbench-page-marker) h1::after {
+        content: "";
+        display: block;
+        width: 4.2rem;
+        height: 2px;
+        margin-top: 1rem;
+        background: linear-gradient(90deg, var(--aq-teal), transparent);
+      }
+      html:has(.aq-workbench-page-marker) h2,
+      html:has(.aq-workbench-page-marker) h3 {
+        color: var(--aq-text) !important;
+        letter-spacing: -.025em !important;
+      }
+      html:has(.aq-workbench-page-marker) h2 {
+        margin-top: 2.5rem !important;
+        font-size: clamp(1.75rem, 3vw, 2.65rem) !important;
+      }
+      html:has(.aq-workbench-page-marker) h3 {
+        font-size: 1.15rem !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stCaptionContainer"] {
+        color: var(--aq-muted) !important;
+        font-size: .86rem !important;
+        letter-spacing: .01em;
+      }
+
+      /* 新建回测：玻璃卡片 + 青色边缘高光 */
+      html:has(.aq-workbench-page-marker) [data-testid="stExpander"] {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, rgba(20, 40, 72, .86), rgba(8, 18, 32, .88)) !important;
+        border: 1px solid rgba(126, 200, 255, .20) !important;
+        border-radius: 18px !important;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255,255,255,.06) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stExpander"]::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--aq-teal), transparent);
+        opacity: .8;
+        pointer-events: none;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stExpander"] summary {
+        color: var(--aq-text) !important;
+        font-weight: 600 !important;
+        letter-spacing: .02em;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stExpander"] summary:hover {
+        color: var(--aq-teal) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stForm"] {
+        background: rgba(255,255,255,.025) !important;
+        border: 1px solid rgba(255,255,255,.09) !important;
+        border-radius: 14px !important;
+        padding: .85rem !important;
+      }
+
+      /* 输入控件：与主页认证卡片一致的半透明玻璃质感 */
+      html:has(.aq-workbench-page-marker) label,
+      html:has(.aq-workbench-page-marker) [data-testid="stWidgetLabel"] p {
+        color: #b8c9d8 !important;
+        font-size: .82rem !important;
+        font-weight: 550 !important;
+      }
+      html:has(.aq-workbench-page-marker) input,
+      html:has(.aq-workbench-page-marker) textarea,
+      html:has(.aq-workbench-page-marker) [data-baseweb="select"] > div {
+        background: rgba(5, 12, 24, .46) !important;
+        border-color: rgba(126, 200, 255, .16) !important;
+        border-radius: 10px !important;
+        color: var(--aq-text) !important;
+        transition: border-color .2s ease, box-shadow .2s ease, background .2s ease !important;
+      }
+      html:has(.aq-workbench-page-marker) input:focus,
+      html:has(.aq-workbench-page-marker) textarea:focus,
+      html:has(.aq-workbench-page-marker) [data-baseweb="select"] > div:focus-within {
+        background: rgba(9, 24, 44, .72) !important;
+        border-color: var(--aq-teal) !important;
+        box-shadow: 0 0 0 3px rgba(126, 200, 255, .12), 0 0 24px rgba(126, 200, 255, .08) !important;
+      }
+      html:has(.aq-workbench-page-marker) input::placeholder,
+      html:has(.aq-workbench-page-marker) textarea::placeholder {
+        color: #68809a !important;
+      }
+
+      /* 指标区和结果卡片 */
+      html:has(.aq-workbench-page-marker) [data-testid="stMetric"] {
+        min-height: 6.2rem;
+        padding: 1rem 1.1rem !important;
+        background: linear-gradient(145deg, rgba(20, 44, 80, .86), rgba(8, 18, 32, .82)) !important;
+        border: 1px solid rgba(126, 200, 255, .13) !important;
+        border-radius: 14px !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 12px 30px rgba(0,0,0,.14) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        border-color: rgba(126, 200, 255, .42) !important;
+        box-shadow: 0 16px 34px rgba(0,0,0,.24), 0 0 24px rgba(126,200,255,.07) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stMetricLabel"] {
+        color: var(--aq-muted) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stMetricValue"] {
+        color: var(--aq-text) !important;
+        font-size: clamp(1.2rem, 2vw, 1.7rem) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stMetricDelta"] svg {
+        color: var(--aq-teal) !important;
+      }
+
+      /* Tab 导航 */
+      html:has(.aq-workbench-page-marker) [data-testid="stTabs"] {
+        margin-top: 1.5rem;
+        padding: .4rem;
+        background: rgba(6, 14, 26, .58);
+        border: 1px solid rgba(126, 200, 255, .12);
+        border-radius: 14px;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stTabs"] [role="tab"] {
+        min-height: 2.45rem;
+        padding: 0 .95rem;
+        border-radius: 9px;
+        color: #8ca3b8 !important;
+        transition: color .2s ease, background .2s ease, transform .2s ease;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stTabs"] [role="tab"]:hover {
+        color: var(--aq-text) !important;
+        background: rgba(126, 200, 255, .07);
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+        color: #061116 !important;
+        background: var(--aq-teal) !important;
+        border: 0 !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+        display: none !important;
+      }
+
+      /* 反馈、分隔线、表格和图表 */
+      html:has(.aq-workbench-page-marker) [data-testid="stAlert"] {
+        border-radius: 12px !important;
+        background: rgba(126, 200, 255, .07) !important;
+        border: 1px solid rgba(126, 200, 255, .22) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stAlert"] p {
+        color: #cde5e5 !important;
+      }
+      html:has(.aq-workbench-page-marker) hr {
+        margin: 2rem 0 !important;
+        border-color: rgba(126, 200, 255, .13) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stDataFrame"] {
+        overflow: hidden;
+        border: 1px solid rgba(126, 200, 255, .15) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 16px 38px rgba(0,0,0,.16) !important;
+      }
+      html:has(.aq-workbench-page-marker) [data-testid="stVegaLiteChart"],
+      html:has(.aq-workbench-page-marker) [data-testid="stArrowVegaLiteChart"] {
+        padding: .45rem;
+        background: rgba(8, 18, 34, .52);
+        border: 1px solid rgba(126, 200, 255, .12);
+        border-radius: 14px;
+      }
+
+      /* 按钮统一为主页风格，保留原有 Streamlit 行为 */
+      html:has(.aq-workbench-page-marker) button {
+        transition: transform .2s cubic-bezier(.22,1,.36,1), box-shadow .2s ease,
+                    border-color .2s ease, background .2s ease !important;
+      }
+      html:has(.aq-workbench-page-marker) button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 24px rgba(0,0,0,.22) !important;
+      }
+      html:has(.aq-workbench-page-marker) button[kind="primary"] {
+        background: linear-gradient(135deg, #7ec8ff, #3b82f6) !important;
+        color: #071116 !important;
+        border: 0 !important;
+        border-radius: 10px !important;
+        box-shadow: 0 8px 22px rgba(59, 130, 246, .22) !important;
+      }
+      html:has(.aq-workbench-page-marker) button[kind="primary"] p,
+      html:has(.aq-workbench-page-marker) button[kind="primary"] span {
+        color: #071116 !important;
+      }
+      html:has(.aq-workbench-page-marker) button[kind="secondary"] {
+        border-color: rgba(126, 200, 255, .24) !important;
+        border-radius: 10px !important;
+      }
+      html:has(.aq-workbench-page-marker) button[kind="secondary"]:hover {
+        background: rgba(126, 200, 255, .09) !important;
+        border-color: rgba(126, 200, 255, .55) !important;
+      }
+
+      @media (max-width: 800px) {
+        html:has(.aq-workbench-page-marker) [data-testid="stMainBlockContainer"] {
+          width: 100% !important;
+          padding: 3rem 1rem 3.5rem !important;
+        }
+        html:has(.aq-workbench-page-marker) h1 { font-size: 2.35rem !important; }
+        html:has(.aq-workbench-page-marker) [data-testid="stMetric"] { min-height: 5.4rem; }
+        html:has(.aq-workbench-page-marker) [data-testid="stTabs"] [role="tab"] {
+          padding: 0 .55rem;
+          font-size: .82rem;
+        }
+      }
+    </style>
+    """).replace("\n\n", "\n"),
+    unsafe_allow_html=True,
+)
 
 
 def _parameter_input(
@@ -359,7 +628,7 @@ def _render_result(run_dir: Path) -> None:
 st.title("单次回测与复盘")
 st.caption("运行一组确定参数，并深入检查收益、风险、交易成本、持仓和订单。")
 
-config_path = st.sidebar.text_input("应用配置", "configs/app.yaml")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     service = BacktestService(config_path)
     default_request = service.default_request()

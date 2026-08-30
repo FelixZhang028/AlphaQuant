@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Install AlphaQuant Platform
+title Install FellowQuant Platform
 
 where python >nul 2>nul
 if errorlevel 1 (
@@ -30,7 +30,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Installation completed. Starting AlphaQuant Platform...
+echo Installation completed. Starting FellowQuant Platform...
 ".venv\Scripts\python.exe" -m streamlit run "src\quant_platform\web\app.py" --server.headless false --browser.gatherUsageStats false
 
 if errorlevel 1 (

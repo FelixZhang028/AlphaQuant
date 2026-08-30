@@ -13,6 +13,7 @@ Requires-Dist: streamlit
 Requires-Dist: pydantic>=2.5
 Requires-Dist: requests>=2.31
 Requires-Dist: rich>=13.0
+Requires-Dist: scipy
 Provides-Extra: tushare
 Requires-Dist: tushare; extra == "tushare"
 Provides-Extra: tdx

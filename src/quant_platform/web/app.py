@@ -8,13 +8,13 @@ import streamlit as st
 
 from quant_platform.web.theme import inject_global_css
 
-LOGO_PATH = Path(__file__).parent / "assets" / "alphaquant-logo.png"
+LOGO_PATH = Path(__file__).parent / "assets" / "fellowquant-logo.png"
 
 st.set_page_config(
-    page_title="AlphaQuant量化工作台",
+    page_title="FellowQuant量化工作台",
     page_icon=str(LOGO_PATH),
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 st.logo(str(LOGO_PATH), size="large", icon_image=str(LOGO_PATH))
 
@@ -78,6 +78,9 @@ navigation = st.navigation(
         "数据与交易": [
             st.Page(
                 "pages/1_data_management.py", title="数据管理", icon=":material/database:"
+            ),
+            st.Page(
+                "pages/11_xtick_data.py", title="XTick 数据服务", icon=":material/api:"
             ),
             st.Page("pages/3_risk_management.py", title="风险管理", icon=":material/shield:"),
             st.Page(

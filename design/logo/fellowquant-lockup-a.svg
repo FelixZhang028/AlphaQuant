@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2600 700" width="2600" height="700">
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4D6BFE"/>
+      <stop offset="1" stop-color="#2743C9"/>
+    </linearGradient>
+    <linearGradient id="whiteMark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4D6BFE"/>
+      <stop offset="1" stop-color="#2743C9"/>
+    </linearGradient>
+  </defs>
+  <rect width="2600" height="700" fill="#FFFFFF"/>
+  <!-- mark (whale tail + trend) scaled to fit left area -->
+  <g transform="translate(24,60) scale(0.62)">
+    <polyline points="180,820 352,740 488,786 644,664 816,540"
+      fill="none" stroke="#3E5BE0" stroke-width="32"
+      stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="816" cy="540" r="24" fill="#3E5BE0"/>
+    <circle cx="816" cy="540" r="9" fill="#FFFFFF"/>
+    <path d="M512 774
+      C500 640 482 560 444 520
+      C406 480 348 452 280 436
+      C246 428 218 396 206 346
+      C244 338 296 356 340 392
+      C398 440 458 462 512 462
+      C566 462 626 440 684 392
+      C728 356 780 338 818 346
+      C806 396 778 428 744 436
+      C676 452 618 480 580 520
+      C542 560 524 640 512 774 Z"
+      fill="url(#whiteMark)"/>
+  </g>
+  <!-- wordmark -->
+  <text x="740" y="380"
+    font-family="Segoe UI, PingFang SC, Microsoft YaHei, Helvetica, Arial, sans-serif"
+    font-size="220" font-weight="700" fill="#16235A" letter-spacing="2">Fellow<tspan fill="#4D6BFE">Quant</tspan></text>
+  <!-- tagline -->
+  <text x="748" y="492"
+    font-family="Segoe UI, PingFang SC, Helvetica, Arial, sans-serif"
+    font-size="52" font-weight="600" fill="#5B7BFF" letter-spacing="12">SYSTEMATIC QUANTITATIVE TRADING</text>
+</svg>

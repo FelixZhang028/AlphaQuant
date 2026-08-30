@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
@@ -18,9 +23,7 @@ from quant_platform.web.run_labels import format_run_label
 st.title("回测记录库")
 st.caption("统一管理单次回测、参数优化和样本外验证结果，并选择多个结果进行比较。")
 
-config_path = st.sidebar.text_input(
-    "回测记录配置", "configs/app.yaml", key="run_library_config_path"
-)
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     service = BacktestService(config_path)
 except Exception as exc:

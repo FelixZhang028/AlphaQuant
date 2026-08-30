@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="fq-bg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0A1730"/>
+      <stop offset="0.55" stop-color="#12306B"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App 图标底板：圆角方块 + 品牌深蓝渐变 -->
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#fq-bg)"/>
+
+  <!-- 伴行线（Fellow） -->
+  <path d="M118 420 L206 346 L272 378"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="32"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 主线（Quant）：上升折线 -->
+  <path d="M96 366 L184 286 L258 322 L352 206"
+        fill="none" stroke="#FFFFFF" stroke-width="46"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 引导星 -->
+  <path d="M392 96
+           C399 140 417 162 461 169
+           C417 176 399 198 392 242
+           C385 198 367 176 323 169
+           C367 162 385 140 392 96 Z"
+        fill="#FFFFFF"/>
+</svg>

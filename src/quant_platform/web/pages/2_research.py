@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -59,9 +64,7 @@ def _metric(value: Any, *, percent: bool = False) -> str:
 st.title("参数优化与稳健性验证")
 st.caption("从一次成功回测出发，寻找候选参数，并用未见数据检查策略是否稳定。")
 
-config_path = st.sidebar.text_input(
-    "验证配置", "configs/app.yaml", key="research_config_path"
-)
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     service = BacktestService(config_path)
 except Exception as exc:

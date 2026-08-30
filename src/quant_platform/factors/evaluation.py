@@ -4,15 +4,14 @@
 
 - 因子值只用 ``<= end_date`` 的行情计算（评估区间内 t 日因子天然只依赖
   t 日及之前的数据，见 ``base.FactorDefinition`` 约定）；
-- 未来收益严格定义为 t+1 日收盘买入、持有 N 个交易日后在 t+N+1
-  日收盘卖出：``fwd_ret(t) = close(t+N+1) / close(t+1) - 1``；
+- 未来收益严格定义为 t+1 日收盘买入、t+N 日收盘卖出：
+  ``fwd_ret(t) = close(t+N) / close(t+1) - 1``（按交易日计）；
 - IC 与分层统计均使用「因子值 × direction」后的调整值，
   因此正的 IC / 正的多空收益代表因子按预期方向有效。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -20,25 +19,6 @@ import pandas as pd
 
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.base import FactorDefinition, pivot_field
-from quant_platform.factors.preprocess import (
-    FactorPreprocessConfig,
-    preprocess_factor,
-)
-
-
-def chronological_train_test_split(
-    dates: Iterable[object], *, train_ratio: float = 0.7
-) -> tuple[date, date]:
-    """按交易日顺序切分训练期结束日和测试期开始日。"""
-
-    if not 0.0 < train_ratio < 1.0:
-        raise ValueError("train_ratio 必须在 0 和 1 之间")
-    ordered = pd.DatetimeIndex(pd.to_datetime(list(dates), errors="coerce"))
-    ordered = ordered.dropna().normalize().unique().sort_values()
-    if len(ordered) < 2:
-        raise ValueError("至少需要两个有效交易日才能划分训练期和测试期")
-    split_index = min(max(int(len(ordered) * train_ratio), 1), len(ordered) - 1)
-    return ordered[split_index - 1].date(), ordered[split_index].date()
 
 
 @dataclass(frozen=True)
@@ -79,7 +59,6 @@ class FactorEvaluator:
         symbols: list[str] | None = None,
         horizon: int = 5,
         n_groups: int = 5,
-        preprocess: FactorPreprocessConfig | None = None,
     ) -> FactorReport:
         """评估因子在 [start_date, end_date] 的横截面选股能力。"""
 
@@ -93,18 +72,6 @@ class FactorEvaluator:
         if factor_bars.empty:
             raise ValueError("评估区间内没有行情数据")
         values = factor.compute(factor_bars)
-        if preprocess is not None:
-            sample_keys = factor_bars[["trade_date", "symbol"]].rename(
-                columns={"trade_date": "date"}
-            )
-            sample_keys["date"] = pd.to_datetime(sample_keys["date"]).dt.normalize()
-            values["date"] = pd.to_datetime(values["date"]).dt.normalize()
-            values = sample_keys.drop_duplicates().merge(
-                values[["date", "symbol", "value"]],
-                on=["date", "symbol"],
-                how="left",
-            )
-            values = preprocess_factor(values, preprocess)
         values["date"] = pd.to_datetime(values["date"]).dt.normalize()
         values = values[
             values["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
@@ -152,7 +119,7 @@ class FactorEvaluator:
         )
 
     def _forward_returns(self, symbols: list[str] | None, horizon: int) -> pd.DataFrame:
-        """t+1 收盘买入、持有 horizon 日后收盘卖出的未来收益（date=t）。"""
+        """t+1 收盘买入、t+horizon 收盘卖出的未来收益（date=t）。"""
 
         bars = self.repository.get_daily_bars(symbols=symbols)
         price_field = (
@@ -162,7 +129,7 @@ class FactorEvaluator:
         )
         close = pivot_field(bars, price_field)
         entry = close.shift(-1)
-        exit_ = close.shift(-(horizon + 1))
+        exit_ = close.shift(-horizon)
         fwd = exit_ / entry - 1.0
         long = fwd.stack(future_stack=True).rename("fwd_ret").reset_index()
         long.columns = pd.Index(["date", "symbol", "fwd_ret"])
@@ -187,7 +154,9 @@ class FactorEvaluator:
         for trade_date, group in merged.groupby("date", observed=True):
             if len(group) < n_groups:
                 continue
-            labels = pd.qcut(group["adjusted"], n_groups, labels=False, duplicates="drop")
+            labels = pd.qcut(
+                group["adjusted"], n_groups, labels=False, duplicates="drop"
+            )
             for label, bucket in group.groupby(labels, observed=True):
                 rows.append(
                     {
@@ -211,11 +180,13 @@ class FactorEvaluator:
         for trade_date, group in merged.groupby("date", observed=True):
             if len(group) < n_groups:
                 continue
-            labels = pd.qcut(group["adjusted"], n_groups, labels=False, duplicates="drop")
+            labels = pd.qcut(
+                group["adjusted"], n_groups, labels=False, duplicates="drop"
+            )
             top_label = labels.max()
             top_sets.append((trade_date, set(group.loc[labels == top_label, "symbol"])))
         rows: list[dict[str, object]] = []
-        for (_, prev), (trade_date, current) in zip(top_sets, top_sets[1:], strict=False):
+        for (_, prev), (trade_date, current) in zip(top_sets, top_sets[1:]):
             overlap = len(prev & current) / len(current) if current else 0.0
             rows.append({"date": trade_date, "turnover": 1.0 - overlap})
         return pd.DataFrame(rows, columns=["date", "turnover"])

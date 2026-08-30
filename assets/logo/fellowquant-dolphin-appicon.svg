@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="fq-bg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <mask id="fq-cut-icon">
+      <rect x="-60" y="-60" width="380" height="380" fill="#FFFFFF"/>
+      <circle cx="180" cy="90" r="4.5" fill="#000000"/>
+      <path d="M199 102 C192 105 186 106 180 107" stroke="#000000" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </mask>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" rx="57" fill="url(#fq-bg)"/>
+
+  <g transform="translate(26.3 35.3) scale(0.82)">
+    <g fill="#FFFFFF" mask="url(#fq-cut-icon)">
+      <path d="M206 99 C200 93 194 89 188 87 C184 81 180 77 174 73 C156 61 130 57 106 65 C88 71 70 87 58 107 C51 121 47 134 50 146 C40 132 22 126 12 132 C18 146 32 158 46 164 C40 180 36 194 40 202 C48 192 56 180 58 170 C86 166 108 154 126 142 C144 130 162 120 178 111 C186 107 190 105 194 104 C199 102 203 100 206 99 Z"/>
+      <path d="M102 64 C104 46 96 32 82 24 C100 26 122 40 132 58 L140 63 Z"/>
+      <path d="M116 144 C114 158 106 170 94 176 C108 174 124 162 130 146 Z"/>
+    </g>
+    <path d="M217 83 A 16 16 0 0 1 217 109" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M224 73 A 28 28 0 0 1 224 119" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.55"/>
+  </g>
+</svg>

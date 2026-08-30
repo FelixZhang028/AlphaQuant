@@ -1,6 +1,6 @@
-"""DataFrame 行情适配器：把 AlphaQuant 日线数据喂给 LLM 多智能体流水线。
+"""DataFrame 行情适配器：把 FellowQuant 日线数据喂给 LLM 多智能体流水线。
 
-列名映射（AlphaQuant 日线 -> trading_agents OHLCVBar）：
+列名映射（FellowQuant 日线 -> trading_agents OHLCVBar）：
 
 - ``trade_date`` -> ``date``
 - ``raw_open``  -> ``open``

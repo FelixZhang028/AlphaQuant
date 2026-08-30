@@ -68,9 +68,8 @@ def _rsi_14(bars: pd.DataFrame) -> pd.DataFrame:
 
 
 def _high_distance_20(bars: pd.DataFrame) -> pd.DataFrame:
-    # 分子、分母必须使用同一价格口径；复权收盘价不能与未复权最高价混用。
-    close = pivot_field(bars, "raw_close")
-    high = pivot_field(bars, "raw_high")
+    close = _close(bars)
+    high = pivot_field(bars, "raw_high") if "raw_high" in bars.columns else close
     rolling_high = high.rolling(20, min_periods=20).max()
     return melt_wide(close / rolling_high - 1.0)
 
@@ -105,7 +104,9 @@ def _amplitude_20(bars: pd.DataFrame) -> pd.DataFrame:
     high = pivot_field(bars, "raw_high")
     low = pivot_field(bars, "raw_low")
     pre_close = (
-        pivot_field(bars, "pre_close") if "pre_close" in bars.columns else _close(bars).shift(1)
+        pivot_field(bars, "pre_close")
+        if "pre_close" in bars.columns
+        else _close(bars).shift(1)
     )
     amplitude = (high - low) / pre_close.replace(0.0, np.nan)
     return melt_wide(amplitude.rolling(20, min_periods=20).mean())
@@ -190,8 +191,8 @@ def builtin_factors() -> list[FactorDefinition]:
             name="high_distance_20",
             display_name="20日新高距离",
             description="收盘价相对过去 20 日最高价的距离，越接近新高（值越接近 0）突破动能越强。",
-            formula="raw_close(t) / max(raw_high, 20) - 1",
-            required_fields=("raw_close", "raw_high"),
+            formula="adjusted_close(t) / max(raw_high, 20) - 1",
+            required_fields=(_PRICE, "raw_high"),
             min_history=20,
             direction=1,
             category="动量",

@@ -105,7 +105,11 @@ class BacktestEngine:
         empty_day = bars.iloc[0:0].copy()
 
         account = Account(account_id=self.strategy.strategy_id, initial_cash=initial_cash)
-        last_closing_prices: dict[str, float] = {}
+        # 用回测起点之前的最后收盘价做估值底仓：区间内停牌、退市或数据缺失的
+        # 股票不会被错误地按 0 估值，也不会在持仓记录里留下 None 价格。
+        last_closing_prices: dict[str, float] = self._seed_closing_prices(
+            bars, start_date
+        )
 
         pending: dict[date, list[Order]] = {}
         all_signals: list[Signal] = []
@@ -348,6 +352,24 @@ class BacktestEngine:
         frame["period"] = periods
         tails = frame.groupby("period", observed=True).tail(1)
         return {timestamp.date() for timestamp in tails["trade_date"]}
+
+    @staticmethod
+    def _seed_closing_prices(bars: pd.DataFrame, start_date: date) -> dict[str, float]:
+        """Return each symbol's latest close strictly before ``start_date``."""
+
+        if bars.empty or "raw_close" not in bars.columns:
+            return {}
+        prior = bars[
+            (bars["trade_date"] < pd.Timestamp(start_date)) & bars["raw_close"].notna()
+        ]
+        if prior.empty:
+            return {}
+        latest = prior.groupby("symbol", observed=True).tail(1)
+        return {
+            str(symbol): float(price)
+            for symbol, price in zip(latest["symbol"], latest["raw_close"], strict=True)
+            if float(price) > 0
+        }
 
     @staticmethod
     def _history_through(bars: pd.DataFrame, trade_date: date) -> pd.DataFrame:

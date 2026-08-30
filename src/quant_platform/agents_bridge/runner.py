@@ -1,4 +1,4 @@
-"""AgentRunner：在 AlphaQuant 内复用 trading_agents 决策流水线的薄封装。
+"""AgentRunner：在 FellowQuant 内复用 trading_agents 决策流水线的薄封装。
 
 负责装配 TradingConfig / LLM client / MemoryStore / SimulatedExchange /
 Portfolio（参考 trading_agents/cli.py 的 build_context），并提供基于磁盘的
