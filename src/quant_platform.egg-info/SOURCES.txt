@@ -80,6 +80,7 @@ src/quant_platform/factors/__init__.py
 src/quant_platform/factors/base.py
 src/quant_platform/factors/builtins.py
 src/quant_platform/factors/combine.py
+src/quant_platform/factors/custom.py
 src/quant_platform/factors/evaluation.py
 src/quant_platform/factors/preprocess.py
 src/quant_platform/factors/registry.py
@@ -117,6 +118,7 @@ src/quant_platform/user_strategies/store.py
 src/quant_platform/web/__init__.py
 src/quant_platform/web/agent_trace.py
 src/quant_platform/web/app.py
+src/quant_platform/web/auth.py
 src/quant_platform/web/exports.py
 src/quant_platform/web/guide.py
 src/quant_platform/web/home.py
@@ -127,6 +129,7 @@ src/quant_platform/web/theme.py
 src/quant_platform/web/welcome.py
 src/quant_platform/web/pages/0_strategy_hub.py
 src/quant_platform/web/pages/10_nl_strategy.py
+src/quant_platform/web/pages/11_xtick_data.py
 src/quant_platform/web/pages/1_data_management.py
 src/quant_platform/web/pages/2_research.py
 src/quant_platform/web/pages/3_risk_management.py

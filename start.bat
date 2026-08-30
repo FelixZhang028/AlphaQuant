@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title AlphaQuant Platform
+title FellowQuant Platform
 
 if exist ".venv\Scripts\python.exe" (
     set "PYTHON_EXE=.venv\Scripts\python.exe"
@@ -14,7 +14,7 @@ if exist ".venv\Scripts\python.exe" (
     set "PYTHON_EXE=python"
 )
 
-echo Starting AlphaQuant Platform...
+echo Starting FellowQuant Platform...
 echo The browser will open automatically. Close this window to stop the platform.
 "%PYTHON_EXE%" -m streamlit run "src\quant_platform\web\app.py" --server.headless false --browser.gatherUsageStats false
 

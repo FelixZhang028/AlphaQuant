@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#5B7BFF"/>
+      <stop offset="1" stop-color="#2743C9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#glow)"/>
+  <!-- ascending candlesticks -->
+  <g stroke="#BFD3FF" stroke-width="14" stroke-linecap="round">
+    <line x1="269" y1="610" x2="269" y2="846"/>
+    <line x1="439" y1="514" x2="439" y2="790"/>
+    <line x1="609" y1="418" x2="609" y2="734"/>
+  </g>
+  <line x1="779" y1="322" x2="779" y2="678" stroke="#9FE0FF" stroke-width="14" stroke-linecap="round"/>
+  <g fill="#FFFFFF">
+    <rect x="210" y="664" width="118" height="128" rx="26"/>
+    <rect x="380" y="568" width="118" height="168" rx="26"/>
+    <rect x="550" y="472" width="118" height="208" rx="26"/>
+  </g>
+  <rect x="720" y="376" width="118" height="248" rx="26" fill="#9FE0FF"/>
+  <!-- signal dot -->
+  <circle cx="779" cy="270" r="18" fill="#9FE0FF"/>
+</svg>

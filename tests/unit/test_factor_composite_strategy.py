@@ -37,35 +37,20 @@ def _bars(symbols: list[str], days: int = 30) -> pd.DataFrame:
 
 def test_parameters_roundtrip_and_validation() -> None:
     payload = json.dumps(
-        {
-            "components": [
-                {"name": "momentum_20", "weight": 2.0},
-                {"name": "bias_10", "weight": 1.0},
-            ],
-            "preprocess": {"winsorize": True, "fill_method": "median"},
-        },
+        [{"name": "momentum_20", "weight": 2.0}, {"name": "bias_10", "weight": 1.0}],
         ensure_ascii=False,
     )
     params = FactorCompositeParameters.from_json(payload)
     assert [item.name for item in params.components] == ["momentum_20", "bias_10"]
-    assert params.preprocess.winsorize is True
-    serialized = json.loads(params.to_json())
-    assert serialized["components"][0]["weight"] == 2.0
-    assert serialized["preprocess"]["fill_method"] == "median"
-
-    # 兼容旧版只有列表的组合参数。
-    legacy = FactorCompositeParameters.from_json('[{"name": "momentum_20", "weight": 1.0}]')
-    assert legacy.preprocess.winsorize is False
+    assert json.loads(params.to_json())[0]["weight"] == 2.0
 
     with pytest.raises(ConfigurationError, match="非空列表"):
         FactorCompositeParameters.from_json("[]")
     with pytest.raises(ConfigurationError, match="未注册的因子"):
         FactorCompositeParameters.from_json('[{"name": "ghost_factor"}]')
     with pytest.raises(ConfigurationError, match="重复"):
-        FactorCompositeParameters.from_json('[{"name": "momentum_20"}, {"name": "momentum_20"}]')
-    with pytest.raises(ConfigurationError, match="预处理配置"):
         FactorCompositeParameters.from_json(
-            '{"components": [{"name": "momentum_20"}], "preprocess": []}'
+            '[{"name": "momentum_20"}, {"name": "momentum_20"}]'
         )
 
 
@@ -76,7 +61,11 @@ def test_strategy_generates_scores_for_all_symbols() -> None:
     context = StrategyContext.create(trade_date, history, symbols)
     strategy = FactorCompositeStrategy.from_parameters(
         "combo_test",
-        {"factors_json": json.dumps([{"name": "momentum_20", "weight": 1.0}], ensure_ascii=False)},
+        {
+            "factors_json": json.dumps(
+                [{"name": "momentum_20", "weight": 1.0}], ensure_ascii=False
+            )
+        },
     )
     signals = strategy.generate_signals(context)
     assert {signal.symbol for signal in signals} == set(symbols)

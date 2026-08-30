@@ -34,7 +34,7 @@ st.caption(
 )
 
 store = LLMSettingsStore()
-config_path = st.sidebar.text_input("应用配置", "configs/app.yaml", key="nl_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 
 # ------------------------------------------------------------ 模型配置 ----
 with st.expander("模型配置（未配置时无法生成，可改用模板或积木编辑器）", expanded=False):

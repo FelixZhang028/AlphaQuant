@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 import re
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -175,9 +180,7 @@ def _show_result(state_key: str) -> None:
 st.title("零代码策略工作台")
 st.caption("选择模板，或者像搭积木一样描述条件。平台只执行白名单规则，不运行用户代码。")
 
-config_path = st.sidebar.text_input(
-    "平台配置", "configs/app.yaml", key="strategy_studio_config"
-)
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     backtests = BacktestService(config_path)
     studio = StrategyStudioService(backtests)

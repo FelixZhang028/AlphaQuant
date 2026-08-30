@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 from dataclasses import replace
 from typing import Any
 
@@ -156,7 +161,7 @@ if flash:
 
 st.warning("高级模式会运行你自己编写的 Python 代码，请只保存你信任的代码。")
 
-config_path = st.sidebar.text_input("平台配置", "configs/app.yaml", key="custom_strategy_config")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     backtests = BacktestService(config_path)
     default_request = backtests.default_request()

@@ -73,7 +73,7 @@ st.divider()
 st.subheader("已保存的策略包")
 st.caption("模板、积木与自然语言三种方式生成的策略都保存在这里，统一管理。")
 
-config_path = st.sidebar.text_input("应用配置", "configs/app.yaml", key="hub_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     studio = StrategyStudioService(BacktestService(config_path))
     packages = studio.store.list()

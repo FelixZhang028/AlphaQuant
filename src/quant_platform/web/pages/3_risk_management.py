@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
+
 from pathlib import Path
 
 import pandas as pd
@@ -15,7 +20,7 @@ from quant_platform.web.localization import localize_frame
 st.title("风险管理")
 st.caption("所有策略共用的组合级风控参数；修改后会应用到新运行的回测和模拟账户。")
 
-config_path = st.sidebar.text_input("风险管理配置", "configs/app.yaml", key="risk_app_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     app = load_yaml(config_path)
     risk_reference = app.get("risk", {})

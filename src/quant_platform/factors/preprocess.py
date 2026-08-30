@@ -12,50 +12,7 @@ symbol/name/exchange/list_status/list_date/delist_date 等字段，
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Any
-
 import pandas as pd
-
-
-@dataclass(frozen=True)
-class FactorPreprocessConfig:
-    """可复用、可序列化的因子预处理配置。
-
-    截面 z-score 是多因子合成的固定步骤，不作为可选项放在这里；本配置只
-    描述合成前的去极值和缺失值处理，确保研究评估与回测执行使用同一口径。
-    """
-
-    winsorize: bool = False
-    winsorize_method: str = "mad"
-    fill_method: str = "drop"
-
-    def __post_init__(self) -> None:
-        if self.winsorize_method not in {"mad", "quantile"}:
-            raise ValueError(f"未知去极值方法: {self.winsorize_method}")
-        if self.fill_method not in {"drop", "median"}:
-            raise ValueError(f"未知缺失值处理方法: {self.fill_method}")
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "winsorize": self.winsorize,
-            "winsorize_method": self.winsorize_method,
-            "fill_method": self.fill_method,
-        }
-
-    @classmethod
-    def from_mapping(cls, data: Mapping[str, Any] | None) -> FactorPreprocessConfig:
-        if data is None:
-            return cls()
-        enabled = data.get("winsorize", False)
-        if not isinstance(enabled, bool):
-            raise ValueError("winsorize 必须是布尔值")
-        return cls(
-            winsorize=enabled,
-            winsorize_method=str(data.get("winsorize_method", "mad")),
-            fill_method=str(data.get("fill_method", "drop")),
-        )
 
 
 def winsorize(
@@ -76,7 +33,9 @@ def winsorize(
     grouped = value.groupby(result["date"], observed=True)
     if method == "mad":
         median = grouped.transform("median")
-        mad = (value - median).abs().groupby(result["date"], observed=True).transform("median")
+        mad = (value - median).abs().groupby(result["date"], observed=True).transform(
+            "median"
+        )
         lower = median - n_mad * 1.4826 * mad
         upper = median + n_mad * 1.4826 * mad
     elif method == "quantile":
@@ -119,46 +78,6 @@ def fill_missing(frame: pd.DataFrame, *, method: str = "median") -> pd.DataFrame
     return result.reset_index(drop=True)
 
 
-def preprocess_factor(
-    frame: pd.DataFrame,
-    config: FactorPreprocessConfig | None = None,
-) -> pd.DataFrame:
-    """按配置清洗单个因子长表，供研究和策略执行共同调用。"""
-
-    resolved = config or FactorPreprocessConfig()
-    result = frame.copy()
-    if resolved.winsorize:
-        result = winsorize(result, method=resolved.winsorize_method)
-    return fill_missing(result, method=resolved.fill_method)
-
-
-def preprocess_factor_frames(
-    frames: Mapping[str, pd.DataFrame],
-    config: FactorPreprocessConfig | None = None,
-) -> dict[str, pd.DataFrame]:
-    """先按全部成分的日期/股票并集对齐，再用同一配置逐因子清洗。
-
-    对齐是“中位数填充”真正生效的前提：某只股票缺少某个因子值时，长表中
-    原本没有这一行，必须先补成缺失值才能进行横截面填充。
-    """
-
-    if not frames:
-        return {}
-    keys = pd.concat(
-        [frame[["date", "symbol"]] for frame in frames.values()],
-        ignore_index=True,
-    ).drop_duplicates()
-    keys["date"] = pd.to_datetime(keys["date"]).dt.normalize()
-    result: dict[str, pd.DataFrame] = {}
-    for name, frame in frames.items():
-        values = frame[["date", "symbol", "value"]].copy()
-        values["date"] = pd.to_datetime(values["date"]).dt.normalize()
-        values = values.drop_duplicates(["date", "symbol"], keep="last")
-        aligned = keys.merge(values, on=["date", "symbol"], how="left")
-        result[name] = preprocess_factor(aligned, config)
-    return result
-
-
 def neutralize_industry(
     frame: pd.DataFrame,
     industry_map: dict[str, str] | None = None,
@@ -175,8 +94,8 @@ def neutralize_industry(
     result = frame.copy()
     result["industry"] = result["symbol"].map(industry_map)
     value = pd.to_numeric(result["value"], errors="coerce")
-    industry_mean = value.groupby([result["date"], result["industry"]], observed=True).transform(
-        "mean"
-    )
+    industry_mean = value.groupby(
+        [result["date"], result["industry"]], observed=True
+    ).transform("mean")
     result["value"] = value - industry_mean
     return result[["date", "symbol", "value"]].reset_index(drop=True)

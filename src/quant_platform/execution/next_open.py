@@ -106,7 +106,12 @@ class NextOpenExecutionModel:
                 return OrderRejectReason.UNKNOWN_MARKET_STATUS.value
             if str(quality_status) != "OK":
                 return OrderRejectReason.MARKET_DATA_NOT_TRADABLE.value
-        raw_open = float(row["raw_open"])
+        raw_open_value = row.get("raw_open")
+        if raw_open_value is None or pd.isna(raw_open_value):
+            return OrderRejectReason.INVALID_EXECUTION_PRICE.value
+        raw_open = float(raw_open_value)
+        if raw_open <= 0:
+            return OrderRejectReason.INVALID_EXECUTION_PRICE.value
         up_limit = row.get("up_limit")
         down_limit = row.get("down_limit")
         if self.config.reject_unknown_status and (pd.isna(up_limit) or pd.isna(down_limit)):

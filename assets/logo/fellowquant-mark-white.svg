@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 全反白版本：用于深色底 -->
+  <path d="M96 428 L192 348 L264 384"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M72 372 L168 284 L248 324 L352 196"
+        fill="none" stroke="#FFFFFF" stroke-width="48"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M400 84
+           C408 132 428 156 476 164
+           C428 172 408 196 400 244
+           C392 196 372 172 324 164
+           C372 156 392 132 400 84 Z"
+        fill="#FFFFFF"/>
+</svg>

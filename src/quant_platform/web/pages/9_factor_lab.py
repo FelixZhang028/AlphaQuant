@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import date, timedelta
 
@@ -27,7 +26,6 @@ from quant_platform.factors.combine import (
     CompositeFactor,
     correlation_matrix,
     drop_highly_correlated,
-    positive_ic_weights,
 )
 from quant_platform.factors.custom import (
     FIELDS,
@@ -36,15 +34,8 @@ from quant_platform.factors.custom import (
     load_custom_factors,
     save_custom_factors,
 )
-from quant_platform.factors.evaluation import (
-    FactorEvaluator,
-    FactorReport,
-    chronological_train_test_split,
-)
-from quant_platform.factors.preprocess import (
-    FactorPreprocessConfig,
-    preprocess_factor_frames,
-)
+from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
+from quant_platform.factors.preprocess import fill_missing, winsorize, zscore
 from quant_platform.factors.registry import default_registry, reload_default_registry
 from quant_platform.web.theme import inject_global_css
 
@@ -67,15 +58,9 @@ def _evaluate(
     end: date,
     horizon: int,
     n_groups: int,
-    preprocess: FactorPreprocessConfig | None = None,
 ) -> FactorReport:
     return FactorEvaluator(repository).evaluate(
-        factor,
-        start,
-        end,
-        horizon=horizon,
-        n_groups=n_groups,
-        preprocess=preprocess,
+        factor, start, end, horizon=horizon, n_groups=n_groups
     )
 
 
@@ -115,14 +100,14 @@ def _render_report(report: FactorReport) -> None:
 st.title("因子研究室")
 st.caption(
     "统一的因子定义、计算与评估：因子值只使用当日及之前的数据（防未来函数），"
-    "t 日因子在 t+1 日收盘买入，并按所选持有期持有 N 个完整交易日。"
+    "IC 与未来收益按 t 日因子对 t+1 至 t+N 收益计算。"
 )
 
 flash = st.session_state.pop("custom_factor_flash", None)
 if flash:
     st.success(flash)
 
-config_path = st.sidebar.text_input("应用配置", "configs/app.yaml", key="factor_config_path")
+config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
     repository = _repository(config_path)
 except Exception as exc:  # noqa: BLE001 - 配置损坏时给出可读提示
@@ -194,7 +179,9 @@ with evaluate_tab:
                 st.error(f"评估失败：{exc}")
                 st.stop()
         coverage = len(report.daily_ic)
-        st.caption(f"覆盖率：{coverage} 个有效交易日截面 ｜ 持有期 {horizon} 日 ｜ {n_groups} 分组")
+        st.caption(
+            f"覆盖率：{coverage} 个有效交易日截面 ｜ 持有期 {horizon} 日 ｜ {n_groups} 分组"
+        )
         _render_report(report)
 
 # ------------------------------------------------------------ 因子组合 ----
@@ -209,7 +196,7 @@ with combine_tab:
     )
     weight_mode = st.radio(
         "权重方式",
-        ["等权", "IC 加权（仅使用训练期正 Rank IC）", "自定义权重"],
+        ["等权", "IC 加权（按各自 Rank IC 绝对值）", "自定义权重"],
         horizontal=True,
         key="factor_weight_mode",
     )
@@ -227,10 +214,10 @@ with combine_tab:
                     )
                 )
 
-    with st.expander("清洗选项（去极值 / 缺失值处理）", expanded=False):
+    with st.expander("清洗选项（去极值 / 标准化 / 缺失值处理）", expanded=False):
         do_winsorize = st.checkbox("MAD 去极值", value=True, key="factor_winsorize")
+        do_zscore = st.checkbox("截面标准化（合成前自动执行，此为额外预处理）", value=False)
         fill_method = st.selectbox("缺失值处理", ["剔除缺失", "中位数填充"], key="factor_fill")
-        st.caption("截面标准化是多因子合成的固定步骤，会在清洗后自动执行。")
 
     corr_threshold = st.slider("高相关剔除阈值 |ρ|", 0.5, 0.95, 0.7, key="factor_corr_th")
 
@@ -238,42 +225,21 @@ with combine_tab:
         if len(selected) < 2:
             st.warning("请至少选择两个因子。")
             st.stop()
-        preprocess_config = FactorPreprocessConfig(
-            winsorize=do_winsorize,
-            fill_method="drop" if fill_method == "剔除缺失" else "median",
-        )
-        research_start = start
-        research_end = end
-        evaluation_start = start
-        is_ic_weighted = weight_mode == "IC 加权（仅使用训练期正 Rank IC）"
-        if is_ic_weighted:
-            period_bars = repository.get_daily_bars(start_date=start, end_date=end)
-            try:
-                research_end, evaluation_start = chronological_train_test_split(
-                    period_bars["trade_date"] if not period_bars.empty else []
-                )
-            except ValueError as exc:
-                st.error(f"无法划分训练期与测试期：{exc}")
-                st.stop()
-            st.info(
-                f"IC 权重训练区间：{research_start}～{research_end}；"
-                f"样本外验证区间：{evaluation_start}～{end}。"
-            )
         components = tuple(factors[name] for name in selected)
         with st.spinner("正在计算成分因子……"):
             frames: dict[str, pd.DataFrame] = {}
             try:
-                factor_bars = repository.get_daily_bars(end_date=research_end)
                 for factor in components:
-                    frame = factor.compute(factor_bars)
-                    frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
-                    frame = frame[
-                        frame["date"].between(
-                            pd.Timestamp(research_start), pd.Timestamp(research_end)
-                        )
-                    ]
+                    frame = factor.compute(repository.get_daily_bars())
+                    if do_winsorize:
+                        frame = winsorize(frame)
+                    if do_zscore:
+                        frame = zscore(frame)
+                    if fill_method == "剔除缺失":
+                        frame = fill_missing(frame, method="drop")
+                    else:
+                        frame = fill_missing(frame, method="median")
                     frames[factor.name] = frame
-                frames = preprocess_factor_frames(frames, preprocess_config)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"因子计算失败：{exc}")
                 st.stop()
@@ -298,36 +264,18 @@ with combine_tab:
         if weight_mode == "等权":
             weights = {item.name: 1.0 for item in components}
         elif weight_mode == "自定义权重":
-            weights = {item.name: custom_weights.get(item.name, 1.0) for item in components}
+            weights = {
+                item.name: custom_weights.get(item.name, 1.0) for item in components
+            }
         else:
-            rank_ics: dict[str, float] = {}
+            weights = {}
             with st.spinner("正在用 Rank IC 估计权重……"):
                 for factor in components:
-                    report = _evaluate(
-                        factor,
-                        repository,
-                        research_start,
-                        research_end,
-                        horizon,
-                        n_groups,
-                        preprocess_config,
-                    )
-                    rank_ics[factor.name] = report.rank_ic_mean
-            try:
-                weights, rejected = positive_ic_weights(rank_ics)
-            except ValueError as exc:
-                st.error(f"无法生成 IC 权重：{exc}")
-                st.stop()
-            if rejected:
-                st.warning(
-                    "以下因子训练期 Rank IC 小于等于 0 或无效，已从组合中移除："
-                    + "、".join(factors[name].display_name for name in rejected)
-                )
-                components = tuple(item for item in components if item.name not in rejected)
-            st.caption(
-                "IC 加权结果："
-                + "、".join(f"{name}={weight:.4f}" for name, weight in weights.items())
-            )
+                    report = _evaluate(factor, repository, start, end, horizon, n_groups)
+                    weights[factor.name] = max(abs(report.rank_ic_mean), 1e-4)
+            st.caption("IC 加权结果：" + "、".join(
+                f"{name}={weight:.4f}" for name, weight in weights.items()
+            ))
 
         composite = CompositeFactor(
             name="composite_custom",
@@ -336,34 +284,18 @@ with combine_tab:
             formula="weighted sum of z-scored components",
             components=components,
             weights=weights,
-            preprocess=preprocess_config,
         )
         with st.spinner("正在评估合成因子……"):
             try:
-                report = _evaluate(
-                    composite,
-                    repository,
-                    evaluation_start,
-                    end,
-                    horizon,
-                    n_groups,
-                )
+                report = _evaluate(composite, repository, start, end, horizon, n_groups)
             except Exception as exc:  # noqa: BLE001
                 st.error(f"合成因子评估失败：{exc}")
                 st.stop()
-        if is_ic_weighted:
-            st.caption(
-                f"以下组合结果只使用样本外验证区间 {evaluation_start}～{end}，"
-                "权重未在该区间重新估计。"
-            )
         _render_report(report)
 
-        st.session_state["factor_composite_spec"] = {
-            "components": [
-                {"name": item.name, "weight": float(weights[item.name])} for item in components
-            ],
-            "preprocess": preprocess_config.to_dict(),
-        }
+        st.session_state["factor_composite_spec"] = [
+            {"name": item.name, "weight": float(weights[item.name])} for item in components
+        ]
 
     spec = st.session_state.get("factor_composite_spec")
     if spec:
@@ -373,7 +305,7 @@ with combine_tab:
             "把当前合成因子保存为「因子合成策略」参数，随后可在回测页选择 "
             "factor_composite 插件直接运行，或点击下方按钮立即回测。"
         )
-        st.code(json.dumps(spec, ensure_ascii=False, indent=2), language="json")
+        st.code(str(spec), language="json")
         if st.button("保存组合并去回测", key="factor_to_strategy"):
             st.session_state["factor_composite_payload"] = spec
             st.switch_page("home.py")
@@ -381,7 +313,9 @@ with combine_tab:
 # ------------------------------------------------------------ 自定义因子 ----
 with custom_tab:
     st.subheader("自定义因子")
-    st.caption("用字段、算子和窗口定义一个量价因子，定义后可到「因子评估」和「因子组合」中使用。")
+    st.caption(
+        "用字段、算子和窗口定义一个量价因子，定义后可到「因子评估」和「因子组合」中使用。"
+    )
 
     with st.form("custom_factor_form"):
         col1, col2 = st.columns(2)
@@ -405,7 +339,9 @@ with custom_tab:
         operator_meta = OPERATORS[operator]
         win1, win2 = st.columns(2)
         with win1:
-            window = int(st.number_input("窗口 N", min_value=1, value=20, step=1, key="cf_window"))
+            window = int(
+                st.number_input("窗口 N", min_value=1, value=20, step=1, key="cf_window")
+            )
         with win2:
             if operator_meta["window2"]:
                 window2 = int(

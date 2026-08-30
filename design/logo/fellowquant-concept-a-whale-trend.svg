@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#5B7BFF"/>
+      <stop offset="1" stop-color="#2743C9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D9E6FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="230" fill="url(#glow)"/>
+  <!-- rising trend line -->
+  <polyline points="180,820 352,740 488,786 644,664 816,540"
+    fill="none" stroke="#9FE0FF" stroke-width="28"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="816" cy="540" r="24" fill="#9FE0FF"/>
+  <circle cx="816" cy="540" r="9" fill="#0E1B57"/>
+  <!-- whale tail (slightly rounder flukes, shifted up 16px) -->
+  <path d="M512 774
+    C500 640 482 560 444 520
+    C406 480 348 452 280 436
+    C246 428 218 396 206 346
+    C244 338 296 356 340 392
+    C398 440 458 462 512 462
+    C566 462 626 440 684 392
+    C728 356 780 338 818 346
+    C806 396 778 428 744 436
+    C676 452 618 480 580 520
+    C542 560 524 640 512 774 Z"
+    fill="url(#white)"/>
+</svg>
