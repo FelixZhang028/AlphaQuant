@@ -66,3 +66,6 @@ Thumbs.db
 
 CLAUDE.md
 .claude-summary.md
+.agents/
+.claude/
+src/quant_platform/web/assets/fellowquant-icon-v*.png

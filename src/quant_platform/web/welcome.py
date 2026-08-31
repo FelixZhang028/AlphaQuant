@@ -13,6 +13,7 @@ inject_global_css()
 
 
 import base64
+from html import escape
 from pathlib import Path
 
 import streamlit as st
@@ -25,8 +26,9 @@ from quant_platform.application.readiness_service import (
 )
 from quant_platform.application.strategy_studio_service import StrategyStudioService
 from quant_platform.backtest.run_store import RunStatus
-from quant_platform.web.guide import build_guide_steps
 from quant_platform.web.auth import AuthStore
+from quant_platform.web.guide import build_guide_steps
+from quant_platform.web.html_compat import javascript_html
 from quant_platform.web.run_comparison import RUN_KIND_LABELS
 from quant_platform.web.run_labels import format_run_label
 from quant_platform.web.theme import (
@@ -678,6 +680,185 @@ html, body,
 .st-key-aq_stickybar .aq-topbar { mix-blend-mode: normal !important; }
 .st-key-aq_stickybar .aq-wordmark,
 .st-key-aq_stickybar .aq-brand { color: #eef5fd !important; }
+
+/* GitHub 与账户状态组成固定的右上角操作组，首屏无需下拉也能看见。 */
+.st-key-aq_welcome_actions {
+  position: fixed !important;
+  top: 1rem;
+  right: clamp(1.25rem, 4vw, 4.5rem);
+  z-index: 1100 !important;
+  width: auto !important;
+}
+.st-key-aq_welcome_actions > div,
+.st-key-aq_welcome_actions [data-testid="stHorizontalBlock"] {
+  width: auto !important;
+}
+.st-key-aq_welcome_actions [data-testid="stHorizontalBlock"] {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+.st-key-aq_welcome_actions [data-testid="stColumn"] {
+  width: auto !important;
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+}
+.st-key-aq_welcome_actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+  flex-basis: 126px !important;
+}
+.st-key-aq_welcome_github [data-testid="stMarkdownContainer"],
+.st-key-aq_welcome_github [data-testid="stMarkdownContainer"] p {
+  display: flex !important;
+  align-items: center !important;
+  height: 48px !important;
+  margin: 0 !important;
+  line-height: 0 !important;
+}
+.st-key-aq_welcome_actions .aq-github,
+.st-key-aq_welcome_actions .aq-github:visited,
+.st-key-aq_welcome_actions .aq-github:active,
+.st-key-aq_welcome_actions .aq-github:focus {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  width: 126px !important;
+  height: 48px !important;
+  padding: 0 17px !important;
+  box-sizing: border-box !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: #eef5fd !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  transition: background .2s ease, color .2s ease !important;
+}
+.st-key-aq_welcome_actions .aq-github span {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 22px !important;
+  color: #eef5fd !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  line-height: 22px !important;
+  letter-spacing: .02em;
+}
+.st-key-aq_welcome_actions .aq-github svg {
+  display: block !important;
+  width: 22px !important;
+  height: 22px !important;
+  flex: 0 0 22px !important;
+  fill: #7ec8ff !important;
+}
+.st-key-aq_welcome_actions .aq-github:hover {
+  background: rgba(126,200,255,.08) !important;
+  color: #7ec8ff !important;
+  transform: none !important;
+}
+.st-key-aq_welcome_actions .aq-github:focus-visible {
+  outline: 2px solid rgba(126,200,255,.72) !important;
+  outline-offset: 2px !important;
+}
+.st-key-aq_welcome_account {
+  width: auto !important;
+}
+.st-key-aq_welcome_account button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  min-width: 178px !important;
+  height: 48px !important;
+  padding: 0 17px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: #eef5fd !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease !important;
+}
+.st-key-aq_welcome_account button:hover {
+  border: 0 !important;
+  background: rgba(126,200,255,.08) !important;
+  box-shadow: none !important;
+  transform: none;
+}
+.st-key-aq_welcome_account button:focus-visible {
+  outline: 2px solid rgba(126,200,255,.72) !important;
+  outline-offset: 2px !important;
+}
+.st-key-aq_welcome_account [data-testid="stPopover"] > button {
+  justify-content: flex-start !important;
+}
+.st-key-aq_welcome_account button [data-testid="stIconMaterial"],
+.st-key-aq_welcome_account button span[class*="material-symbols"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  flex: 0 0 22px !important;
+  color: #7ec8ff !important;
+  font-size: 21px !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  /* Material Symbols 的可见字形偏上；下移 5px 后与中文文字视觉中心一致。 */
+  transform: translateY(5px);
+}
+.st-key-aq_welcome_account button [data-testid="stMarkdownContainer"] {
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
+}
+.st-key-aq_welcome_account button p {
+  max-width: min(30vw, 190px) !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  color: #eef5fd !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  line-height: 22px !important;
+  letter-spacing: .02em;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.st-key-aq_welcome_account [data-testid="stPopover"] > button svg {
+  width: 18px !important;
+  height: 18px !important;
+  margin-left: auto !important;
+  flex: 0 0 18px !important;
+  color: #93a9bd !important;
+}
+@media (max-width: 640px) {
+  .st-key-aq_welcome_actions {
+    top: .75rem;
+    right: .85rem;
+  }
+  .st-key-aq_welcome_actions [data-testid="stHorizontalBlock"] {
+    gap: 6px !important;
+  }
+  .st-key-aq_welcome_actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex-basis: 112px !important;
+  }
+  .st-key-aq_welcome_actions .aq-github {
+    width: 112px !important;
+    height: 44px !important;
+    padding: 0 14px !important;
+  }
+  .st-key-aq_welcome_github [data-testid="stMarkdownContainer"],
+  .st-key-aq_welcome_github [data-testid="stMarkdownContainer"] p {
+    height: 44px !important;
+  }
+  .st-key-aq_welcome_account button {
+    min-width: 154px !important;
+    height: 44px !important;
+    padding: 0 14px !important;
+  }
+}
 
 /* 脱离父列后的 full-bleed 章节。100svh 对移动浏览器地址栏更稳定。 */
 .st-key-aq_hero_wrap,
@@ -1545,11 +1726,10 @@ def _check_state(report, item: str) -> str:
 
 
 def _render_stickybar(report) -> None:
-    """顶部悬浮导航条：网页名 / 语言切换 / GitHub（带图标）。
+    """顶部悬浮导航条：网页名与语言切换。
 
-    页面顶端为透明状态（贴在网页顶部）；向下滚动时背景变为毛玻璃，并
-    在「中文/EN」切换右侧浮现一个 GitHub 按钮。布局为：左（LOGO+名字+状态）
-    右（语言切换 + GitHub）。
+    页面顶端为透明状态（贴在网页顶部）；向下滚动时背景变为毛玻璃。
+    GitHub 与账户入口由独立的右上角操作组持续展示。
     """
     ready_pill = (
         f'<span class="aq-pill aq-pill-ok">{_t("ready_pill")}</span>'
@@ -1557,7 +1737,7 @@ def _render_stickybar(report) -> None:
         else f'<span class="aq-pill aq-pill-warn">{_t("warn_pill")}</span>'
     )
     with st.container(key="aq_stickybar"):
-        brand_col, lang_col, github_col = st.columns([1, 1, 1])
+        brand_col, lang_col = st.columns([1, 1])
         with brand_col:
             st.markdown(
                 topbar_html("FellowQuant", pills=(ready_pill,)),
@@ -1572,16 +1752,60 @@ def _render_stickybar(report) -> None:
                 key="aq_language",
                 label_visibility="collapsed",
             )
-        with github_col:
-            st.markdown(
-                github_link_html("https://github.com/FelixZhang028/AlphaQuant"),
-                unsafe_allow_html=True,
-            )
     if choice:
         lang = "zh" if choice == "中文" else "en"
         if lang != _lang():
             st.session_state["aq_lang"] = lang
             st.rerun()
+
+
+def _logout_authenticated_user() -> None:
+    """清除当前 Streamlit 会话中的认证状态。"""
+    st.session_state["aq_authenticated_user"] = None
+    st.session_state.pop("aq_auth_mode", None)
+
+
+def _render_account_status() -> None:
+    """在欢迎页右上角显示 GitHub 与当前账户操作。"""
+    username = st.session_state.get("aq_authenticated_user")
+    with st.container(key="aq_welcome_actions"):
+        github_col, account_col = st.columns(
+            [1, 1], gap="small", vertical_alignment="center"
+        )
+        with github_col:
+            with st.container(key="aq_welcome_github"):
+                st.markdown(
+                    github_link_html("https://github.com/FelixZhang028/AlphaQuant"),
+                    unsafe_allow_html=True,
+                )
+        with account_col:
+            with st.container(key="aq_welcome_account"):
+                if username:
+                    with st.popover(str(username), icon=":material/account_circle:"):
+                        account_label = "当前账户" if _lang() == "zh" else "Signed in as"
+                        st.caption(f"{account_label}: {username}")
+                        if st.button(
+                            "进入工作台" if _lang() == "zh" else "Open workbench",
+                            key="aq_account_open_workbench",
+                            icon=":material/space_dashboard:",
+                            width="stretch",
+                        ):
+                            st.switch_page("home.py")
+                        if st.button(
+                            "退出登录" if _lang() == "zh" else "Log out",
+                            key="aq_account_logout",
+                            icon=":material/logout:",
+                            width="stretch",
+                        ):
+                            _logout_authenticated_user()
+                            st.rerun()
+                elif st.button(
+                    "登录 / 注册" if _lang() == "zh" else "Log in / Register",
+                    key="aq_account_login",
+                    icon=":material/login:",
+                ):
+                    st.session_state["aq_auth_mode"] = "login"
+                    st.rerun()
 
 
 def _render_hero(report) -> None:
@@ -1673,7 +1897,7 @@ def _render_launch_splash() -> None:
 def _render_particle_background() -> None:
     """渲染低开销的鼠标交互粒子背景。"""
     with st.container(key="aq_particle_bg"):
-        st.html(_PARTICLE_BACKGROUND_HTML, unsafe_allow_javascript=True)
+        javascript_html(_PARTICLE_BACKGROUND_HTML)
 
 
 def _render_product_overview() -> None:
@@ -1734,7 +1958,7 @@ def _render_product_overview() -> None:
          + """</main><script>
          (() => {
            let timer = 0;
-           const getScope = () => document.querySelector('.st-key-aq_product_overview_wrap');
+           const getScope = () => document.querySelector('.st-key-aq_product_overview_wrap') || document;
            window.aqFeatureShow = (target) => {
              const scope = getScope();
              if (!scope) return;
@@ -1769,39 +1993,9 @@ def _render_product_overview() -> None:
             f'<div class="aq-overview-heading"><span class="aq-section-kicker">{kicker}</span><h2>{title}</h2><p>{intro}</p></div>',
             unsafe_allow_html=True,
         )
-        st.html(carousel_html, unsafe_allow_javascript=True)
-        st.html(
-            """<script>
-            (() => {
-              const scope = document.querySelector('.st-key-aq_product_overview_wrap');
-              if (!scope) return;
-              const tabs = [...scope.querySelectorAll('.tab')];
-              const slides = [...scope.querySelectorAll('.slide')];
-              let active = 0;
-              let timer = 0;
-              const paint = (index, fast = false) => {
-                slides.forEach((slide, i) => { slide.dataset.state = i === index ? 'active' : (i < index ? 'past' : 'next'); });
-                tabs.forEach((tab, i) => tab.classList.toggle('active', i === index));
-                scope.querySelector('.stage')?.classList.toggle('fast', fast);
-              };
-              const show = (target) => {
-                target = Math.max(0, Math.min(target, slides.length - 1));
-                clearTimeout(timer);
-                if (Math.abs(target - active) > 1) {
-                  active = target;
-                  paint(active, true);
-                  timer = window.setTimeout(() => paint(active, false), 180);
-                  return;
-                }
-                active = target;
-                paint(active, false);
-              };
-              tabs.forEach((tab, i) => tab.addEventListener('click', () => show(i)));
-              paint(0, false);
-            })();
-            </script>""",
-            unsafe_allow_javascript=True,
-        )
+        javascript_html(carousel_html, fallback_height=620)
+
+
 def _render_guide(report, config_path: str) -> None:
     """Typora 风格的 02 / RESEARCH LOOP：六步流程，两行三列展示。"""
 
@@ -2079,18 +2273,30 @@ def _render_ending_page() -> None:
     logo_src = ""
     if logo_path.exists():
         logo_src = f"data:image/png;base64,{base64.b64encode(logo_path.read_bytes()).decode('ascii')}"
+    authenticated_user = st.session_state.get("aq_authenticated_user")
+    safe_username = escape(str(authenticated_user)) if authenticated_user else ""
     if _lang() == "zh":
-        title = "want FellowQuant?"
-        description = "一个简单的量化平台"
+        title = f"欢迎回来，{safe_username}" if authenticated_user else "want FellowQuant?"
+        description = "身份已确认，继续你的量化研究" if authenticated_user else "一个简单的量化平台"
         subline = "AI-NATIVE RESEARCH WORKBENCH"
         register_label = "注册"
         login_label = "登录"
+        workbench_label = "进入工作台"
+        logout_label = "退出登录"
     else:
-        title = "want FellowQuant?"
-        description = "A simple quantitative platform"
+        title = f"Welcome back, {safe_username}" if authenticated_user else "want FellowQuant?"
+        description = "Your session is active—continue your research" if authenticated_user else "A simple quantitative platform"
         subline = "AI-NATIVE RESEARCH WORKBENCH"
         register_label = "Register"
         login_label = "Log in"
+        workbench_label = "Open workbench"
+        logout_label = "Log out"
+    if authenticated_user:
+        ending_actions = f'''<button id="aq-enter-workbench" class="aq-ending-button aq-ending-button-login" type="button">{workbench_label}</button>
+      <button id="aq-logout" class="aq-ending-button aq-ending-button-register" type="button">{logout_label}</button>'''
+    else:
+        ending_actions = f'''<button id="aq-open-register" class="aq-ending-button aq-ending-button-register" type="button">{register_label}</button>
+      <button id="aq-open-login" class="aq-ending-button aq-ending-button-login" type="button">{login_label}</button>'''
     st.markdown(
         f'''<section class="aq-ending-page" aria-label="FellowQuant closing page">
   <div class="aq-ending-inner">
@@ -2101,8 +2307,7 @@ def _render_ending_page() -> None:
       <div class="aq-ending-description">{description}<small>{subline}</small></div>
     </div>
     <div class="aq-ending-actions">
-      <button id="aq-open-register" class="aq-ending-button aq-ending-button-register" type="button">{register_label}</button>
-      <button id="aq-open-login" class="aq-ending-button aq-ending-button-login" type="button">{login_label}</button>
+      {ending_actions}
     </div>
   </div>
 </section>''',
@@ -2165,25 +2370,45 @@ def _render_ending_page() -> None:
 </div>''',
         unsafe_allow_html=True,
     )
+    open_login = open_register = enter_workbench = logout = False
     with st.container(key="aq_auth_triggers"):
-        open_login = st.button("open login", key="aq_auth_open_login")
-        open_register = st.button("open register", key="aq_auth_open_register")
+        if authenticated_user:
+            enter_workbench = st.button("open workbench", key="aq_auth_open_workbench")
+            logout = st.button("log out", key="aq_auth_logout")
+        else:
+            open_login = st.button("open login", key="aq_auth_open_login")
+            open_register = st.button("open register", key="aq_auth_open_register")
+    if enter_workbench:
+        st.switch_page("home.py")
+    if logout:
+        _logout_authenticated_user()
+        st.rerun()
     if open_login:
         st.session_state["aq_auth_mode"] = "login"
     elif open_register:
         st.session_state["aq_auth_mode"] = "register"
     if st.session_state.get("aq_auth_mode") in {"login", "register"}:
         _render_auth_modal(st.session_state["aq_auth_mode"], logo_src)
-    st.html(
+    bridge_script = (
         '''<script>
 (() => {
-  const trigger = (key) => document.querySelector(`.st-key-${key} button`)?.click();
-  document.getElementById("aq-open-login")?.addEventListener("click", () => trigger("aq_auth_open_login"));
-  document.getElementById("aq-open-register")?.addEventListener("click", () => trigger("aq_auth_open_register"));
+  const doc = window.parent?.document || document;
+  const trigger = (key) => doc.querySelector(`.st-key-${key} button`)?.click();
+  doc.getElementById("aq-enter-workbench")?.addEventListener("click", () => trigger("aq_auth_open_workbench"));
+  doc.getElementById("aq-logout")?.addEventListener("click", () => trigger("aq_auth_logout"));
 })();
-</script>''',
-        unsafe_allow_javascript=True,
+</script>'''
+        if authenticated_user
+        else '''<script>
+(() => {
+  const doc = window.parent?.document || document;
+  const trigger = (key) => doc.querySelector(`.st-key-${key} button`)?.click();
+  doc.getElementById("aq-open-login")?.addEventListener("click", () => trigger("aq_auth_open_login"));
+  doc.getElementById("aq-open-register")?.addEventListener("click", () => trigger("aq_auth_open_register"));
+})();
+</script>'''
     )
+    javascript_html(bridge_script)
 
 
 _LOAD_EXTENDED_WELCOME_SECTIONS = False
@@ -2198,6 +2423,7 @@ def main() -> None:
     _render_particle_background()
     _render_launch_splash()
     _render_stickybar(report)
+    _render_account_status()
 
     with st.container(key="aq_hero_wrap"):
         _render_hero(report)

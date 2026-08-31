@@ -1710,7 +1710,8 @@ def github_link_html(url: str, label: str = "GitHub") -> str:
         '8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>'
     )
     return (
-        f'<a class="aq-github" href="{url}" target="_blank" rel="noopener noreferrer">'
+        f'<a class="aq-github" href="{url}" target="_blank" rel="noopener noreferrer" '
+        f'aria-label="{label}" title="{label}">'
         f"{icon}<span>{label}</span></a>"
     )
 
