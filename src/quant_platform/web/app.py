@@ -128,8 +128,16 @@ st.markdown(
       width: 100% !important;
       height: 100% !important;
     }
-    [data-testid="stSidebarContent"] {
-      padding-bottom: 14rem !important;
+    [data-testid="stSidebarContent"]:has(.st-key-aq_sidebar_support) {
+      padding-bottom: 0 !important;
+      overflow: hidden !important;
+    }
+    [data-testid="stSidebarContent"]:has(.st-key-aq_sidebar_support)
+    [data-testid="stSidebarNav"] {
+      max-height: calc(100dvh - 18rem) !important;
+      overflow-y: auto !important;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
     }
     .st-key-aq_sidebar_support {
       position: fixed !important;
@@ -281,6 +289,27 @@ st.markdown(
       background: #43c58a;
       border-radius: 50%;
       box-shadow: 0 0 0 3px rgba(67, 197, 138, .1);
+    }
+    @media (max-height: 620px) {
+      [data-testid="stSidebarContent"]:has(.st-key-aq_sidebar_support) {
+        padding-bottom: 1rem !important;
+        overflow-y: auto !important;
+      }
+      [data-testid="stSidebarContent"]:has(.st-key-aq_sidebar_support)
+      [data-testid="stSidebarNav"] {
+        max-height: none !important;
+        overflow-y: visible !important;
+      }
+      .st-key-aq_sidebar_support,
+      .st-key-aq_sidebar_account {
+        position: static !important;
+        width: auto !important;
+        max-width: none !important;
+        margin: .75rem;
+      }
+      .st-key-aq_sidebar_account {
+        margin-top: 0;
+      }
     }
     </style>
     """,
