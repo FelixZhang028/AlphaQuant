@@ -237,6 +237,14 @@ button[kind="secondary"]:hover {
 [data-testid="stNavSectionHeader"] [data-testid="stMarkdownContainer"] p {
     font-weight: 700 !important;
 }
+/* 独立首页入口按一级导航显示，与后续分组标题左对齐。 */
+[data-testid="stSidebarNavItems"] > li:first-child > a {
+    padding-left: 0 !important;
+    font-weight: 700 !important;
+}
+[data-testid="stSidebarNavItems"] > li:first-child > a span {
+    font-weight: 700 !important;
+}
 [data-testid="stSidebar"] a[aria-current="page"],
 [data-testid="stSidebar"] .stNavigation [aria-selected="true"] {
     background: rgba(255, 255, 255, 0.06);

@@ -32,7 +32,6 @@ if authenticated_user:
             st.Page(
                 "pages/15_workspace_home.py",
                 title="首页",
-                icon=":material/home:",
                 default=True,
             ),
         ],
