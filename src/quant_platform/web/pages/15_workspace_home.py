@@ -330,7 +330,7 @@ with overview_columns[0].container(key="aq_home_metric_pool", border=True):
     )
 with overview_columns[1].container(key="aq_home_metric_history", border=True):
     st.metric(
-        "数据充足",
+        "数据量",
         readiness.symbols_with_sufficient_history if readiness is not None else "—",
     )
 with overview_columns[2].container(key="aq_home_metric_knowledge", border=True):
