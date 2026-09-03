@@ -233,6 +233,10 @@ button[kind="secondary"]:hover {
 [data-testid="stSidebarNavItems"] > div:first-child {
     display: none !important;
 }
+[data-testid="stNavSectionHeader"],
+[data-testid="stNavSectionHeader"] [data-testid="stMarkdownContainer"] p {
+    font-weight: 700 !important;
+}
 [data-testid="stSidebar"] a[aria-current="page"],
 [data-testid="stSidebar"] .stNavigation [aria-selected="true"] {
     background: rgba(255, 255, 255, 0.06);
