@@ -806,8 +806,8 @@ html, body,
   font-size: 21px !important;
   line-height: 1 !important;
   vertical-align: middle !important;
-  /* Material Symbols 的可见字形偏上；下移 5px 后与中文文字视觉中心一致。 */
-  transform: translateY(5px);
+  /* 与同一按钮内的用户名和下拉箭头保持统一的垂直中心。 */
+  transform: none !important;
 }
 .st-key-aq_welcome_account button [data-testid="stMarkdownContainer"] {
   display: flex !important;
