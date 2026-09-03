@@ -215,7 +215,7 @@ st.markdown(
     .st-key-aq_sidebar_account {
       position: fixed !important;
       left: .75rem !important;
-      bottom: 1.25rem !important;
+      bottom: 1.6rem !important;
       z-index: 100001 !important;
       width: calc(var(--st-sidebar-width, 16rem) - 1.5rem) !important;
       max-width: calc(100vw - 1.5rem) !important;
@@ -249,7 +249,7 @@ st.markdown(
     .aq-sidebar-account__name {
       overflow: hidden;
       color: #f0f4fa;
-      font-size: .82rem;
+      font-size: .9rem;
       font-weight: 500;
       line-height: 1.2;
       text-overflow: ellipsis;
@@ -260,7 +260,7 @@ st.markdown(
       align-items: center;
       gap: .35rem;
       color: #8f98a5;
-      font-size: .68rem;
+      font-size: .75rem;
       line-height: 1.2;
     }
     .aq-sidebar-account__state::before {
