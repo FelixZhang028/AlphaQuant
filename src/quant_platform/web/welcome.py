@@ -1741,22 +1741,17 @@ def _check_state(report, item: str) -> str:
     return "idle"
 
 
-def _render_stickybar(report) -> None:
+def _render_stickybar() -> None:
     """顶部悬浮导航条：网页名与语言切换。
 
     页面顶端为透明状态（贴在网页顶部）；向下滚动时背景变为毛玻璃。
     GitHub 与账户入口由独立的右上角操作组持续展示。
     """
-    ready_pill = (
-        f'<span class="aq-pill aq-pill-ok">{_t("ready_pill")}</span>'
-        if report.ready_for_backtest
-        else f'<span class="aq-pill aq-pill-warn">{_t("warn_pill")}</span>'
-    )
     with st.container(key="aq_stickybar"):
         brand_col, lang_col = st.columns([1, 1])
         with brand_col:
             st.markdown(
-                topbar_html("FellowQuant", pills=(ready_pill,)),
+                topbar_html("FellowQuant"),
                 unsafe_allow_html=True,
             )
         with lang_col:
@@ -2462,7 +2457,7 @@ def main() -> None:
 
     _render_particle_background()
     _render_launch_splash()
-    _render_stickybar(report)
+    _render_stickybar()
     _render_account_status()
 
     with st.container(key="aq_hero_wrap"):
