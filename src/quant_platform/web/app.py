@@ -34,6 +34,11 @@ if authenticated_user:
                 title="首页",
                 default=True,
             ),
+            st.Page(
+                "welcome.py",
+                title="开始使用",
+                url_path="welcome",
+            ),
         ],
         "AI 智能投研": [
             st.Page(
@@ -310,10 +315,7 @@ st.markdown(
 )
 with st.sidebar:
     with st.container(key="aq_logo_home_link"):
-        if authenticated_user:
-            st.page_link("pages/15_workspace_home.py", label="返回首页")
-        else:
-            st.page_link("welcome.py", label="返回欢迎页")
+        st.page_link("welcome.py", label="返回欢迎页")
     if authenticated_user:
         safe_username = escape(str(authenticated_user))
         with st.container(key="aq_sidebar_support"):

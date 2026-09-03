@@ -17,3 +17,7 @@ def test_authenticated_user_lands_on_workspace_home() -> None:
 
     assert not app.exception
     assert [title.value for title in app.title] == ["首页"]
+
+    app.switch_page("welcome.py").run()
+
+    assert not app.exception

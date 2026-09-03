@@ -248,6 +248,10 @@ button[kind="secondary"]:hover {
 [data-testid="stSidebarNavItems"] > li:first-child a[aria-current="page"] {
     margin-left: -3px !important;
 }
+/* 欢迎页仅由左上角 Logo 进入，不在登录后的任务栏中重复展示。 */
+[data-testid="stSidebarNavItems"] > li:has(a[href$="/welcome"]) {
+    display: none !important;
+}
 [data-testid="stSidebar"] a[aria-current="page"],
 [data-testid="stSidebar"] .stNavigation [aria-selected="true"] {
     background: rgba(255, 255, 255, 0.06);
