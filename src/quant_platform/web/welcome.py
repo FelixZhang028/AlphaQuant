@@ -917,6 +917,7 @@ html, body,
   display: block !important;
   width: 100% !important;
   height: 430px !important;
+  margin-top: clamp(3.25rem, 6vw, 5rem) !important;
   border: 0 !important;
   background: transparent !important;
 }
