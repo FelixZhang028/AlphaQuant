@@ -238,12 +238,15 @@ button[kind="secondary"]:hover {
     font-weight: 700 !important;
 }
 /* 独立首页入口按一级导航显示，与后续分组标题左对齐。 */
-[data-testid="stSidebarNavItems"] > li:first-child > a {
+[data-testid="stSidebarNavItems"] > li:first-child a {
     padding-left: 0 !important;
     font-weight: 700 !important;
 }
-[data-testid="stSidebarNavItems"] > li:first-child > a span {
+[data-testid="stSidebarNavItems"] > li:first-child a span {
     font-weight: 700 !important;
+}
+[data-testid="stSidebarNavItems"] > li:first-child a[aria-current="page"] {
+    margin-left: -3px !important;
 }
 [data-testid="stSidebar"] a[aria-current="page"],
 [data-testid="stSidebar"] .stNavigation [aria-selected="true"] {
