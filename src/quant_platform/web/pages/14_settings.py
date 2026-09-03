@@ -47,28 +47,22 @@ if section == "AI 模型":
     st.subheader("AI 模型")
     st.caption("业务页面优先使用这里选择的默认模型；各提供方凭证只保存在本机。")
 
-    selected_default = st.selectbox(
-        "默认模型提供方",
+    provider = st.selectbox(
+        "模型提供方",
         provider_keys,
         index=provider_keys.index(default_provider),
-        format_func=lambda key: PROVIDER_CATALOG[key].display_name,
-        key="settings_default_llm_provider",
-    )
-    if st.button("设为默认", icon=":material/check:", key="save_default_provider"):
-        store.save_default_provider(selected_default)
-        st.success(f"已将 {PROVIDER_CATALOG[selected_default].display_name} 设为默认。")
-
-    provider = st.selectbox(
-        "配置提供方",
-        provider_keys,
-        index=provider_keys.index(selected_default),
         format_func=lambda key: PROVIDER_CATALOG[key].display_name,
         key="settings_llm_provider",
     )
     spec = PROVIDER_CATALOG[provider]
     saved = store.get(provider)
     resolved = store.resolve(provider)
-    status = "无需凭证" if not spec.requires_key else ("已配置" if resolved["api_key"] else "未配置")
+    if not spec.requires_key:
+        status = "无需凭证"
+    elif resolved["api_key"]:
+        status = "已配置"
+    else:
+        status = "未配置"
     st.info(f"当前模型：{resolved['model'] or '—'} ｜ 凭证状态：{status}")
 
     with st.form("settings_llm_form"):
@@ -96,17 +90,25 @@ if section == "AI 模型":
             )
         else:
             model = st.text_input("模型", value=current_model)
-        save_llm = st.form_submit_button(
-            "保存模型配置", type="primary", icon=":material/save:"
+        actions = st.columns(2)
+        save_llm = actions[0].form_submit_button("仅保存配置", icon=":material/save:")
+        save_as_default = actions[1].form_submit_button(
+            "保存并设为默认", type="primary", icon=":material/check:"
         )
-    if save_llm:
+    if save_llm or save_as_default:
         store.save(
             provider,
             base_url=base_url.strip(),
             api_key=api_key.strip(),
             model=model.strip(),
         )
-        st.success(f"{spec.display_name} 配置已保存到本地。")
+        if save_as_default:
+            store.save_default_provider(provider)
+            default_provider = provider
+            st.success(f"{spec.display_name} 配置已保存，并设为全局默认模型。")
+        else:
+            st.success(f"{spec.display_name} 配置已保存到本地。")
+    st.caption(f"当前默认模型：{PROVIDER_CATALOG[default_provider].display_name}")
     st.caption(f"本地配置文件：{DEFAULT_SETTINGS_PATH}")
 
 elif section == "数据源凭证":

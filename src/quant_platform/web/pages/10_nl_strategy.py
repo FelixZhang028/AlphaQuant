@@ -3,8 +3,7 @@
 用户输入中文策略描述 -> 大模型转换为结构化规则 JSON -> 平台强校验并展示
 中文解释 -> 用户确认后保存为策略包（与模板、积木同一注册与回测流程）。
 
-模型支持 DeepSeek / Kimi 等云端 API 与 Ollama 本地模型；API Key 仅保存
-在本地 ``runtime/llm_settings.json``。未配置模型时引导用户改用模板或积木。
+模型沿用“设置”中的默认提供方；未配置模型时引导用户前往设置，或改用模板与积木。
 """
 
 from __future__ import annotations
@@ -40,50 +39,16 @@ st.caption(
 store = LLMSettingsStore()
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 
-# ------------------------------------------------------------ 模型配置 ----
-with st.expander("模型配置（未配置时无法生成，可改用模板或积木编辑器）", expanded=False):
-    provider_keys = [key for key in PROVIDER_CATALOG if key != "mock"]
-    provider_labels = {
-        key: f"{PROVIDER_CATALOG[key].icon} {PROVIDER_CATALOG[key].display_name}"
-        for key in provider_keys
-    }
-    provider = st.selectbox(
-        "模型提供方",
-        provider_keys,
-        format_func=lambda key: provider_labels[key],
-        key="nl_provider",
-    )
-    spec = PROVIDER_CATALOG[provider]
-    saved = store.get(provider)
-    base_url = st.text_input(
-        "Base URL", value=saved["base_url"] or spec.default_base_url, key="nl_base_url"
-    )
-    api_key = st.text_input(
-        "API Key（仅保存在本地，不会上传）",
-        value=saved["api_key"],
-        type="password",
-        key="nl_api_key",
-        disabled=not spec.requires_key,
-        placeholder="Ollama 本地模型无需填写" if not spec.requires_key else "",
-    )
-    model_options = list(spec.models)
-    default_model = saved["model"] or spec.default_model
-    if default_model and default_model not in model_options:
-        model_options.append(default_model)
-    if model_options:
-        model = st.selectbox(
-            "模型",
-            model_options,
-            index=model_options.index(default_model) if default_model in model_options else 0,
-            key="nl_model",
-        )
-    else:
-        model = st.text_input("模型", value=default_model, key="nl_model_text")
-    if st.button("保存模型配置", key="nl_save_settings"):
-        store.save(provider, base_url=base_url, api_key=api_key, model=model)
-        st.success("已保存到本地 runtime/llm_settings.json")
-
-resolved = store.resolve(provider) if provider else {"base_url": "", "api_key": "", "model": ""}
+provider = store.get_default_provider()
+spec = PROVIDER_CATALOG[provider]
+resolved = store.resolve(provider)
+key_status = (
+    "无需凭证" if not spec.requires_key else ("已配置" if resolved["api_key"] else "未配置")
+)
+with st.container(border=True):
+    st.markdown(f"**当前模型：{spec.display_name} / {resolved['model'] or '—'}**")
+    st.caption(f"凭证状态：{key_status}。自然语言建策略沿用全局默认模型。")
+    st.page_link("pages/14_settings.py", label="研究设置", icon=":material/settings:")
 
 # ------------------------------------------------------------ 策略描述 ----
 description = st.text_area(
@@ -113,6 +78,12 @@ rebalance = {"每日": "daily", "每周": "weekly", "每月": "monthly"}[rebalan
 if st.button("生成策略规则", type="primary", key="nl_generate"):
     if not description.strip():
         st.warning("请先输入策略描述。")
+    elif provider == "mock":
+        st.error("Mock 离线模型不能生成自然语言策略，请在“设置 → AI 模型”中选择可用模型。")
+    elif spec.requires_key and not resolved["api_key"]:
+        st.error(f"{spec.display_name} 未配置 API Key，请先前往“设置 → AI 模型”完成配置。")
+    elif provider == "custom" and not resolved["base_url"]:
+        st.error("自定义模型缺少 Base URL，请先前往“设置 → AI 模型”完成配置。")
     else:
         try:
             client = create_llm_client(

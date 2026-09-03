@@ -5,18 +5,12 @@
 
 from __future__ import annotations
 
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 import datetime as dt
 
 import streamlit as st
 
 from quant_platform.agents_bridge import AgentRunner
 from quant_platform.agents_bridge.llm_settings import (
-    DEFAULT_SETTINGS_PATH,
     PROVIDER_CATALOG,
     LLMSettingsStore,
 )
@@ -33,9 +27,11 @@ from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
 from quant_platform.web.agent_trace import LiveTrace, inject_trace_css, render_replay
+from quant_platform.web.theme import inject_global_css
 from trading_agents.data.names import CN_NAME_OVERRIDES
 from trading_agents.orchestrator.events import EventBus
 
+inject_global_css()
 inject_trace_css()
 
 _STATUS_LABELS = {"approved": "批准", "rejected": "拒绝", "conditional": "有条件批准"}
@@ -100,52 +96,9 @@ def _battle_context(state, decision) -> str:
     return "\n".join(lines)
 
 
-@st.dialog("配置 LLM API")
-def _config_dialog(provider: str) -> None:
-    """弹窗：配置 Base URL / API Key / 模型，仅保存到本地。"""
-    spec = PROVIDER_CATALOG[provider]
-    store = LLMSettingsStore()
-    saved = store.get(provider)
-
-    st.markdown("**API Key 仅保存在本地**，不会上传或提交到代码仓库。")
-    st.caption(f"配置文件：`{DEFAULT_SETTINGS_PATH}`（已加入 .gitignore）。")
-
-    base_url = st.text_input(
-        "Base URL",
-        value=saved["base_url"] or spec.default_base_url or "https://api.openai.com/v1",
-        help="OpenAI 兼容端点，通常以 /v1 结尾。",
-    )
-    api_key = st.text_input(
-        "API Key",
-        value=saved["api_key"],
-        type="password",
-        help=f"留空则回退到环境变量 {spec.env_key_name or '（无）'}。",
-    )
-    if spec.models:
-        models = list(spec.models)
-        current = saved["model"] or spec.default_model
-        model_index = models.index(current) if current in models else 0
-        model = st.selectbox("模型", models, index=model_index)
-    else:
-        model = st.text_input("模型名称", value=saved["model"] or spec.default_model)
-
-    if st.button("保存到本地", type="primary"):
-        store.save(
-            provider,
-            base_url=base_url.strip(),
-            api_key=api_key.strip(),
-            model=model.strip(),
-        )
-        st.session_state["llm_config_flash"] = f"{spec.display_name} 配置已保存到本地"
-        st.rerun()
-
-
 st.title("AI 投研台")
 st.caption("AI 提供分析，你维护的先验知识负责约束边界。")
 st.info("本页面仅供研究，不构成投资建议；Trader 提案中的止损价不进入平台回测执行层。")
-
-if st.session_state.pop("llm_config_flash", None):
-    st.success("LLM 配置已保存到本地。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
@@ -174,6 +127,16 @@ with st.container(border=True):
     st.caption(f"API Key：{key_status}。模型和凭证统一在“设置”中管理。")
     st.page_link("pages/14_settings.py", label="研究设置", icon=":material/settings:")
 
+entries = prior_store.list()
+with st.container(border=True):
+    st.markdown(f"**本次使用的先验知识：{len(entries)} 条**")
+    st.caption("运行分析时会注入知识库中的全部条目；新增、检索和删除统一在知识库管理。")
+    st.page_link(
+        "pages/12_prior_knowledge.py",
+        label="管理先验知识",
+        icon=":material/library_books:",
+    )
+
 st.subheader("研究对象与数据来源")
 stock_source = st.selectbox(
     "股票行情来源",
@@ -201,54 +164,13 @@ else:
     if len(selected_news) >= 2:
         st.warning(f"已选择 {len(selected_news)} 个新闻来源，耗时将增加。")
 
-with st.expander("网络代理", expanded=False):
-    st.caption("海外数据源（yfinance/curl_cffi）不读系统代理，需显式指定。")
-    proxy_enabled = st.checkbox(
-        "请求海外数据源（yfinance）时启用代理",
-        value=bool(proxy_settings["enabled"]),
-    )
-    proxy_address = st.text_input(
-        "代理地址",
-        value=str(proxy_settings["address"]),
-        placeholder=DEFAULT_PROXY_ADDRESS,
-        help="本机 Clash 默认端口 7897/7890，按你的实际端口填写。",
-    )
-    if st.button("保存代理设置", key="save_proxy_settings"):
-        proxy_store.save(proxy_enabled, proxy_address or DEFAULT_PROXY_ADDRESS)
-        st.success("代理设置已保存到本地。")
+proxy_enabled = bool(proxy_settings["enabled"])
+proxy_address = str(proxy_settings["address"])
 
 if stock_source == "yfinance" and proxy_enabled:
-    st.caption(f"本次将对 yfinance 启用代理：{proxy_address or DEFAULT_PROXY_ADDRESS}")
-else:
-    st.caption("代理设置对当前数据来源不生效（仅 yfinance 走代理）。")
-
-with st.expander("专家先验知识（可选）", expanded=False):
-    st.caption("把你的见解或网络观点作为先验知识加入，各方向 AI Agent 分析时会优先参考。")
-    with st.form("prior_knowledge_form"):
-        pk_content = st.text_area(
-            "先验知识内容",
-            height=80,
-            placeholder="例如：该股近期有大额解禁压力，行业政策有收紧迹象，需谨慎……",
-        )
-        pk_source = st.text_input("来源", placeholder="我的观点 / 网页链接 / 某分析师")
-        pk_add = st.form_submit_button("添加先验知识")
-    if pk_add:
-        try:
-            prior_store.add(pk_content, pk_source)
-            st.rerun()
-        except ValueError as exc:
-            st.error(str(exc))
-    entries = prior_store.list()
-    if entries:
-        for entry in entries:
-            columns = st.columns([8, 1])
-            columns[0].caption(f"【来源：{entry.source}】{entry.content}")
-            if columns[1].button("删除", key=f"del_pk_{entry.id}"):
-                prior_store.delete(entry.id)
-                st.rerun()
-        st.caption(f"共 {len(entries)} 条先验知识，将注入本次分析。")
-    else:
-        st.caption("暂无先验知识。")
+    st.caption(f"yfinance 将使用设置中的代理：{proxy_address or DEFAULT_PROXY_ADDRESS}")
+elif stock_source == "yfinance":
+    st.caption("yfinance 代理当前关闭；可在“设置 → 网络与存储”中调整。")
 
 symbol_input = st.text_input("股票代码", "600519", key="agent_lab_symbol").strip()
 symbol = symbol_input
@@ -296,12 +218,12 @@ if submitted:
         st.stop()
     if spec.requires_key and not resolved["api_key"]:
         st.error(
-            f"{spec.display_name} 未配置 API Key。请点击上方「配置 {spec.display_name}」"
-            "填写，或设置环境变量后重试。"
+            f"{spec.display_name} 未配置 API Key。请前往“设置 → AI 模型”填写，"
+            "或设置环境变量后重试。"
         )
         st.stop()
     if provider == "custom" and not resolved["base_url"]:
-        st.error("自定义端点需要填写 Base URL。请点击上方「配置」按钮填写。")
+        st.error("自定义端点需要填写 Base URL。请前往“设置 → AI 模型”填写。")
         st.stop()
     try:
         history = repository.get_daily_bars(symbols=[symbol], end_date=trade_date)
