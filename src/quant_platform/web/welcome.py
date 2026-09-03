@@ -803,8 +803,30 @@ html, body,
   outline: 2px solid rgba(126,200,255,.72) !important;
   outline-offset: 2px !important;
 }
+.st-key-aq_welcome_account button > div {
+  display: flex !important;
+  align-items: center !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  line-height: 22px !important;
+}
+.st-key-aq_welcome_account button > div > span {
+  display: flex !important;
+  align-items: center !important;
+  height: 22px !important;
+  margin: 0 !important;
+}
 .st-key-aq_welcome_account [data-testid="stPopover"] > button {
   justify-content: flex-start !important;
+}
+.st-key-aq_welcome_account button span:has(> [data-testid="stIconMaterial"]) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  flex: 0 0 22px !important;
+  margin: 0 !important;
 }
 .st-key-aq_welcome_account button [data-testid="stIconMaterial"],
 .st-key-aq_welcome_account button span[class*="material-symbols"] {
@@ -815,8 +837,9 @@ html, body,
   height: 22px !important;
   flex: 0 0 22px !important;
   color: #7ec8ff !important;
-  font-size: 21px !important;
-  line-height: 1 !important;
+  font-size: 22px !important;
+  line-height: 22px !important;
+  margin: 0 !important;
   vertical-align: middle !important;
   /* 与同一按钮内的用户名和下拉箭头保持统一的垂直中心。 */
   transform: none !important;
