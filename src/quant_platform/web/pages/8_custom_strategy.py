@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
@@ -149,10 +150,14 @@ def _show_result(state_key: str) -> None:
     columns[3].metric("成交笔数", str(summary.get("fills", 0)))
     if st.button("打开完整回测结果", key=f"open_{state_key}_{run_id}"):
         st.session_state["selected_run"] = run_id
+        st.session_state["backtest_workspace_mode"] = "单次回测"
         st.switch_page("home.py")
 
 
-st.title("自定义策略（Python）")
+if is_embedded("strategy_python"):
+    st.subheader("Python 策略")
+else:
+    st.title("自定义策略（Python）")
 st.caption("继承 BaseStrategy 并注册，平台会加载你的代码、自动生成参数表单并回测。")
 
 flash = st.session_state.pop("custom_strategy_flash", None)

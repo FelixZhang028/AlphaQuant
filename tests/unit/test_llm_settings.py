@@ -68,3 +68,12 @@ def test_corrupt_settings_file_is_tolerated(tmp_path: Path, monkeypatch) -> None
     store = LLMSettingsStore(path)
 
     assert store.resolve("deepseek")["model"] == "deepseek-v4-pro"
+
+
+def test_default_provider_is_persisted(tmp_path: Path) -> None:
+    store = LLMSettingsStore(tmp_path / "llm_settings.json")
+
+    assert store.get_default_provider() == "mock"
+    store.save_default_provider("deepseek")
+
+    assert store.get_default_provider() == "deepseek"

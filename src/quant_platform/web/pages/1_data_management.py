@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
@@ -37,7 +38,10 @@ def _download_csv(
     )
 
 
-st.title("数据管理")
+if is_embedded("data_management"):
+    st.subheader("本地数据与版本")
+else:
+    st.title("数据管理")
 st.caption("按配置的数据源顺序更新行情，检查覆盖率并记录数据版本。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口

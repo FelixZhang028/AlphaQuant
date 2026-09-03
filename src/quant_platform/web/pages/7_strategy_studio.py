@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
@@ -174,10 +175,14 @@ def _show_result(state_key: str) -> None:
     columns[3].metric("成交笔数", str(summary.get("fills", 0)))
     if st.button("打开完整回测结果", key=f"open_{state_key}_{run_id}"):
         st.session_state["selected_run"] = run_id
+        st.session_state["backtest_workspace_mode"] = "单次回测"
         st.switch_page("home.py")
 
 
-st.title("零代码策略工作台")
+if is_embedded("strategy_visual"):
+    st.subheader("模板与可视化规则")
+else:
+    st.title("零代码策略工作台")
 st.caption("选择模板，或者像搭积木一样描述条件。平台只执行白名单规则，不运行用户代码。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口

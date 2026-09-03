@@ -15,9 +15,13 @@ import streamlit as st
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.core.config import load_yaml
 from quant_platform.risk.config import RiskLimits, load_risk_limits, save_risk_limits
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.localization import localize_frame
 
-st.title("风险管理")
+if is_embedded("risk_management"):
+    st.subheader("风险规则")
+else:
+    st.title("风险管理")
 st.caption("所有策略共用的组合级风控参数；修改后会应用到新运行的回测和模拟账户。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口

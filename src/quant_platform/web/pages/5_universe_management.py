@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
@@ -16,7 +17,10 @@ from quant_platform.application.universe_service import (
 )
 from quant_platform.web.localization import localize_frame
 
-st.title("股票池管理")
+if is_embedded("universe_management"):
+    st.subheader("股票池")
+else:
+    st.title("股票池管理")
 st.caption("直接添加、搜索或移除股票。保存后，数据更新和新回测会自动使用当前股票池。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
@@ -170,4 +174,5 @@ with st.expander("股票过滤设置"):
 if with_data < len(settings.symbols):
     st.info("新增股票后，请前往“数据管理”更新配置股票池行情，再运行回测。")
     if st.button("前往数据管理"):
-        st.switch_page("pages/1_data_management.py")
+        st.session_state["data_assets_mode"] = "本地数据"
+        st.switch_page("pages/13_data_assets.py")

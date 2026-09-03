@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from quant_platform.agents_bridge.data_credentials import DataCredentialStore
 from quant_platform.core.exceptions import DataUnavailableError
 from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
 from quant_platform.data.providers.ifind_provider import IFindDataProvider
@@ -78,6 +79,8 @@ class DataSourceResolver:
 
     def load_local_environment(self) -> None:
         """Load the first available local ``.env`` file without overwriting."""
+
+        DataCredentialStore().load_into_environment()
 
         candidates = [
             Path.cwd() / ".env",

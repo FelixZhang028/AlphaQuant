@@ -27,9 +27,9 @@ from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import load_persisted_validity
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
+from quant_platform.web.embedded_page import run_embedded
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
-
 
 # 侧栏「隐藏/显示」由 Streamlit 原生收起/展开控件提供（见 theme.py
 # 顶部注释），本页不再单独维护。
@@ -625,7 +625,25 @@ def _render_result(run_dir: Path) -> None:
         st.dataframe(localize_frame(fills.tail(200)), width="stretch", hide_index=True)
 
 
-st.title("单次回测与复盘")
+st.title("回测与验证")
+st.caption("从单次回测开始，再进行参数优化和样本外稳健性验证。")
+
+workspace_mode = st.segmented_control(
+    "研究阶段",
+    ["单次回测", "参数优化与稳健性验证"],
+    default="单次回测",
+    key="backtest_workspace_mode",
+    label_visibility="collapsed",
+    width="stretch",
+)
+if workspace_mode == "参数优化与稳健性验证":
+    run_embedded(
+        Path(__file__).parent / "pages" / "2_research.py",
+        name="backtest_validation",
+    )
+    st.stop()
+
+st.subheader("单次回测与复盘")
 st.caption("运行一组确定参数，并深入检查收益、风险、交易成本、持仓和订单。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
@@ -756,7 +774,8 @@ st.caption(format_run_label(selected_record, strategy_names))
 actions = st.columns(2)
 if actions[0].button("用本次结果创建验证实验", type="primary"):
     st.session_state["research_baseline_run_id"] = selected_id
-    st.switch_page("pages/2_research.py")
+    st.session_state["backtest_workspace_mode"] = "参数优化与稳健性验证"
+    st.rerun()
 if actions[1].button("打开回测记录库"):
     st.switch_page("pages/6_run_library.py")
 _render_result(selected_record.path)

@@ -138,6 +138,20 @@ class LLMSettingsStore:
             "model": str(entry.get("model", "")),
         }
 
+    def get_default_provider(self) -> str:
+        provider = str(self._read().get("default_provider", "mock"))
+        return provider if provider in PROVIDER_CATALOG else "mock"
+
+    def save_default_provider(self, provider: str) -> None:
+        if provider not in PROVIDER_CATALOG:
+            raise ValueError(f"Unknown LLM provider: {provider}")
+        data = self._read()
+        data["default_provider"] = provider
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
     def save(
         self, provider: str, *, base_url: str, api_key: str, model: str
     ) -> None:

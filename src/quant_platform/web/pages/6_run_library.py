@@ -20,7 +20,7 @@ from quant_platform.web.run_comparison import (
 )
 from quant_platform.web.run_labels import format_run_label
 
-st.title("回测记录库")
+st.title("研究记录")
 st.caption("统一管理单次回测、参数优化和样本外验证结果，并选择多个结果进行比较。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
@@ -151,6 +151,7 @@ if successful_records:
     )
     if st.button("进入单次回测复盘", type="primary"):
         st.session_state["selected_run"] = detail_id
+        st.session_state["backtest_workspace_mode"] = "单次回测"
         st.switch_page("home.py")
 
 st.divider()

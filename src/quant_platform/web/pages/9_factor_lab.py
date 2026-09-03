@@ -97,7 +97,7 @@ def _render_report(report: FactorReport) -> None:
         st.line_chart(report.daily_ic.set_index("date")[["rank_ic"]])
 
 
-st.title("因子研究室")
+st.title("因子实验室")
 st.caption(
     "统一的因子定义、计算与评估：因子值只使用当日及之前的数据（防未来函数），"
     "IC 与未来收益按 t 日因子对 t+1 至 t+N 收益计算。"
@@ -308,6 +308,7 @@ with combine_tab:
         st.code(str(spec), language="json")
         if st.button("保存组合并去回测", key="factor_to_strategy"):
             st.session_state["factor_composite_payload"] = spec
+            st.session_state["backtest_workspace_mode"] = "单次回测"
             st.switch_page("home.py")
 
 # ------------------------------------------------------------ 自定义因子 ----

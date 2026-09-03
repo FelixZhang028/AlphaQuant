@@ -26,6 +26,7 @@ from quant_platform.application.walk_forward_service import (
     WalkForwardService,
 )
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
@@ -61,7 +62,10 @@ def _metric(value: Any, *, percent: bool = False) -> str:
     return f"{float(value):.2%}" if percent else f"{float(value):.2f}"
 
 
-st.title("参数优化与稳健性验证")
+if is_embedded("backtest_validation"):
+    st.subheader("参数优化与稳健性验证")
+else:
+    st.title("参数优化与稳健性验证")
 st.caption("从一次成功回测出发，寻找候选参数，并用未见数据检查策略是否稳定。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
@@ -77,6 +81,7 @@ records = service.run_store.list_records(successful_only=True)
 if not records:
     st.info("请先完成一次成功的单次回测，再创建验证实验。")
     if st.button("前往单次回测", type="primary"):
+        st.session_state["backtest_workspace_mode"] = "单次回测"
         st.switch_page("home.py")
     st.stop()
 
@@ -248,6 +253,7 @@ with st.expander("参数优化", expanded=True):
             )
             if st.button("打开该回测", key=f"open_opt_child_{baseline_suffix}"):
                 st.session_state["selected_run"] = child_id
+                st.session_state["backtest_workspace_mode"] = "单次回测"
                 st.switch_page("home.py")
         st.download_button(
             "下载优化结果 CSV",
@@ -405,6 +411,7 @@ with st.expander("滚动样本外验证", expanded=False):
             )
             if st.button("打开样本外回测", key=f"open_wf_child_{baseline_suffix}"):
                 st.session_state["selected_run"] = test_run_id
+                st.session_state["backtest_workspace_mode"] = "单次回测"
                 st.switch_page("home.py")
         st.download_button(
             "下载滚动验证结果 CSV",

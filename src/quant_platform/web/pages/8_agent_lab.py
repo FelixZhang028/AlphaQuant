@@ -140,8 +140,8 @@ def _config_dialog(provider: str) -> None:
         st.rerun()
 
 
-st.title("智能体分析台")
-st.caption("单票 LLM 多智能体研究：分析师团队 → 多空辩论 → 交易员提案 → 风控 → 组合经理审批。")
+st.title("AI 投研台")
+st.caption("AI 提供分析，你维护的先验知识负责约束边界。")
 st.info("本页面仅供研究，不构成投资建议；Trader 提案中的止损价不进入平台回测执行层。")
 
 if st.session_state.pop("llm_config_flash", None):
@@ -161,13 +161,7 @@ prior_store = PriorKnowledgeStore()
 proxy_store = ProxySettingsStore()
 proxy_settings = proxy_store.load()
 
-st.subheader("模型与 API 配置")
-provider = st.selectbox(
-    "LLM Provider",
-    list(PROVIDER_CATALOG),
-    format_func=lambda key: f"{key} — {PROVIDER_CATALOG[key].display_name}",
-    help="mock 离线确定、零成本；其余 Provider 需配置 API Key。",
-)
+provider = store.get_default_provider()
 spec = PROVIDER_CATALOG[provider]
 resolved = store.resolve(provider)
 key_status = (
@@ -175,17 +169,12 @@ key_status = (
     if resolved["api_key"]
     else ("无需" if not spec.requires_key else "未配置")
 )
-st.caption(
-    f"当前模型：{resolved['model'] or '—'} ｜ API Key：{key_status}"
-    + (f" ｜ Base URL：{resolved['base_url']}" if provider == "custom" else "")
-)
-if spec.requires_key:
-    if st.button(
-        f"配置 {spec.display_name}（Base URL / API Key / 模型）", key=f"cfg_{provider}"
-    ):
-        _config_dialog(provider)
+with st.container(border=True):
+    st.markdown(f"**当前模型：{spec.display_name} / {resolved['model'] or '—'}**")
+    st.caption(f"API Key：{key_status}。模型和凭证统一在“设置”中管理。")
+    st.page_link("pages/14_settings.py", label="研究设置", icon=":material/settings:")
 
-st.subheader("数据来源")
+st.subheader("研究对象与数据来源")
 stock_source = st.selectbox(
     "股票行情来源",
     list(STOCK_SOURCES),

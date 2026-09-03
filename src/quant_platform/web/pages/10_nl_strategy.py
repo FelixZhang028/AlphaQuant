@@ -22,12 +22,16 @@ from quant_platform.strategies.nl_builder import (
     NLStrategyBuilder,
     definition_explanation,
 )
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.theme import inject_global_css
 from trading_agents.llm.base import create_llm_client
 
 inject_global_css()
 
-st.title("自然语言建策略")
+if is_embedded("strategy_natural_language"):
+    st.subheader("自然语言建策略")
+else:
+    st.title("自然语言建策略")
 st.caption(
     "用大模型把一句话策略描述转成平台结构化规则。"
     "生成后请先核对中文解释，确认无误再保存；API Key 仅保存在本地。"

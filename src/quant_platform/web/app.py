@@ -33,70 +33,51 @@ navigation = st.navigation(
                 default=True,
             ),
         ],
-        "策略研究": [
+        "AI 辅助": [
+            st.Page(
+                "pages/8_agent_lab.py",
+                title="AI 投研台",
+                icon=":material/psychology:",
+            ),
+            st.Page(
+                "pages/12_prior_knowledge.py",
+                title="先验知识库",
+                icon=":material/library_books:",
+            ),
+        ],
+        "策略与因子研究": [
             st.Page(
                 "pages/0_strategy_hub.py",
-                title="策略创作中心",
-                icon=":material/hub:",
-            ),
-            st.Page(
-                "pages/10_nl_strategy.py",
-                title="自然语言建策略",
-                icon=":material/chat:",
-            ),
-            st.Page(
-                "pages/7_strategy_studio.py",
-                title="零代码策略工作台",
+                title="策略工作室",
                 icon=":material/widgets:",
             ),
             st.Page(
-                "pages/8_custom_strategy.py",
-                title="自定义策略（Python）",
-                icon=":material/code:",
-            ),
-            st.Page(
                 "pages/9_factor_lab.py",
-                title="因子研究室",
+                title="因子实验室",
                 icon=":material/science:",
             ),
             st.Page(
-                "pages/8_agent_lab.py",
-                title="智能体分析台",
-                icon=":material/psychology:",
-            ),
-        ],
-        "回测与验证": [
-            st.Page(
                 "home.py",
-                title="单次回测与复盘",
+                title="回测与验证",
                 icon=":material/candlestick_chart:",
             ),
-            st.Page(
-                "pages/2_research.py",
-                title="参数优化与稳健性验证",
-                icon=":material/tune:",
-            ),
-            st.Page("pages/6_run_library.py", title="回测记录库", icon=":material/history:"),
+            st.Page("pages/6_run_library.py", title="研究记录", icon=":material/history:"),
         ],
         "数据与交易": [
             st.Page(
-                "pages/1_data_management.py", title="数据管理", icon=":material/database:"
+                "pages/13_data_assets.py", title="数据资产", icon=":material/database:"
             ),
-            st.Page(
-                "pages/11_xtick_data.py", title="XTick 数据服务", icon=":material/api:"
-            ),
-            st.Page("pages/3_risk_management.py", title="风险管理", icon=":material/shield:"),
             st.Page(
                 "pages/4_paper_trading.py",
                 title="模拟交易",
                 icon=":material/account_balance:",
             ),
         ],
-        "设置": [
+        "系统": [
             st.Page(
-                "pages/5_universe_management.py",
-                title="股票池管理",
-                icon=":material/list_alt:",
+                "pages/14_settings.py",
+                title="设置",
+                icon=":material/settings:",
             ),
         ],
     },

@@ -18,7 +18,6 @@ inject_global_css()
 
 import io
 import json
-import os
 import re
 import zipfile
 from datetime import date, timedelta
@@ -30,10 +29,11 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from quant_platform.agents_bridge.data_credentials import DataCredentialStore
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 
 DEFAULT_BASE_URL = "http://api.xtick.top"
-DEFAULT_TOKEN = "448f197d69e049b38051edca063f1487"
 
 _CATALOG_URL = "http://www.xtick.top/assets/apidoc.json"
 _CATALOG_FILE = Path(__file__).resolve().parent.parent / "assets" / "xtick_apidoc.json"
@@ -310,22 +310,24 @@ def _render_api_form(cat_id: int, api: dict[str, Any]) -> None:
     st.divider()
 
 
-st.title("XTick 数据服务")
+if is_embedded("xtick_data"):
+    st.subheader("XTick 专项接口")
+else:
+    st.title("XTick 数据服务")
 st.caption(
     "调用 XTick 金融行情数据 HTTP API（http://www.xtick.top/doc）。"
     "接口表单由官方 apidoc.json 动态生成；认证方式为 URL 参数 token；"
     "成功响应为 ZIP 压缩包（内含 data.json），本页自动解包展示。"
 )
 
-token = st.sidebar.text_input(
-    "XTick Token",
-    value=os.environ.get("XTICK_TOKEN") or DEFAULT_TOKEN,
-    type="password",
-    help="请求必须携带 token；可在此修改，也可通过环境变量 XTICK_TOKEN 覆盖。",
-)
-base_url = st.sidebar.text_input("API Base URL", value=DEFAULT_BASE_URL)
+credential_store = DataCredentialStore()
+token = credential_store.resolve("xtick", "token", "XTICK_TOKEN")
+base_url = credential_store.get("xtick").get("base_url", DEFAULT_BASE_URL)
 if not token:
-    st.sidebar.info("尚未配置 XTick Token，表单提交会被拦截。")
+    st.warning("尚未配置 XTick Token。请先在“设置 → 数据源凭证”中保存。")
+    st.page_link("pages/14_settings.py", label="前往设置", icon=":material/settings:")
+else:
+    st.success("XTick 凭证已配置。")
 
 try:
     catalog = _load_catalog()

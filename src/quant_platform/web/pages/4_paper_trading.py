@@ -10,16 +10,30 @@ inject_global_css()
 import json
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.application.paper_service import PaperTradingService
+from quant_platform.web.embedded_page import run_embedded
 from quant_platform.web.localization import localize_frame, status_label
 
 st.title("模拟交易")
 st.caption("日线回放式模拟账户：按指定日期推进，账户配置和最新结果会长期保存在本地。")
+paper_mode = st.segmented_control(
+    "模拟交易区域",
+    ["账户与交易", "风险规则"],
+    default="账户与交易",
+    key="paper_trading_mode",
+    label_visibility="collapsed",
+    width="stretch",
+)
+if paper_mode == "风险规则":
+    run_embedded(Path(__file__).with_name("3_risk_management.py"), name="risk_management")
+    st.stop()
+
 st.info(
     "当前版本会从账户开始日重新回放到目标日期，以保证结果可重复；"
     "它不是实时行情撮合，也不会连接真实券商。"

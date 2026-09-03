@@ -2101,7 +2101,31 @@ def _render_modules(report) -> None:
                 if st.button(
                     _t("open"), key=f"welcome_module_{page}", use_container_width=True
                 ):
-                    st.switch_page(page)
+                    strategy_modes = {
+                        "pages/7_strategy_studio.py": "模板与积木",
+                        "pages/8_custom_strategy.py": "Python 策略",
+                        "pages/10_nl_strategy.py": "自然语言",
+                    }
+                    data_modes = {
+                        "pages/1_data_management.py": "本地数据",
+                        "pages/5_universe_management.py": "股票池",
+                    }
+                    if page in strategy_modes:
+                        st.session_state["strategy_workspace_mode"] = strategy_modes[page]
+                        st.switch_page("pages/0_strategy_hub.py")
+                    elif page in data_modes:
+                        st.session_state["data_assets_mode"] = data_modes[page]
+                        st.switch_page("pages/13_data_assets.py")
+                    elif page == "pages/2_research.py":
+                        st.session_state["backtest_workspace_mode"] = (
+                            "参数优化与稳健性验证"
+                        )
+                        st.switch_page("home.py")
+                    elif page == "pages/3_risk_management.py":
+                        st.session_state["paper_trading_mode"] = "风险规则"
+                        st.switch_page("pages/4_paper_trading.py")
+                    else:
+                        st.switch_page(page)
 
 
 def _render_status(report) -> None:
