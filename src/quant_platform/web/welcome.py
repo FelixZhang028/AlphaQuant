@@ -1905,7 +1905,7 @@ def _render_product_overview() -> None:
     if _lang() == "zh":
         kicker = "01 / THE SYSTEM"
         title = "简单，却足够强大。"
-        intro = "从数据准备到策略验证，FellowQuant 把量化研究中最重要的工具，整理成一组可以直接使用的工作台。"
+        intro = "FellowQuant 整合数据、策略、回测与智能分析，打造开箱即用的量化研究工作台。"
         features = [
             ("01", "数据管理", "统一维护股票池、证券主表、行情与基准数据。", "Data / workspace", "data"),
             ("02", "策略实验室", "用模板、零代码、Python 或自然语言快速构建策略。", "Strategy / lab", "strategy"),
