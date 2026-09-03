@@ -96,7 +96,7 @@ def _battle_context(state, decision) -> str:
     return "\n".join(lines)
 
 
-st.title("智能研究助手")
+st.title("AI研究员")
 st.caption("AI 提供分析，你维护的先验知识负责约束边界。")
 st.info("本页面仅供研究，不构成投资建议；Trader 提案中的止损价不进入平台回测执行层。")
 
