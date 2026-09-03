@@ -23,13 +23,16 @@ st.logo(str(LOGO_PATH), size="large", icon_image=str(LOGO_PATH))
 
 inject_global_css()
 
-navigation = st.navigation(
-    {
-        "开始": [
+st.session_state.setdefault("aq_authenticated_user", None)
+authenticated_user = st.session_state.get("aq_authenticated_user")
+
+if authenticated_user:
+    navigation_pages = {
+        "": [
             st.Page(
-                "welcome.py",
-                title="开始使用",
-                icon=":material/flag:",
+                "pages/15_workspace_home.py",
+                title="首页",
+                icon=":material/home:",
                 default=True,
             ),
         ],
@@ -80,13 +83,23 @@ navigation = st.navigation(
                 icon=":material/settings:",
             ),
         ],
-    },
-    expanded=True,
-)
+    }
+else:
+    navigation_pages = {
+        "开始": [
+            st.Page(
+                "welcome.py",
+                title="开始使用",
+                icon=":material/flag:",
+                default=True,
+            ),
+        ],
+    }
 
-# Shared page state must be initialized in the entrypoint so every page sees
-# the same value during Streamlit's same-session navigation.
-st.session_state.setdefault("aq_authenticated_user", None)
+navigation = st.navigation(navigation_pages, expanded=True)
+
+if authenticated_user and st.session_state.pop("aq_open_workspace_home", False):
+    st.switch_page("pages/15_workspace_home.py")
 
 # Place a native Streamlit page link over the sidebar logo. This keeps the
 # navigation inside the current session instead of reloading the app root.
@@ -298,8 +311,10 @@ st.markdown(
 )
 with st.sidebar:
     with st.container(key="aq_logo_home_link"):
-        st.page_link("welcome.py", label="返回欢迎页")
-    authenticated_user = st.session_state.get("aq_authenticated_user")
+        if authenticated_user:
+            st.page_link("pages/15_workspace_home.py", label="返回首页")
+        else:
+            st.page_link("welcome.py", label="返回欢迎页")
     if authenticated_user:
         safe_username = escape(str(authenticated_user))
         with st.container(key="aq_sidebar_support"):

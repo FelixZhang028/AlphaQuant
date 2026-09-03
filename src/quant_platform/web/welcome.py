@@ -1776,6 +1776,12 @@ def _logout_authenticated_user() -> None:
     st.session_state.pop("aq_auth_mode", None)
 
 
+def _open_workspace_home() -> None:
+    """Open the authenticated home after the router refreshes its page list."""
+    st.session_state["aq_open_workspace_home"] = True
+    st.rerun()
+
+
 def _render_account_status() -> None:
     """在欢迎页右上角显示 GitHub 与当前账户操作。"""
     username = st.session_state.get("aq_authenticated_user")
@@ -1801,7 +1807,7 @@ def _render_account_status() -> None:
                             icon=":material/space_dashboard:",
                             width="stretch",
                         ):
-                            st.switch_page("home.py")
+                            _open_workspace_home()
                         if st.button(
                             "退出登录" if _lang() == "zh" else "Log out",
                             key="aq_account_logout",
@@ -2282,7 +2288,7 @@ def _render_auth_modal(mode: str, logo_src: str) -> None:
                         if result.ok:
                             st.session_state["aq_authenticated_user"] = result.username
                             st.session_state.pop("aq_auth_mode", None)
-                            st.switch_page("home.py")
+                            _open_workspace_home()
                         else:
                             st.error(result.message)
                 else:
@@ -2414,7 +2420,7 @@ def _render_ending_page() -> None:
             open_login = st.button("open login", key="aq_auth_open_login")
             open_register = st.button("open register", key="aq_auth_open_register")
     if enter_workbench:
-        st.switch_page("home.py")
+        _open_workspace_home()
     if logout:
         _logout_authenticated_user()
         st.rerun()
