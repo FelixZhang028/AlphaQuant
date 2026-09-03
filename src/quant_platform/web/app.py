@@ -33,10 +33,10 @@ navigation = st.navigation(
                 default=True,
             ),
         ],
-        "AI 辅助": [
+        "AI 智能投研": [
             st.Page(
                 "pages/8_agent_lab.py",
-                title="AI 投研台",
+                title="智能研究助手",
                 icon=":material/psychology:",
             ),
             st.Page(
