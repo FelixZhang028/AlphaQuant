@@ -657,6 +657,8 @@ html, body,
   max-width: none !important;
   margin: 0 !important;
   padding: 0 !important;
+  scroll-snap-type: y proximity;
+  scroll-behavior: smooth;
 }
 [data-testid="stMainBlockContainer"] > .stVerticalBlock,
 [data-testid="stMainBlockContainer"] > .stVerticalBlock > div {
@@ -664,6 +666,16 @@ html, body,
   width: 100% !important;
   max-width: none !important;
   padding: 0 !important;
+}
+
+/* 全屏章节接近视口顶部时自动贴齐，避免两屏之间残留狭长空隙。 */
+.aq-launch-splash,
+.st-key-aq_hero_wrap,
+.st-key-aq_product_overview_wrap,
+.st-key-aq_sec_guide,
+.aq-ending-page {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
 /* 顶部栏只负责承载内容，背景完全透明。 */
