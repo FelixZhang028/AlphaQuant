@@ -18,9 +18,17 @@ st.html(
     <style>
     html:has(.aq-workspace-home-marker) [data-testid="stMain"] {
         background:
-            radial-gradient(circle at 84% 4%, rgba(124, 92, 255, .11), transparent 34rem),
-            radial-gradient(circle at 15% 34%, rgba(65, 169, 255, .07), transparent 28rem),
-            #05070d !important;
+            radial-gradient(circle at 84% 4%, rgba(79, 140, 255, .12), transparent 36rem),
+            radial-gradient(circle at 16% 38%, rgba(77, 182, 200, .045), transparent 30rem),
+            #060a12 !important;
+    }
+    html:has(.aq-workspace-home-marker) [data-testid="stMainBlockContainer"] h1,
+    html:has(.aq-workspace-home-marker) [data-testid="stMainBlockContainer"] h2,
+    html:has(.aq-workspace-home-marker) [data-testid="stMainBlockContainer"] h3 {
+        color: #f2f6fc;
+    }
+    html:has(.aq-workspace-home-marker) [data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"] {
+        color: #7f8a99;
     }
 
     .st-key-aq_home_choice_ai,
@@ -31,17 +39,13 @@ st.html(
         position: relative !important;
         isolation: isolate;
         cursor: pointer;
-        --aq-card-accent: 91, 168, 255;
+        --aq-card-accent: 79, 140, 255;
     }
-    .st-key-aq_home_choice_strategy,
-    .st-key-aq_home_quick_strategy {
-        --aq-card-accent: 147, 112, 255;
+    .st-key-aq_home_choice_ai {
+        --aq-card-accent: 102, 183, 255;
     }
-    .st-key-aq_home_quick_data {
-        --aq-card-accent: 45, 212, 191;
-    }
-    .st-key-aq_home_quick_validate {
-        --aq-card-accent: 246, 184, 88;
+    .st-key-aq_home_choice_strategy {
+        --aq-card-accent: 82, 199, 199;
     }
 
     .st-key-aq_home_choice_ai,
@@ -50,10 +54,10 @@ st.html(
     .st-key-aq_home_quick_strategy,
     .st-key-aq_home_quick_validate {
         overflow: hidden;
-        border-color: rgba(var(--aq-card-accent), .28) !important;
+        border-color: #223047 !important;
         background:
-            linear-gradient(135deg, rgba(var(--aq-card-accent), .10), transparent 56%),
-            rgba(10, 15, 25, .90) !important;
+            linear-gradient(135deg, rgba(var(--aq-card-accent), .055), transparent 58%),
+            rgba(13, 20, 32, .94) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
         transition:
             transform .18s ease,
@@ -73,7 +77,7 @@ st.html(
         right: 1rem;
         height: 2px;
         background: linear-gradient(90deg, rgb(var(--aq-card-accent)), transparent);
-        opacity: .76;
+        opacity: .54;
     }
     .st-key-aq_home_choice_ai::after,
     .st-key-aq_home_choice_strategy::after,
@@ -97,18 +101,18 @@ st.html(
     .st-key-aq_home_quick_strategy:hover,
     .st-key-aq_home_quick_validate:hover {
         transform: translateY(-2px);
-        border-color: rgba(var(--aq-card-accent), .72) !important;
+        border-color: #4f8cff !important;
         background:
-            linear-gradient(135deg, rgba(var(--aq-card-accent), .16), transparent 60%),
-            rgba(12, 18, 30, .96) !important;
-        box-shadow: 0 14px 34px rgba(0, 0, 0, .24), 0 0 24px rgba(var(--aq-card-accent), .07);
+            linear-gradient(135deg, rgba(79, 140, 255, .11), transparent 60%),
+            rgba(15, 24, 39, .98) !important;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, .24), 0 0 24px rgba(79, 140, 255, .09);
     }
     .st-key-aq_home_choice_ai:hover::after,
     .st-key-aq_home_choice_strategy:hover::after,
     .st-key-aq_home_quick_data:hover::after,
     .st-key-aq_home_quick_strategy:hover::after,
     .st-key-aq_home_quick_validate:hover::after {
-        color: rgb(var(--aq-card-accent));
+        color: #66b7ff;
         transform: translate(2px, -2px);
     }
     .st-key-aq_home_choice_ai:has(a:focus-visible),
@@ -116,7 +120,7 @@ st.html(
     .st-key-aq_home_quick_data:has(a:focus-visible),
     .st-key-aq_home_quick_strategy:has(a:focus-visible),
     .st-key-aq_home_quick_validate:has(a:focus-visible) {
-        outline: 2px solid rgb(var(--aq-card-accent));
+        outline: 2px solid #4f8cff;
         outline-offset: 3px;
     }
 
@@ -177,18 +181,29 @@ st.html(
     .st-key-aq_home_metric_history,
     .st-key-aq_home_metric_knowledge,
     .st-key-aq_home_metric_records {
-        --aq-metric-accent: 45, 212, 191;
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
     }
-    .st-key-aq_home_metric_history { --aq-metric-accent: 80, 210, 150; }
-    .st-key-aq_home_metric_knowledge { --aq-metric-accent: 91, 168, 255; }
-    .st-key-aq_home_metric_records { --aq-metric-accent: 147, 112, 255; }
-    .st-key-aq_home_metric_pool,
-    .st-key-aq_home_metric_history,
-    .st-key-aq_home_metric_knowledge,
-    .st-key-aq_home_metric_records {
-        border-color: rgba(var(--aq-metric-accent), .24) !important;
-        background: linear-gradient(145deg, rgba(var(--aq-metric-accent), .10), rgba(10, 16, 25, .88)) !important;
-        box-shadow: inset 3px 0 0 rgba(var(--aq-metric-accent), .72);
+    .st-key-aq_home_metric_pool [data-testid="stMetric"],
+    .st-key-aq_home_metric_history [data-testid="stMetric"],
+    .st-key-aq_home_metric_knowledge [data-testid="stMetric"],
+    .st-key-aq_home_metric_records [data-testid="stMetric"] {
+        min-height: 5.5rem;
+        padding: .85rem 1rem !important;
+        border-color: #223047 !important;
+        background: rgba(13, 20, 32, .94) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035) !important;
+    }
+    .st-key-aq_home_metric_pool [data-testid="stMetric"]:hover,
+    .st-key-aq_home_metric_history [data-testid="stMetric"]:hover,
+    .st-key-aq_home_metric_knowledge [data-testid="stMetric"]:hover,
+    .st-key-aq_home_metric_records [data-testid="stMetric"]:hover {
+        transform: none;
+        border-color: #2b3a50 !important;
+        background: rgba(13, 20, 32, .94) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035) !important;
     }
     .st-key-aq_home_metric_pool [data-testid="stMetricValue"],
     .st-key-aq_home_metric_history [data-testid="stMetricValue"],
@@ -198,7 +213,7 @@ st.html(
     .st-key-aq_home_metric_history [data-testid="stMetricValue"] *,
     .st-key-aq_home_metric_knowledge [data-testid="stMetricValue"] *,
     .st-key-aq_home_metric_records [data-testid="stMetricValue"] * {
-        color: rgb(var(--aq-metric-accent)) !important;
+        color: #eaf2ff !important;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -323,19 +338,19 @@ for column, (index, title, description, page, icon, key) in zip(
 
 st.subheader("工作区概览")
 overview_columns = st.columns(4)
-with overview_columns[0].container(key="aq_home_metric_pool", border=True):
+with overview_columns[0].container(key="aq_home_metric_pool"):
     st.metric(
         "股票池",
         readiness.configured_symbols if readiness is not None else "—",
     )
-with overview_columns[1].container(key="aq_home_metric_history", border=True):
+with overview_columns[1].container(key="aq_home_metric_history"):
     st.metric(
         "数据量",
         readiness.symbols_with_sufficient_history if readiness is not None else "—",
     )
-with overview_columns[2].container(key="aq_home_metric_knowledge", border=True):
+with overview_columns[2].container(key="aq_home_metric_knowledge"):
     st.metric("先验知识", knowledge_count)
-with overview_columns[3].container(key="aq_home_metric_records", border=True):
+with overview_columns[3].container(key="aq_home_metric_records"):
     st.metric("研究记录", len(recent_runs))
 
 st.subheader("最近研究")
