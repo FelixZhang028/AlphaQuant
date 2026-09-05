@@ -2139,7 +2139,7 @@ def _render_modules(report) -> None:
                     icon, title, desc, state, footer_text, delay_ms=offset * 60
                 )
                 if st.button(
-                    _t("open"), key=f"welcome_module_{page}", use_container_width=True
+                    _t("open"), key=f"welcome_module_{page}", width="stretch"
                 ):
                     strategy_modes = {
                         "pages/7_strategy_studio.py": "模板与积木",
@@ -2283,7 +2283,7 @@ def _render_auth_modal(mode: str, logo_src: str) -> None:
                     tab_login,
                     key="aq_native_auth_login_tab",
                     type="primary" if is_login else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["aq_auth_mode"] = "login"
                     st.rerun()
@@ -2292,7 +2292,7 @@ def _render_auth_modal(mode: str, logo_src: str) -> None:
                     tab_register,
                     key="aq_native_auth_register_tab",
                     type="primary" if not is_login else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["aq_auth_mode"] = "register"
                     st.rerun()
@@ -2305,7 +2305,7 @@ def _render_auth_modal(mode: str, logo_src: str) -> None:
                     identity = st.text_input(identity_label, placeholder=identity_placeholder, key="aq_auth_identity")
                     password = st.text_input(password_label, placeholder=password_placeholder, type="password", key="aq_auth_login_password")
                     st.markdown('<div class="aq-auth-meta"><span class="aq-auth-link">Forgot password?</span></div>', unsafe_allow_html=True)
-                    submitted = st.form_submit_button(submit_label, use_container_width=True)
+                    submitted = st.form_submit_button(submit_label, width="stretch")
                     if submitted:
                         result = store.authenticate(identity, password)
                         if result.ok:
@@ -2319,7 +2319,7 @@ def _render_auth_modal(mode: str, logo_src: str) -> None:
                     email = st.text_input(email_label, placeholder=email_placeholder, key="aq_auth_email")
                     password = st.text_input(password_label, placeholder=password_placeholder, type="password", key="aq_auth_register_password")
                     confirmation = st.text_input(confirm_label, placeholder=confirm_placeholder, type="password", key="aq_auth_register_confirmation")
-                    submitted = st.form_submit_button(submit_label, use_container_width=True)
+                    submitted = st.form_submit_button(submit_label, width="stretch")
                     if submitted:
                         result = store.register(username, email, password, confirmation)
                         if result.ok:

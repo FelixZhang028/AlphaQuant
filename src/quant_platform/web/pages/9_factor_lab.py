@@ -172,17 +172,19 @@ with evaluate_tab:
 
     if st.button("开始评估", type="primary", key="factor_eval_run"):
         factor = factors[factor_name]
+        report: FactorReport | None = None
         with st.spinner(f"正在评估因子「{factor.display_name}」……"):
             try:
                 report = _evaluate(factor, repository, start, end, horizon, n_groups)
             except Exception as exc:  # noqa: BLE001 - 数据不足等场景给出可读提示
                 st.error(f"评估失败：{exc}")
-                st.stop()
-        coverage = len(report.daily_ic)
-        st.caption(
-            f"覆盖率：{coverage} 个有效交易日截面 ｜ 持有期 {horizon} 日 ｜ {n_groups} 分组"
-        )
-        _render_report(report)
+        if report is not None:
+            coverage = len(report.daily_ic)
+            st.caption(
+                f"覆盖率：{coverage} 个有效交易日截面 ｜ "
+                f"持有期 {horizon} 日 ｜ {n_groups} 分组"
+            )
+            _render_report(report)
 
 # ------------------------------------------------------------ 因子组合 ----
 with combine_tab:
@@ -224,78 +226,114 @@ with combine_tab:
     if st.button("计算并评估合成因子", type="primary", key="factor_combine_run"):
         if len(selected) < 2:
             st.warning("请至少选择两个因子。")
-            st.stop()
-        components = tuple(factors[name] for name in selected)
-        with st.spinner("正在计算成分因子……"):
-            frames: dict[str, pd.DataFrame] = {}
-            try:
-                for factor in components:
-                    frame = factor.compute(repository.get_daily_bars())
-                    if do_winsorize:
-                        frame = winsorize(frame)
-                    if do_zscore:
-                        frame = zscore(frame)
-                    if fill_method == "剔除缺失":
-                        frame = fill_missing(frame, method="drop")
-                    else:
-                        frame = fill_missing(frame, method="median")
-                    frames[factor.name] = frame
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"因子计算失败：{exc}")
-                st.stop()
-
-        corr = correlation_matrix(frames)
-        if not corr.empty:
-            st.markdown("**因子相关性矩阵（按日横截面 Spearman 均值）**")
-            st.dataframe(corr.round(3), width="stretch")
-            dropped = drop_highly_correlated(corr, threshold=corr_threshold)
-            if dropped:
-                st.warning(
-                    f"以下因子与其他因子相关性超过 {corr_threshold}，已自动剔除："
-                    f"{', '.join(dropped)}"
-                )
-                for name in dropped:
-                    frames.pop(name, None)
-                components = tuple(item for item in components if item.name in frames)
-        if len(components) < 1:
-            st.error("高相关剔除后没有剩余因子，请降低剔除阈值或重选因子。")
-            st.stop()
-
-        if weight_mode == "等权":
-            weights = {item.name: 1.0 for item in components}
-        elif weight_mode == "自定义权重":
-            weights = {
-                item.name: custom_weights.get(item.name, 1.0) for item in components
-            }
         else:
-            weights = {}
-            with st.spinner("正在用 Rank IC 估计权重……"):
-                for factor in components:
-                    report = _evaluate(factor, repository, start, end, horizon, n_groups)
-                    weights[factor.name] = max(abs(report.rank_ic_mean), 1e-4)
-            st.caption("IC 加权结果：" + "、".join(
-                f"{name}={weight:.4f}" for name, weight in weights.items()
-            ))
+            components = tuple(factors[name] for name in selected)
+            frames: dict[str, pd.DataFrame] = {}
+            compute_succeeded = True
+            with st.spinner("正在计算成分因子……"):
+                try:
+                    for factor in components:
+                        frame = factor.compute(repository.get_daily_bars())
+                        if do_winsorize:
+                            frame = winsorize(frame)
+                        if do_zscore:
+                            frame = zscore(frame)
+                        if fill_method == "剔除缺失":
+                            frame = fill_missing(frame, method="drop")
+                        else:
+                            frame = fill_missing(frame, method="median")
+                        frames[factor.name] = frame
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"因子计算失败：{exc}")
+                    compute_succeeded = False
 
-        composite = CompositeFactor(
-            name="composite_custom",
-            display_name="自定义合成因子",
-            description="因子研究室合成的复合因子",
-            formula="weighted sum of z-scored components",
-            components=components,
-            weights=weights,
-        )
-        with st.spinner("正在评估合成因子……"):
-            try:
-                report = _evaluate(composite, repository, start, end, horizon, n_groups)
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"合成因子评估失败：{exc}")
-                st.stop()
-        _render_report(report)
+            if compute_succeeded:
+                corr = correlation_matrix(frames)
+                if not corr.empty:
+                    st.markdown("**因子相关性矩阵（按日横截面 Spearman 均值）**")
+                    st.dataframe(corr.round(3), width="stretch")
+                    dropped = drop_highly_correlated(corr, threshold=corr_threshold)
+                    if dropped:
+                        st.warning(
+                            f"以下因子与其他因子相关性超过 {corr_threshold}，已自动剔除："
+                            f"{', '.join(dropped)}"
+                        )
+                        for name in dropped:
+                            frames.pop(name, None)
+                        components = tuple(
+                            item for item in components if item.name in frames
+                        )
 
-        st.session_state["factor_composite_spec"] = [
-            {"name": item.name, "weight": float(weights[item.name])} for item in components
-        ]
+                if not components:
+                    st.error("高相关剔除后没有剩余因子，请降低剔除阈值或重选因子。")
+                else:
+                    weights: dict[str, float] = {}
+                    weights_succeeded = True
+                    if weight_mode == "等权":
+                        weights = {item.name: 1.0 for item in components}
+                    elif weight_mode == "自定义权重":
+                        weights = {
+                            item.name: custom_weights.get(item.name, 1.0)
+                            for item in components
+                        }
+                    else:
+                        with st.spinner("正在用 Rank IC 估计权重……"):
+                            try:
+                                for factor in components:
+                                    factor_report = _evaluate(
+                                        factor,
+                                        repository,
+                                        start,
+                                        end,
+                                        horizon,
+                                        n_groups,
+                                    )
+                                    weights[factor.name] = max(
+                                        abs(factor_report.rank_ic_mean), 1e-4
+                                    )
+                            except Exception as exc:  # noqa: BLE001
+                                st.error(f"IC 权重计算失败：{exc}")
+                                weights_succeeded = False
+                        if weights_succeeded:
+                            st.caption(
+                                "IC 加权结果："
+                                + "、".join(
+                                    f"{name}={weight:.4f}"
+                                    for name, weight in weights.items()
+                                )
+                            )
+
+                    if weights_succeeded:
+                        composite = CompositeFactor(
+                            name="composite_custom",
+                            display_name="自定义合成因子",
+                            description="因子研究室合成的复合因子",
+                            formula="weighted sum of z-scored components",
+                            components=components,
+                            weights=weights,
+                        )
+                        composite_report: FactorReport | None = None
+                        with st.spinner("正在评估合成因子……"):
+                            try:
+                                composite_report = _evaluate(
+                                    composite,
+                                    repository,
+                                    start,
+                                    end,
+                                    horizon,
+                                    n_groups,
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                st.error(f"合成因子评估失败：{exc}")
+                        if composite_report is not None:
+                            _render_report(composite_report)
+                            st.session_state["factor_composite_spec"] = [
+                                {
+                                    "name": item.name,
+                                    "weight": float(weights[item.name]),
+                                }
+                                for item in components
+                            ]
 
     spec = st.session_state.get("factor_composite_spec")
     if spec:
