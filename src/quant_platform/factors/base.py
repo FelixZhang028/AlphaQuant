@@ -11,7 +11,7 @@
 - ``compute`` 只能使用 ``bars`` 中每只股票 ``<= 当日`` 的历史数据
   （即只允许 rolling / expanding / 向后 shift 等因果算子）；
 - 评估层（``evaluation.FactorEvaluator``）严格用 t 日因子值对应
-  t+1 日至 t+N 日的未来收益计算 IC，并可通过截断重算验证因果性。
+  t+1 日收盘买入至 t+N+1 日收盘卖出的 N 日收益计算 IC。
 """
 
 from __future__ import annotations

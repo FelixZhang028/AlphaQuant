@@ -11,11 +11,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 
 import pandas as pd
 
 from quant_platform.factors.base import FACTOR_COLUMNS, FactorDefinition
-from quant_platform.factors.preprocess import zscore
+from quant_platform.factors.preprocess import fill_missing, winsorize, zscore
+
+
+def prepare_frames(
+    frames: dict[str, pd.DataFrame], *, clip: bool = False, missing: str = "zero"
+) -> dict[str, pd.DataFrame]:
+    """Align component samples and apply identical daily cleaning for research/trading."""
+    if missing not in {"zero", "drop", "median"}:
+        raise ValueError("未知缺失值处理方式")
+    if not frames:
+        return {}
+    panel = pd.concat(
+        {name: frame.set_index(["date", "symbol"])["value"] for name, frame in frames.items()},
+        axis=1,
+    ).apply(pd.to_numeric, errors="coerce")
+    panel = panel.replace([float("inf"), -float("inf")], float("nan"))
+    cleaned = {}
+    for name in frames:
+        frame = panel[name].rename("value").reset_index()
+        if clip:
+            frame = winsorize(frame)
+        if missing == "median":
+            frame = fill_missing(frame, method="median")
+        cleaned[name] = frame.set_index(["date", "symbol"])["value"]
+    panel = pd.DataFrame(cleaned)
+    if missing != "zero":
+        panel = panel.dropna(how="any")
+    return {name: panel[name].rename("value").reset_index() for name in frames}
 
 
 def combine_factors(
@@ -23,6 +51,8 @@ def combine_factors(
     weights: dict[str, float],
     *,
     directions: dict[str, int] | None = None,
+    clip: bool = False,
+    missing: str = "zero",
 ) -> pd.DataFrame:
     """把多个因子长表合成为一个因子长表。
 
@@ -36,6 +66,10 @@ def combine_factors(
     unknown = sorted(set(weights).difference(frames))
     if unknown:
         raise ValueError(f"权重包含未提供的因子: {unknown}")
+    if any(not isfinite(float(value)) for value in weights.values()):
+        raise ValueError("权重必须为有限数值")
+    frames = prepare_frames(frames, clip=clip, missing=missing)
+    frames = {name: frame for name, frame in frames.items() if weights.get(name, 0.0) != 0}
     total = sum(abs(float(weights.get(name, 0.0))) for name in frames)
     if total <= 0:
         raise ValueError("权重之和不能为 0")
@@ -49,9 +83,7 @@ def combine_factors(
         adjusted = frame.copy()
         adjusted["value"] = pd.to_numeric(adjusted["value"], errors="coerce") * direction
         normalized = zscore(adjusted.dropna(subset=["value"]))
-        normalized = normalized.rename(columns={"value": name})[
-            ["date", "symbol", name]
-        ]
+        normalized = normalized.rename(columns={"value": name})[["date", "symbol", name]]
         normalized[name] = normalized[name] * weight
         merged = (
             normalized
@@ -115,9 +147,7 @@ def drop_highly_correlated(
     kept: list[str] = []
     dropped: list[str] = []
     for name in order:
-        if any(
-            abs(float(corr.loc[name, other])) >= threshold for other in kept
-        ):
+        if any(abs(float(corr.loc[name, other])) >= threshold for other in kept):
             dropped.append(name)
         else:
             kept.append(name)
@@ -130,6 +160,8 @@ class CompositeFactor(FactorDefinition):
 
     components: tuple[FactorDefinition, ...] = field(default_factory=tuple)
     weights: dict[str, float] = field(default_factory=dict)
+    clip: bool = False
+    missing: str = "zero"
 
     def __post_init__(self) -> None:
         if not self.components:
@@ -140,9 +172,7 @@ class CompositeFactor(FactorDefinition):
         unknown = sorted(set(self.weights).difference(names))
         if unknown:
             raise ValueError(f"权重包含未知成分因子: {unknown}")
-        object.__setattr__(
-            self, "min_history", max(item.min_history for item in self.components)
-        )
+        object.__setattr__(self, "min_history", max(item.min_history for item in self.components))
         required: list[str] = []
         for item in self.components:
             for field_name in item.required_fields:
@@ -154,4 +184,6 @@ class CompositeFactor(FactorDefinition):
         frames = {item.name: item.compute(bars) for item in self.components}
         directions = {item.name: item.direction for item in self.components}
         weights = {name: float(self.weights.get(name, 1.0)) for name in frames}
-        return combine_factors(frames, weights, directions=directions)
+        return combine_factors(
+            frames, weights, directions=directions, clip=self.clip, missing=self.missing
+        )

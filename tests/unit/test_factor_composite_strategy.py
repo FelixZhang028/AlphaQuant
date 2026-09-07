@@ -9,6 +9,8 @@ import pandas as pd
 import pytest
 
 from quant_platform.core.exceptions import ConfigurationError
+from quant_platform.factors.combine import CompositeFactor
+from quant_platform.factors.registry import default_registry
 from quant_platform.strategies.context import StrategyContext
 from quant_platform.strategies.factor_composite import (
     FactorCompositeParameters,
@@ -49,9 +51,7 @@ def test_parameters_roundtrip_and_validation() -> None:
     with pytest.raises(ConfigurationError, match="未注册的因子"):
         FactorCompositeParameters.from_json('[{"name": "ghost_factor"}]')
     with pytest.raises(ConfigurationError, match="重复"):
-        FactorCompositeParameters.from_json(
-            '[{"name": "momentum_20"}, {"name": "momentum_20"}]'
-        )
+        FactorCompositeParameters.from_json('[{"name": "momentum_20"}, {"name": "momentum_20"}]')
 
 
 def test_strategy_generates_scores_for_all_symbols() -> None:
@@ -61,11 +61,7 @@ def test_strategy_generates_scores_for_all_symbols() -> None:
     context = StrategyContext.create(trade_date, history, symbols)
     strategy = FactorCompositeStrategy.from_parameters(
         "combo_test",
-        {
-            "factors_json": json.dumps(
-                [{"name": "momentum_20", "weight": 1.0}], ensure_ascii=False
-            )
-        },
+        {"factors_json": json.dumps([{"name": "momentum_20", "weight": 1.0}], ensure_ascii=False)},
     )
     signals = strategy.generate_signals(context)
     assert {signal.symbol for signal in signals} == set(symbols)
@@ -84,3 +80,26 @@ def test_strategy_returns_empty_when_history_too_short() -> None:
         {"factors_json": '[{"name": "momentum_20", "weight": 1.0}]'},
     )
     assert strategy.generate_signals(context) == []
+
+
+def test_cleaning_survives_export_and_matches_research_scores():
+    symbols = [f"{i:06}.SZ" for i in range(10)]
+    history = _bars(symbols, days=30)
+    payload = json.dumps(
+        [
+            {"name": name, "weight": weight, "clip": True, "missing": "median"}
+            for name, weight in [("momentum_20", 0.7), ("bias_10", 0.3)]
+        ]
+    )
+    params = FactorCompositeParameters.from_json(payload)
+    assert FactorCompositeParameters.from_json(params.to_json()) == params
+    strategy = FactorCompositeStrategy.from_parameters("cleaned", {"factors_json": payload})
+    signals = strategy.generate_signals(StrategyContext.create(date(2024, 1, 30), history, symbols))
+    composite = CompositeFactor(
+        components=tuple(default_registry().get(item.name) for item in params.components),
+        weights={item.name: item.weight for item in params.components},
+        clip=True,
+        missing="median",
+    ).compute(history)
+    expected = composite[composite.date == pd.Timestamp("2024-01-30")].set_index("symbol").value
+    assert {s.symbol: s.score for s in signals} == pytest.approx(expected.to_dict())

@@ -10,7 +10,6 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFAULT_AUTH_DB = Path("data") / "fellowquant_auth.sqlite3"
 _LEGACY_AUTH_DB = Path("data") / "alphaquant_auth.sqlite3"
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_\-]{3,32}$")
@@ -153,3 +152,16 @@ class AuthStore:
         if row is None or not self._verify_password(password, row["password_hash"]):
             return AuthResult(False, "邮箱/用户名或密码不正确。")
         return AuthResult(True, "登录成功。", username=str(row["username"]))
+
+    def get_profile(self, username: str) -> dict[str, str | int] | None:
+        """Return display fields only, without exposing the password hash."""
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT id, username, email, created_at FROM users "
+                "WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+        finally:
+            connection.close()
+        return dict(row) if row is not None else None

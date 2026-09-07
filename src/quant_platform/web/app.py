@@ -82,6 +82,11 @@ if authenticated_user:
         ],
         "系统": [
             st.Page(
+                "pages/16_user_center.py",
+                title="个人中心",
+                icon=":material/account_circle:",
+            ),
+            st.Page(
                 "pages/14_settings.py",
                 title="设置",
                 icon=":material/settings:",
@@ -140,7 +145,7 @@ st.markdown(
     .st-key-aq_sidebar_support {
       position: fixed !important;
       left: .75rem !important;
-      bottom: 5.35rem !important;
+      bottom: 5.9rem !important;
       z-index: 100001 !important;
       width: calc(var(--st-sidebar-width, 16rem) - 1.5rem) !important;
       max-width: calc(100vw - 1.5rem) !important;
@@ -244,6 +249,28 @@ st.markdown(
       padding: .85rem .55rem .15rem;
       border-top: 1px solid rgba(255, 255, 255, .12);
     }
+    .st-key-aq_sidebar_account_link {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      z-index: 1;
+    }
+    .st-key-aq_sidebar_account_link [data-testid="stPageLink"],
+    .st-key-aq_sidebar_account_link a {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .st-key-aq_sidebar_account_link a {
+      opacity: 0;
+    }
+    .st-key-aq_sidebar_account:focus-within {
+      outline: 2px solid #7ec8ff;
+      outline-offset: 3px;
+      border-radius: .5rem;
+    }
     .aq-sidebar-account__avatar {
       display: grid;
       place-items: center;
@@ -306,6 +333,9 @@ st.markdown(
         margin: .75rem;
       }
       .st-key-aq_sidebar_account {
+        position: relative !important;
+        left: auto !important;
+        bottom: auto !important;
         margin-top: 0;
       }
     }
@@ -317,7 +347,6 @@ with st.sidebar:
     with st.container(key="aq_logo_home_link"):
         st.page_link("welcome.py", label="返回欢迎页")
     if authenticated_user:
-        safe_username = escape(str(authenticated_user))
         with st.container(key="aq_sidebar_support"):
             st.markdown(
                 f"""
@@ -369,10 +398,11 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
         with st.container(key="aq_sidebar_account"):
+            safe_username = escape(str(authenticated_user))
             st.markdown(
                 f"""
-                <div role="status" aria-label="用户 {safe_username} 已登录">
-                  <span class="aq-sidebar-account__avatar" aria-hidden="true">
+                <div aria-hidden="true">
+                  <span class="aq-sidebar-account__avatar">
                     <svg viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8"/>
                       <path d="M5.5 19c.7-3.3 3.1-5 6.5-5s5.8 1.7 6.5 5"
@@ -388,5 +418,10 @@ with st.sidebar:
                 """,
                 unsafe_allow_html=True,
             )
+            with st.container(key="aq_sidebar_account_link"):
+                st.page_link(
+                    "pages/16_user_center.py",
+                    label=f"{authenticated_user} · 已登录 · 打开个人中心",
+                )
 
 navigation.run()

@@ -4,8 +4,8 @@
 
 - 因子值只用 ``<= end_date`` 的行情计算（评估区间内 t 日因子天然只依赖
   t 日及之前的数据，见 ``base.FactorDefinition`` 约定）；
-- 未来收益严格定义为 t+1 日收盘买入、t+N 日收盘卖出：
-  ``fwd_ret(t) = close(t+N) / close(t+1) - 1``（按交易日计）；
+- 未来收益严格定义为 t+1 日收盘买入、t+N+1 日收盘卖出：
+  ``fwd_ret(t) = close(t+N+1) / close(t+1) - 1``（持有 N 个交易日）；
 - IC 与分层统计均使用「因子值 × direction」后的调整值，
   因此正的 IC / 正的多空收益代表因子按预期方向有效。
 """
@@ -78,13 +78,17 @@ class FactorEvaluator:
         ].copy()
         values["adjusted"] = pd.to_numeric(values["value"], errors="coerce") * factor.direction
 
+        values["adjusted"] = values["adjusted"].replace([float("inf"), -float("inf")], float("nan"))
+        # Assign membership before inspecting future returns, including unlabelled tail dates.
+        values = self._assign_groups(values, n_groups)
         returns = self._forward_returns(symbols, horizon)
-        merged = values.merge(returns, on=["date", "symbol"], how="inner")
-        merged = merged.dropna(subset=["adjusted", "fwd_ret"])
+        merged = values.merge(returns, on=["date", "symbol"], how="left")
 
-        daily_ic = self._daily_ic(merged)
+        daily_ic = self._daily_ic(merged.dropna(subset=["adjusted", "fwd_ret"]))
         group_returns, group_means, long_short = self._group_returns(merged, n_groups)
-        turnover = self._top_turnover(merged, n_groups)
+        dates = pd.DatetimeIndex(pd.to_datetime(factor_bars["trade_date"]).unique()).normalize()
+        dates = dates[(dates >= pd.Timestamp(start_date)) & (dates <= pd.Timestamp(end_date))]
+        turnover = self._top_turnover(values, n_groups, dates=dates.sort_values())
 
         rank_ic = daily_ic["rank_ic"].dropna()
         half = len(rank_ic) // 2
@@ -94,6 +98,10 @@ class FactorEvaluator:
         notes: list[str] = []
         if len(daily_ic) < 20:
             notes.append("有效截面不足 20 日，统计结论仅供参考")
+        if values["group"].isna().any():
+            notes.append("部分截面因有效股票不足、因子缺失或重复分位边界无法完整分组；未强行拆分同值股票。")
+        if merged["fwd_ret"].isna().any():
+            notes.append("部分股票缺少完整未来收益，收益统计仅使用可观测样本；分组成员和换手不因此重算。")
 
         ic = daily_ic["ic"].dropna()
         return FactorReport(
@@ -119,7 +127,7 @@ class FactorEvaluator:
         )
 
     def _forward_returns(self, symbols: list[str] | None, horizon: int) -> pd.DataFrame:
-        """t+1 收盘买入、t+horizon 收盘卖出的未来收益（date=t）。"""
+        """t+1 收盘买入、t+horizon+1 收盘卖出；不填补缺失价格。"""
 
         bars = self.repository.get_daily_bars(symbols=symbols)
         price_field = (
@@ -128,8 +136,14 @@ class FactorEvaluator:
             else "raw_close"
         )
         close = pivot_field(bars, price_field)
+        # Preserve every observed market date, even when all prices on it are missing.
+        calendar = pd.DatetimeIndex(
+            pd.to_datetime(bars["trade_date"]).dt.normalize().unique()
+        ).sort_values()
+        close = close.reindex(calendar)
+        close = close.where((close > 0) & (close < float("inf")))
         entry = close.shift(-1)
-        exit_ = close.shift(-horizon)
+        exit_ = close.shift(-(horizon + 1))
         fwd = exit_ / entry - 1.0
         long = fwd.stack(future_stack=True).rename("fwd_ret").reset_index()
         long.columns = pd.Index(["date", "symbol", "fwd_ret"])
@@ -147,46 +161,61 @@ class FactorEvaluator:
         return pd.DataFrame(rows, columns=["date", "ic", "rank_ic"])
 
     @staticmethod
+    def _assign_groups(values: pd.DataFrame, n_groups: int) -> pd.DataFrame:
+        """Require all quantile groups; ties never get arbitrary symbol-based ranks."""
+        values = values.copy()
+        values["group"] = float("nan")
+        for _, group in values.groupby("date", observed=True):
+            valid = group["adjusted"].dropna()
+            if len(valid) < n_groups:
+                continue
+            try:
+                labels = pd.qcut(valid, n_groups, labels=False, duplicates="raise")
+            except ValueError:
+                continue
+            if labels.nunique() != n_groups:
+                continue
+            values.loc[labels.index, "group"] = labels + 1
+        return values
+
+    @staticmethod
     def _group_returns(
         merged: pd.DataFrame, n_groups: int
     ) -> tuple[pd.DataFrame, pd.Series, float]:
-        rows: list[dict[str, object]] = []
-        for trade_date, group in merged.groupby("date", observed=True):
-            if len(group) < n_groups:
-                continue
-            labels = pd.qcut(
-                group["adjusted"], n_groups, labels=False, duplicates="drop"
-            )
-            for label, bucket in group.groupby(labels, observed=True):
-                rows.append(
-                    {
-                        "date": trade_date,
-                        "group": int(label) + 1,
-                        "ret": float(bucket["fwd_ret"].mean()),
-                    }
-                )
-        frame = pd.DataFrame(rows, columns=["date", "group", "ret"])
+        if "group" not in merged:
+            merged = FactorEvaluator._assign_groups(merged, n_groups)
+        frame = (
+            merged.dropna(subset=["group", "fwd_ret"])
+            .groupby(["date", "group"], observed=True)["fwd_ret"]
+            .mean().rename("ret").reset_index()
+        )
         if frame.empty:
             return frame, pd.Series(dtype=float), float("nan")
         means = frame.groupby("group", observed=True)["ret"].mean()
-        long_short = float(means.iloc[-1] - means.iloc[0])
+        paired = frame.pivot(index="date", columns="group", values="ret").reindex(
+            columns=[1, n_groups]
+        ).dropna()
+        long_short = float((paired[n_groups] - paired[1]).mean())
         return frame, means, long_short
 
     @staticmethod
-    def _top_turnover(merged: pd.DataFrame, n_groups: int) -> pd.DataFrame:
-        """相邻两个交易日 top 组的换手率：1 - 重合度。"""
+    def _top_turnover(
+        merged: pd.DataFrame, n_groups: int, *, dates: pd.DatetimeIndex | None = None
+    ) -> pd.DataFrame:
+        """相邻有效截面新增成员 / 当日 Top 组人数；无效截面中断比较。"""
 
+        if "group" not in merged:
+            merged = FactorEvaluator._assign_groups(merged, n_groups)
         top_sets: list[tuple[pd.Timestamp, set[str]]] = []
         for trade_date, group in merged.groupby("date", observed=True):
-            if len(group) < n_groups:
-                continue
-            labels = pd.qcut(
-                group["adjusted"], n_groups, labels=False, duplicates="drop"
-            )
-            top_label = labels.max()
-            top_sets.append((trade_date, set(group.loc[labels == top_label, "symbol"])))
+            top_sets.append((trade_date, set(group.loc[group["group"] == n_groups, "symbol"])))
+        if dates is not None:
+            by_date = dict(top_sets)
+            top_sets = [(day, by_date.get(day, set())) for day in dates]
         rows: list[dict[str, object]] = []
-        for (_, prev), (trade_date, current) in zip(top_sets, top_sets[1:]):
+        for (_, prev), (trade_date, current) in zip(top_sets, top_sets[1:], strict=False):
+            if not prev or not current:
+                continue
             overlap = len(prev & current) / len(current) if current else 0.0
             rows.append({"date": trade_date, "turnover": 1.0 - overlap})
         return pd.DataFrame(rows, columns=["date", "turnover"])

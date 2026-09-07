@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any, ClassVar
 
 import pandas as pd
@@ -38,6 +39,8 @@ class FactorWeight:
 @dataclass(frozen=True)
 class FactorCompositeParameters:
     components: tuple[FactorWeight, ...]
+    clip: bool = False
+    missing: str = "zero"
 
     @classmethod
     def from_json(cls, text: str) -> FactorCompositeParameters:
@@ -48,22 +51,40 @@ class FactorCompositeParameters:
         if not isinstance(raw, list) or not raw:
             raise ConfigurationError("因子组合必须是非空列表")
         components: list[FactorWeight] = []
+        clip = raw[0].get("clip", False) if isinstance(raw[0], dict) else False
+        missing = raw[0].get("missing", "zero") if isinstance(raw[0], dict) else "zero"
+        if not isinstance(clip, bool) or missing not in {"zero", "drop", "median"}:
+            raise ConfigurationError("组合清洗设置无效")
         registry = default_registry()
         for item in raw:
             if not isinstance(item, dict) or "name" not in item:
                 raise ConfigurationError('因子组合元素必须形如 {"name": ..., "weight": ...}')
             name = str(item["name"]).strip()
+            if item.get("clip", False) != clip or item.get("missing", "zero") != missing:
+                raise ConfigurationError("成分因子的清洗设置必须一致")
             if name not in registry:
                 raise ConfigurationError(f"未注册的因子：{name}")
             components.append(FactorWeight(name, float(item.get("weight", 1.0))))
         names = [item.name for item in components]
         if len(set(names)) != len(names):
             raise ConfigurationError("因子组合中存在重复因子")
-        return cls(tuple(components))
+        if any(not isfinite(item.weight) for item in components):
+            raise ConfigurationError("因子权重必须为有限数值")
+        if sum(abs(item.weight) for item in components) <= 0:
+            raise ConfigurationError("因子权重不能全部为零")
+        return cls(tuple(components), clip=clip, missing=missing)
 
     def to_json(self) -> str:
         return json.dumps(
-            [{"name": item.name, "weight": item.weight} for item in self.components],
+            [
+                {
+                    "name": item.name,
+                    "weight": item.weight,
+                    "clip": self.clip,
+                    "missing": self.missing,
+                }
+                for item in self.components
+            ],
             ensure_ascii=False,
             sort_keys=True,
         )
@@ -106,9 +127,7 @@ class FactorCompositeStrategy(Strategy):
         return cls(strategy_id, config, components)
 
     def generate_signals(self, context: StrategyContext) -> list[Signal]:
-        fields = sorted(
-            {field for factor in self._components for field in factor.required_fields}
-        )
+        fields = sorted({field for factor in self._components for field in factor.required_fields})
         lookback = max(factor.min_history for factor in self._components) + 1
         history = context.history(fields=fields, lookback=lookback)
         if history.empty:
@@ -122,10 +141,14 @@ class FactorCompositeStrategy(Strategy):
             try:
                 values = factor.compute(history)
             except ValueError:
+                if self.config.missing != "zero":
+                    return []
                 continue  # 缺字段时跳过该因子而不是中断整个回测
             values["date"] = pd.to_datetime(values["date"]).dt.normalize()
             today = values[values["date"] == cutoff]
             if today.empty:
+                if self.config.missing != "zero":
+                    return []
                 continue
             frames[factor.name] = today
             weights[factor.name] = component.weight
@@ -133,7 +156,23 @@ class FactorCompositeStrategy(Strategy):
         if not frames:
             return []
 
-        composite = combine_factors(frames, weights, directions=directions)
+        if self.config.missing != "zero":
+            universe = history.loc[
+                pd.to_datetime(history["trade_date"]).dt.normalize() == cutoff,
+                ["trade_date", "symbol"],
+            ].rename(columns={"trade_date": "date"})
+            universe["date"] = pd.to_datetime(universe["date"]).dt.normalize()
+            frames = {
+                name: universe.merge(frame, on=["date", "symbol"], how="left")
+                for name, frame in frames.items()
+            }
+        composite = combine_factors(
+            frames,
+            weights,
+            directions=directions,
+            clip=self.config.clip,
+            missing=self.config.missing,
+        )
         signals: list[Signal] = []
         for row in composite.itertuples(index=False):
             signals.append(

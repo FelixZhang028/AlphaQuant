@@ -1824,6 +1824,11 @@ def _render_account_status() -> None:
                     with st.popover(str(username), icon=":material/account_circle:"):
                         account_label = "当前账户" if _lang() == "zh" else "Signed in as"
                         st.caption(f"{account_label}: {username}")
+                        st.page_link(
+                            "pages/16_user_center.py",
+                            label="个人中心" if _lang() == "zh" else "My account",
+                            icon=":material/account_circle:",
+                        )
                         if st.button(
                             "进入工作台" if _lang() == "zh" else "Open workbench",
                             key="aq_account_open_workbench",
@@ -2142,7 +2147,7 @@ def _render_modules(report) -> None:
                     _t("open"), key=f"welcome_module_{page}", width="stretch"
                 ):
                     strategy_modes = {
-                        "pages/7_strategy_studio.py": "模板与积木",
+                        "pages/7_strategy_studio.py": "策略搭建",
                         "pages/8_custom_strategy.py": "Python 策略",
                         "pages/10_nl_strategy.py": "自然语言",
                     }

@@ -50,6 +50,11 @@ class IndicatorSpec:
     name: str
     window: int | None = None
 
+    @property
+    def window_limits(self) -> tuple[int, int]:
+        """Supported window bounds for editors of windowed indicators."""
+        return _WINDOW_RULES[self.name]
+
     @classmethod
     def from_mapping(cls, value: Any) -> IndicatorSpec:
         if not isinstance(value, dict):

@@ -11,22 +11,19 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
 
+from quant_platform.application.factor_research_service import research_combination
 from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
 from quant_platform.factors.base import FactorDefinition
-from quant_platform.factors.combine import (
-    CompositeFactor,
-    correlation_matrix,
-    drop_highly_correlated,
-)
 from quant_platform.factors.custom import (
     FIELDS,
     OPERATORS,
@@ -35,7 +32,6 @@ from quant_platform.factors.custom import (
     save_custom_factors,
 )
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
-from quant_platform.factors.preprocess import fill_missing, winsorize, zscore
 from quant_platform.factors.registry import default_registry, reload_default_registry
 from quant_platform.web.theme import inject_global_css
 
@@ -71,12 +67,17 @@ def _render_report(report: FactorReport) -> None:
     metric_cols[0].metric("IC 均值", f"{report.ic_mean:.4f}")
     metric_cols[1].metric("Rank IC 均值", f"{report.rank_ic_mean:.4f}")
     metric_cols[2].metric("Rank IC IR", f"{report.rank_ic_ir:.2f}")
-    metric_cols[3].metric("多空收益（每期）", f"{report.long_short_mean:.2%}")
+    metric_cols[3].metric("同日多空收益差均值", f"{report.long_short_mean:.2%}")
 
     stability_cols = st.columns(3)
     stability_cols[0].metric("前半段 Rank IC", f"{report.first_half_ic:.4f}")
     stability_cols[1].metric("后半段 Rank IC", f"{report.second_half_ic:.4f}")
-    stability_cols[2].metric("Top 组换手率（每期）", f"{report.turnover_mean:.2%}")
+    stability_cols[2].metric("Top 组成员更替率（日频）", f"{report.turnover_mean:.2%}")
+    st.caption(
+        f"t 日收盘后生成信号，t+1 日收盘买入，t+{report.horizon + 1} 日收盘卖出，"
+        f"持有 {report.horizon} 个交易日。多空为同日最高组减最低组收益的均值，未扣交易成本；"
+        "成员更替率为新增成员占当日 Top 组人数的比例，不是持仓权重换手率。"
+    )
     if not pd.isna(report.first_half_ic) and not pd.isna(report.second_half_ic):
         if report.first_half_ic > 0 and report.second_half_ic < report.first_half_ic / 2:
             st.warning(
@@ -88,7 +89,9 @@ def _render_report(report: FactorReport) -> None:
         st.info(note)
 
     if not report.group_mean_returns.empty:
-        st.markdown("**五分位分组平均未来收益**（第 5 组为因子值最高组）")
+        st.markdown(
+            f"**{report.n_groups} 分组平均未来收益**（第 {report.n_groups} 组为因子值最高组）"
+        )
         group_frame = report.group_mean_returns.rename("平均未来收益").to_frame()
         group_frame.index = pd.Index([f"第 {i} 组" for i in group_frame.index])
         st.bar_chart(group_frame)
@@ -100,7 +103,7 @@ def _render_report(report: FactorReport) -> None:
 st.title("因子实验室")
 st.caption(
     "统一的因子定义、计算与评估：因子值只使用当日及之前的数据（防未来函数），"
-    "IC 与未来收益按 t 日因子对 t+1 至 t+N 收益计算。"
+    "持有 N 个交易日：t+1 日收盘买入，t+N+1 日收盘卖出。"
 )
 
 flash = st.session_state.pop("custom_factor_flash", None)
@@ -181,180 +184,166 @@ with evaluate_tab:
         if report is not None:
             coverage = len(report.daily_ic)
             st.caption(
-                f"覆盖率：{coverage} 个有效交易日截面 ｜ "
-                f"持有期 {horizon} 日 ｜ {n_groups} 分组"
+                f"覆盖率：{coverage} 个有效交易日截面 ｜ 持有期 {horizon} 日 ｜ {n_groups} 分组"
             )
             _render_report(report)
 
 # ------------------------------------------------------------ 因子组合 ----
 with combine_tab:
     st.subheader("多因子合成")
+    st.caption("先用训练期确定规则，再用独立测试期比较选股能力；实际收益与回撤请到回测页验证。")
+    st.markdown("### 1 · 选择因子")
     selected = st.multiselect(
-        "选择要合成的因子（2 个起）",
+        "选择至少两个因子",
         factor_names,
         default=factor_names[:2],
         format_func=lambda name: factors[name].display_name,
         key="factor_combine_names",
     )
-    weight_mode = st.radio(
-        "权重方式",
-        ["等权", "IC 加权（按各自 Rank IC 绝对值）", "自定义权重"],
-        horizontal=True,
-        key="factor_weight_mode",
+    st.markdown("### 2 · 设置组合")
+    weight_mode = st.selectbox(
+        "组合方式", ["等权", "手动权重", "自动权重（高级）"], key="factor_weight_mode_v2"
     )
-
-    custom_weights: dict[str, float] = {}
-    if weight_mode == "自定义权重":
-        weight_cols = st.columns(min(4, max(1, len(selected))))
-        for index, name in enumerate(selected):
-            with weight_cols[index % len(weight_cols)]:
-                custom_weights[name] = float(
-                    st.number_input(
-                        f"{factors[name].display_name} 权重",
-                        value=1.0,
-                        key=f"factor_w_{name}",
-                    )
-                )
-
-    with st.expander("清洗选项（去极值 / 标准化 / 缺失值处理）", expanded=False):
-        do_winsorize = st.checkbox("MAD 去极值", value=True, key="factor_winsorize")
-        do_zscore = st.checkbox("截面标准化（合成前自动执行，此为额外预处理）", value=False)
+    custom_weights = {}
+    if weight_mode == "手动权重":
+        st.caption("数字表示相对份额，系统会归一化为百分比；0 表示不参与打分。")
+        for name in selected:
+            custom_weights[name] = st.number_input(
+                f"{factors[name].display_name} 权重",
+                min_value=0.0,
+                value=1.0,
+                key=f"factor_w_{name}",
+            )
+    with st.expander("高级设置：清洗与自动权重说明"):
+        do_winsorize = st.checkbox("按日去极值（MAD）", value=True, key="factor_winsorize")
         fill_method = st.selectbox("缺失值处理", ["剔除缺失", "中位数填充"], key="factor_fill")
-
-    corr_threshold = st.slider("高相关剔除阈值 |ρ|", 0.5, 0.95, 0.7, key="factor_corr_th")
-
-    if st.button("计算并评估合成因子", type="primary", key="factor_combine_run"):
-        if len(selected) < 2:
-            st.warning("请至少选择两个因子。")
-        else:
-            components = tuple(factors[name] for name in selected)
-            frames: dict[str, pd.DataFrame] = {}
-            compute_succeeded = True
-            with st.spinner("正在计算成分因子……"):
-                try:
-                    for factor in components:
-                        frame = factor.compute(repository.get_daily_bars())
-                        if do_winsorize:
-                            frame = winsorize(frame)
-                        if do_zscore:
-                            frame = zscore(frame)
-                        if fill_method == "剔除缺失":
-                            frame = fill_missing(frame, method="drop")
-                        else:
-                            frame = fill_missing(frame, method="median")
-                        frames[factor.name] = frame
-                except Exception as exc:  # noqa: BLE001
-                    st.error(f"因子计算失败：{exc}")
-                    compute_succeeded = False
-
-            if compute_succeeded:
-                corr = correlation_matrix(frames)
-                if not corr.empty:
-                    st.markdown("**因子相关性矩阵（按日横截面 Spearman 均值）**")
-                    st.dataframe(corr.round(3), width="stretch")
-                    dropped = drop_highly_correlated(corr, threshold=corr_threshold)
-                    if dropped:
-                        st.warning(
-                            f"以下因子与其他因子相关性超过 {corr_threshold}，已自动剔除："
-                            f"{', '.join(dropped)}"
-                        )
-                        for name in dropped:
-                            frames.pop(name, None)
-                        components = tuple(
-                            item for item in components if item.name in frames
-                        )
-
-                if not components:
-                    st.error("高相关剔除后没有剩余因子，请降低剔除阈值或重选因子。")
-                else:
-                    weights: dict[str, float] = {}
-                    weights_succeeded = True
-                    if weight_mode == "等权":
-                        weights = {item.name: 1.0 for item in components}
-                    elif weight_mode == "自定义权重":
-                        weights = {
-                            item.name: custom_weights.get(item.name, 1.0)
-                            for item in components
-                        }
-                    else:
-                        with st.spinner("正在用 Rank IC 估计权重……"):
-                            try:
-                                for factor in components:
-                                    factor_report = _evaluate(
-                                        factor,
-                                        repository,
-                                        start,
-                                        end,
-                                        horizon,
-                                        n_groups,
-                                    )
-                                    weights[factor.name] = max(
-                                        abs(factor_report.rank_ic_mean), 1e-4
-                                    )
-                            except Exception as exc:  # noqa: BLE001
-                                st.error(f"IC 权重计算失败：{exc}")
-                                weights_succeeded = False
-                        if weights_succeeded:
-                            st.caption(
-                                "IC 加权结果："
-                                + "、".join(
-                                    f"{name}={weight:.4f}"
-                                    for name, weight in weights.items()
-                                )
-                            )
-
-                    if weights_succeeded:
-                        composite = CompositeFactor(
-                            name="composite_custom",
-                            display_name="自定义合成因子",
-                            description="因子研究室合成的复合因子",
-                            formula="weighted sum of z-scored components",
-                            components=components,
-                            weights=weights,
-                        )
-                        composite_report: FactorReport | None = None
-                        with st.spinner("正在评估合成因子……"):
-                            try:
-                                composite_report = _evaluate(
-                                    composite,
-                                    repository,
-                                    start,
-                                    end,
-                                    horizon,
-                                    n_groups,
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                st.error(f"合成因子评估失败：{exc}")
-                        if composite_report is not None:
-                            _render_report(composite_report)
-                            st.session_state["factor_composite_spec"] = [
-                                {
-                                    "name": item.name,
-                                    "weight": float(weights[item.name]),
-                                }
-                                for item in components
-                            ]
-
-    spec = st.session_state.get("factor_composite_spec")
-    if spec:
-        st.divider()
-        st.subheader("一键转换成选股策略")
-        st.caption(
-            "把当前合成因子保存为「因子合成策略」参数，随后可在回测页选择 "
-            "factor_composite 插件直接运行，或点击下方按钮立即回测。"
+        st.caption("各因子统一方向后按日标准化。所有对比方案使用相同清洗设置和共同样本。")
+        st.caption("自动权重只使用训练期 Rank IC：正值参与分配，负值或无效值权重为零。")
+        st.caption("相关性仅作提示，不会自动删除因子；删除或修改因子后需重新验证。")
+    st.markdown("### 3 · 划分训练与测试日期")
+    train_col, test_col = st.columns(2)
+    with train_col:
+        train_start = st.date_input(
+            "训练开始", today - timedelta(days=730), key="combo_train_start"
         )
-        st.code(str(spec), language="json")
+        train_end = st.date_input("训练结束", today - timedelta(days=366), key="combo_train_end")
+    with test_col:
+        test_start = st.date_input("测试开始", today - timedelta(days=365), key="combo_test_start")
+        test_end = st.date_input("测试结束", today, key="combo_test_end")
+    periods, groups = st.columns(2)
+    combo_horizon = periods.selectbox(
+        "组合持有期（交易日）", [1, 5, 10, 20], index=1, key="combo_horizon"
+    )
+    combo_groups = groups.selectbox("组合分组数", [5, 10], key="combo_groups")
+    st.caption("训练期收益不读取训练结束日之后的价格；测试期也只使用测试结束日前已完成的收益。")
+    st.caption("反复查看测试结果并调参会让测试集失去独立性，正式使用前还应保留新的未见数据。")
+    mode = {"等权": "equal", "手动权重": "manual", "自动权重（高级）": "ic"}[weight_mode]
+    config = dict(
+        train_start=train_start,
+        train_end=train_end,
+        test_start=test_start,
+        test_end=test_end,
+        mode=mode,
+        custom_weights=custom_weights,
+        clip=do_winsorize,
+        missing="drop" if fill_method == "剔除缺失" else "median",
+        horizon=combo_horizon,
+        n_groups=combo_groups,
+    )
+    fingerprint = json.dumps(
+        {
+            "config": config,
+            "factors": [(name, factors[name].version) for name in selected],
+            "user": st.session_state.get("aq_authenticated_user"),
+        },
+        default=str,
+        sort_keys=True,
+    )
+    if st.button("开始验证", type="primary", key="factor_combine_run"):
+        st.session_state.pop("factor_research_result", None)
+        st.session_state.pop("factor_composite_spec", None)
+        try:
+            with st.spinner("正在训练并验证组合……"):
+                result = research_combination(
+                    repository, tuple(factors[name] for name in selected), **config
+                )
+            st.session_state["factor_research_result"] = (fingerprint, result)
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(f"组合验证失败：{exc}")
+    saved = st.session_state.get("factor_research_result")
+    if saved and saved[0] != fingerprint:
+        st.info("设置已变化，请重新验证；旧结果不会带入回测。")
+    if saved and saved[0] == fingerprint:
+        result = saved[1]
+        st.markdown("### 4 · 查看测试期结果")
+        st.markdown("**实际权重与公式**")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"因子": factors[name].display_name, "权重": f"{weight:.1%}"}
+                    for name, weight in result.weights.items()
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+        formula = " + ".join(
+            f"{weight:.4f} × 标准分({factors[name].display_name}，方向{factors[name].direction:+d})"
+            for name, weight in result.weights.items()
+            if weight > 0
+        )
+        st.code("综合得分 = " + formula, language=None)
+        st.caption("标准分使用统一方向、清洗后的当日横截面计算。")
+        with st.expander("训练期因子相关性"):
+            st.dataframe(result.correlation.round(3), width="stretch")
+            if not result.correlation.empty:
+                corr_values = result.correlation.abs().copy()
+                for name in corr_values.index:
+                    corr_values.loc[name, name] = 0
+                if corr_values.ge(0.7).any().any():
+                    st.info("部分因子相关性达到 0.7，可能包含重复信息，可检查后重新选择。")
+        st.dataframe(result.comparison, hide_index=True, width="stretch")
+        st.caption(
+            "收益差与更替率以小数表示（0.01 = 1%）；不等同于扣费后可交易收益。"
+            "等权模式下两组合一致。"
+        )
+        detail = st.selectbox("查看方案详情", list(result.reports), key="combo_report_detail")
+        _render_report(result.reports[detail])
+        export = {
+            "version": 1,
+            "config": json.loads(fingerprint),
+            "factors": result.spec,
+            "comparison": json.loads(result.comparison.to_json(orient="records")),
+            "reports": {
+                name: {
+                    "daily_ic": json.loads(
+                        report.daily_ic.to_json(orient="records", date_format="iso")
+                    ),
+                    "group_returns": json.loads(
+                        report.group_returns.to_json(orient="records", date_format="iso")
+                    ),
+                    "notes": report.notes,
+                }
+                for name, report in result.reports.items()
+            },
+        }
+        st.download_button(
+            "下载组合与验证记录",
+            json.dumps(export, ensure_ascii=False, indent=2),
+            file_name="factor_research.json",
+            mime="application/json",
+            key="combo_download",
+        )
+        st.caption("带入回测会保留已验证的权重与清洗规则；请在回测页确认交易日期、股票池与成本。")
         if st.button("保存组合并去回测", key="factor_to_strategy"):
-            st.session_state["factor_composite_payload"] = spec
+            st.session_state["factor_composite_payload"] = result.spec
             st.session_state["backtest_workspace_mode"] = "单次回测"
             st.switch_page("home.py")
 
 # ------------------------------------------------------------ 自定义因子 ----
 with custom_tab:
     st.subheader("自定义因子")
-    st.caption(
-        "用字段、算子和窗口定义一个量价因子，定义后可到「因子评估」和「因子组合」中使用。"
-    )
+    st.caption("用字段、算子和窗口定义一个量价因子，定义后可到「因子评估」和「因子组合」中使用。")
 
     with st.form("custom_factor_form"):
         col1, col2 = st.columns(2)
@@ -378,9 +367,7 @@ with custom_tab:
         operator_meta = OPERATORS[operator]
         win1, win2 = st.columns(2)
         with win1:
-            window = int(
-                st.number_input("窗口 N", min_value=1, value=20, step=1, key="cf_window")
-            )
+            window = int(st.number_input("窗口 N", min_value=1, value=20, step=1, key="cf_window"))
         with win2:
             if operator_meta["window2"]:
                 window2 = int(
