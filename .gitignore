@@ -53,6 +53,7 @@ Thumbs.db
 /runtime/agent_cache/
 /runtime/agent_runs/
 /runtime/llm_settings.json
+/runtime/data_source_settings.json
 /runtime/prior_knowledge.json
 *.pt
 *.pth

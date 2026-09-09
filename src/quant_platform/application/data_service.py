@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from quant_platform.application.data_source_resolver import DataSourceResolver
+from quant_platform.application.benchmarks import BENCHMARK_NAMES
 from quant_platform.application.manifest_summary import add_provider_route_summary
 from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.core.exceptions import (
@@ -29,6 +30,7 @@ from quant_platform.data.network import (
     friendly_data_error,
 )
 from quant_platform.data.pytdx_backfill import PyTdxRangeBackfill
+from quant_platform.data.xtick_backfill import XTickRangeBackfill
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -127,6 +129,12 @@ class DataCenterService:
 
         return str(require_mapping(self.app, "backtest").get("benchmark", "000300.SH"))
 
+    @property
+    def benchmark_name(self) -> str:
+        """Return the human-readable benchmark name."""
+        backtest = require_mapping(self.app, "backtest")
+        return str(backtest.get("benchmark_name", BENCHMARK_NAMES.get(self.benchmark_symbol, self.benchmark_symbol)))
+
     def overview(self) -> DataCenterOverview:
         """Inspect local datasets without contacting external services."""
 
@@ -171,7 +179,15 @@ class DataCenterService:
         for index, source in enumerate(self.sources.market_sources()):
             provider_config = self.source_config.get("providers", {}).get(source, {})
             display_name = str(provider_config.get("display_name", source))
-            if source == "baostock":
+            if source == "xtick":
+                token_env = str(provider_config.get("token_env", "XTICK_TOKEN"))
+                ready = bool(os.getenv(token_env))
+                detail = (
+                    f"Token 已配置；当前仅支持 XTick 专项查询，批量回测更新尚未接入"
+                    if ready
+                    else f"未配置 {token_env}；当前路由会自动回退"
+                )
+            elif source == "baostock":
                 ready = self.baostock_client is not None or self.sources.sdk_ready("baostock")
                 detail = (
                     "免费行情、停牌和历史 ST 状态来源"
@@ -297,17 +313,24 @@ class DataCenterService:
             save_manifest(self.repository, failed)
             raise
 
-    def update_benchmark(self, start_date: date, end_date: date) -> DataUpdateResult:
+    def update_benchmark(self, start_date: date, end_date: date, benchmark_symbol: str | None = None) -> DataUpdateResult:
         """Refresh and version the configured benchmark index."""
 
+        symbol = benchmark_symbol or self.benchmark_symbol
         parameters = {
-            "symbol": self.benchmark_symbol,
+            "symbol": symbol,
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
         }
         manifest = DataManifest.start("benchmark_bars", "akshare", parameters)
         try:
-            frame = self._catalog().update_benchmark(self.benchmark_symbol, start_date, end_date)
+            if os.getenv("XTICK_TOKEN"):
+                frame = XTickRangeBackfill(self.raw_repository, self.repository).benchmark(symbol, start_date, end_date)
+                existing = self.repository.read_table("benchmark_bars")
+                frame = pd.concat([existing, frame], ignore_index=True).drop_duplicates(["symbol", "trade_date"], keep="last")
+                self.repository.save_table("benchmark_bars", frame)
+            else:
+                frame = self._catalog().update_benchmark(symbol, start_date, end_date)
             completed = manifest.succeed(
                 row_count=len(frame),
                 symbol_count=1,
@@ -336,6 +359,8 @@ class DataCenterService:
         include_benchmark: bool = True,
         market_source_order: list[str] | None = None,
         allow_market_fallback: bool | None = None,
+        benchmark_symbol: str | None = None,
+        benchmark_symbols: list[str] | None = None,
     ) -> list[DataUpdateResult]:
         """Run selected updates independently in a deterministic order."""
 
@@ -355,12 +380,9 @@ class DataCenterService:
                 )
             )
         if include_benchmark:
-            results.append(
-                self._capture_failure(
-                    "benchmark_bars",
-                    lambda: self.update_benchmark(start_date, end_date),
-                )
-            )
+            symbols = benchmark_symbols or ([benchmark_symbol] if benchmark_symbol else [self.benchmark_symbol])
+            for symbol in symbols:
+                results.append(self._capture_failure("benchmark_bars", lambda symbol=symbol: self.update_benchmark(start_date, end_date, symbol)))
         return results
 
     def _catalog(self) -> AkShareCatalogIngestor:
@@ -403,6 +425,8 @@ class DataCenterService:
                         self.repository,
                         self.sources.baostock_provider(),
                     ).backfill(symbols, start_date, end_date)
+                elif source == "xtick":
+                    report = XTickRangeBackfill(self.raw_repository, self.repository).backfill(symbols, start_date, end_date)
                 elif source == "ifind":
                     report = IFindRangeBackfill(
                         self.raw_repository,

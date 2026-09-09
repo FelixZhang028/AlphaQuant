@@ -21,7 +21,6 @@ from quant_platform.agents_bridge.llm_settings import (
     PROVIDER_CATALOG,
     LLMSettingsStore,
 )
-from quant_platform.agents_bridge.proxy_settings import ProxySettingsStore
 from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.web.theme import inject_global_css
 
@@ -32,7 +31,7 @@ st.caption("集中管理模型、数据凭证和本地运行环境。")
 
 section = st.segmented_control(
     "设置分类",
-    ["AI 模型", "数据源凭证", "网络与存储", "系统信息"],
+    ["AI 模型", "数据源凭证", "系统信息"],
     default="AI 模型",
     key="settings_section",
     label_visibility="collapsed",
@@ -176,26 +175,10 @@ elif section == "数据源凭证":
         )
     if save_credentials:
         store.save(provider_key, **values)
-        st.success(f"{provider} 凭证已保存到本地。")
-        st.rerun()
+        st.success(f"{provider} 配置成功，凭证已保存到本地。")
     st.caption(f"本地配置文件：{DEFAULT_DATA_CREDENTIALS_PATH}")
 
-elif section == "网络与存储":
-    proxy_store = ProxySettingsStore()
-    proxy = proxy_store.load()
-    st.subheader("网络与存储")
-    st.caption("网络设置只影响需要联网的外部来源，不改变研究与回测规则。")
-
-    with st.form("settings_proxy_form"):
-        proxy_enabled = st.toggle("为海外数据源启用代理", value=bool(proxy["enabled"]))
-        proxy_address = st.text_input("代理地址", value=str(proxy["address"]))
-        save_proxy = st.form_submit_button(
-            "保存网络设置", type="primary", icon=":material/save:"
-        )
-    if save_proxy:
-        proxy_store.save(proxy_enabled, proxy_address)
-        st.success("网络设置已保存。")
-
+elif section == "系统信息":
     try:
         app_config = load_yaml("configs/app.yaml")
         repository = str(require_mapping(app_config, "data")["repository"])
@@ -212,8 +195,7 @@ elif section == "网络与存储":
         st.code(runtime_dir)
         st.caption("回测、验证、模拟账户和本地设置保存在这里。")
 
-else:
-    st.subheader("系统信息")
+    st.subheader("系统运行信息")
     try:
         app_version = version("quant-platform")
     except PackageNotFoundError:

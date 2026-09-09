@@ -26,9 +26,10 @@ with st.container(border=True):
         st.subheader(f":material/account_circle: {username}")
         st.caption("已登录 · FellowQuant 研究工作台")
     with action:
-        st.page_link(
-            "pages/15_workspace_home.py", label="返回工作台", icon=":material/arrow_back:"
-        )
+        if st.button("返回上一页", icon=":material/arrow_back:", key="account_center_back"):
+            st.switch_page(
+                st.session_state.get("aq_account_return_page", "pages/15_workspace_home.py")
+            )
 
 section = st.segmented_control(
     "个人中心分类",

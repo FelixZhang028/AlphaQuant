@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from quant_platform.application.data_service import DataCenterService
+from quant_platform.application.benchmarks import BENCHMARKS
 from quant_platform.data.network import friendly_data_error
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame
@@ -100,11 +101,11 @@ with st.expander("更新数据", expanded=True):
             include_market = st.checkbox("更新配置股票池行情", value=True)
         with right:
             end_date = st.date_input("结束日期", value=date.today())
-            include_benchmark = st.checkbox(f"更新基准 {overview.benchmark_symbol}", value=True)
-            st.info(
-                "行情更新默认只处理配置股票池，不会下载全市场历史行情。"
-                "证券主表和基准指数目前仍固定使用 AkShare。"
+            benchmark_names = st.multiselect(
+                "基准指数（可多选）", list(BENCHMARKS), default=[service.benchmark_name]
             )
+            include_benchmark = bool(benchmark_names)
+            st.caption("股票行情只更新配置股票池；基准指数按上方选择下载。")
         configured_sources = source_status["provider"].astype(str).tolist()
         automatic_route = " → ".join(
             provider_labels.get(source, source) for source in configured_sources
@@ -159,6 +160,7 @@ with st.expander("更新数据", expanded=True):
                         include_benchmark=include_benchmark,
                         market_source_order=market_source_order,
                         allow_market_fallback=fallback_selected,
+                        benchmark_symbols=[BENCHMARKS[name] for name in benchmark_names],
                     )
                 st.session_state["last_data_update"] = [asdict(result) for result in results]
                 st.rerun()
@@ -276,12 +278,14 @@ with market_tab:
 
 
 with benchmark_tab:
-    st.subheader(overview.benchmark_symbol)
+    benchmark_view = st.selectbox("查看基准指数", list(BENCHMARKS), key="benchmark_view")
+    benchmark_view_symbol = BENCHMARKS[benchmark_view]
+    st.subheader(benchmark_view)
     if overview.benchmark_bars.empty:
         st.info("暂无基准行情。")
     else:
         selected = overview.benchmark_bars[
-            overview.benchmark_bars["symbol"].eq(overview.benchmark_symbol)
+            overview.benchmark_bars["symbol"].eq(benchmark_view_symbol)
         ]
         closing_price = selected.rename(
             columns={"trade_date": "交易日期", "raw_close": "收盘价"}
@@ -291,7 +295,7 @@ with benchmark_tab:
         _download_csv(
             selected,
             label="下载完整基准行情 CSV",
-            file_name=f"benchmark_{overview.benchmark_symbol.replace('.', '_')}.csv",
+            file_name=f"benchmark_{benchmark_view_symbol.replace('.', '_')}.csv",
             key="download_benchmark_csv",
         )
 

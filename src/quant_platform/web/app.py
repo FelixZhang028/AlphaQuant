@@ -107,6 +107,23 @@ else:
 
 navigation = st.navigation(navigation_pages, expanded=True)
 
+# Retain the last non-account route; account widget reruns must not overwrite it.
+if authenticated_user:
+    available_pages = {
+        page.url_path: page
+        for pages in navigation_pages.values()
+        for page in pages
+        if page.url_path != "user_center"
+    }
+    if navigation.url_path in available_pages:
+        st.session_state["aq_account_origin"] = navigation.url_path
+    st.session_state["aq_account_return_page"] = available_pages.get(
+        st.session_state.get("aq_account_origin"), navigation_pages[""][0]
+    )
+else:
+    st.session_state.pop("aq_account_origin", None)
+    st.session_state.pop("aq_account_return_page", None)
+
 if authenticated_user and st.session_state.pop("aq_open_workspace_home", False):
     st.switch_page("pages/15_workspace_home.py")
 
