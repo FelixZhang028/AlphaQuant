@@ -28,6 +28,12 @@ class AShareUniverse(Universe):
     def __init__(self, config: AShareUniverseConfig) -> None:
         self.config = config
 
+    @property
+    def symbols(self) -> tuple[str, ...]:
+        """Return the configured fixed symbol pool."""
+
+        return self.config.symbols
+
     def select(self, trade_date: date, history: pd.DataFrame) -> list[str]:
         cutoff = pd.Timestamp(trade_date)
         available = history[

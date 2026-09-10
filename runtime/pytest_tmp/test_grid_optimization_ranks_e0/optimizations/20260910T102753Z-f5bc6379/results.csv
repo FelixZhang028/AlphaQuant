@@ -1,0 +1,4 @@
+﻿param_lookback,status,run_id,error,sharpe,annual_return,max_drawdown,metrics_reliable,eligible,objective_value,rank
+20,SUCCESS,run-20,,2.0,0.2,-0.2,True,True,2.0,1
+10,SUCCESS,run-10,,1.0,0.1,-0.1,True,True,1.0,2
+40,SUCCESS,run-40,,4.0,0.4,-0.4,True,False,4.0,

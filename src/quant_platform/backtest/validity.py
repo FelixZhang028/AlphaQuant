@@ -60,6 +60,7 @@ class BacktestValidityReport:
     unknown_market_rows: int = 0
     unknown_market_symbols: int = 0
     unknown_status_orders: int = 0
+    missing_adj_factor_rows: int = 0
     audit_version: int = CURRENT_AUDIT_VERSION
     legacy_unverified: bool = False
 
@@ -76,6 +77,7 @@ class BacktestValidityReport:
             "unknown_market_rows": self.unknown_market_rows,
             "unknown_market_symbols": self.unknown_market_symbols,
             "unknown_status_orders": self.unknown_status_orders,
+            "missing_adj_factor_rows": self.missing_adj_factor_rows,
             "audit_version": self.audit_version,
             "legacy_unverified": self.legacy_unverified,
         }
@@ -90,6 +92,7 @@ def assess_backtest_validity(
     orders: pd.DataFrame | None = None,
     unknown_market_rows: int = 0,
     unknown_market_symbols: int = 0,
+    missing_adj_factor_rows: int = 0,
     evaluation_mode: str = "in_sample",
     fixed_universe: bool = True,
     maximum_allowed_gap_days: int = 20,
@@ -211,6 +214,15 @@ def assess_backtest_validity(
                 "模拟组合已经受到数据缺口影响。",
             )
         )
+    if missing_adj_factor_rows > 0:
+        issues.append(
+            ValidityIssue(
+                "MISSING_ADJ_FACTOR",
+                IssueSeverity.WARNING,
+                f"有 {missing_adj_factor_rows:,} 次持仓估值或成交缺少复权因子，"
+                "已按比率 1 回退为未复权口径，除权日附近的净值可能失真。",
+            )
+        )
 
     issues = _deduplicate_issues(issues)
     has_error = any(issue.severity == IssueSeverity.ERROR for issue in issues)
@@ -236,6 +248,7 @@ def assess_backtest_validity(
         unknown_market_rows=max(int(unknown_market_rows), 0),
         unknown_market_symbols=max(int(unknown_market_symbols), 0),
         unknown_status_orders=unknown_order_count,
+        missing_adj_factor_rows=max(int(missing_adj_factor_rows), 0),
     )
 
 

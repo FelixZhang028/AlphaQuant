@@ -38,6 +38,7 @@ class _OpenLot:
     reference_price: float
     direct_cost_per_share: float
     slippage_per_share: float
+    adj_factor: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,7 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
             raise ValueError("fill quantity must be positive")
 
         if side == "BUY":
+            buy_factor = _optional_float(row.get("adj_factor"), 1.0)
             lots.setdefault(symbol, []).append(
                 _OpenLot(
                     order_id=str(row["order_id"]),
@@ -120,6 +122,7 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
                     reference_price=reference_price,
                     direct_cost_per_share=(commission + stamp_tax) / quantity,
                     slippage_per_share=slippage / quantity,
+                    adj_factor=buy_factor if buy_factor > 0 else 1.0,
                 )
             )
             continue
@@ -129,15 +132,21 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
         remaining = quantity
         sell_cost_per_share = (commission + stamp_tax) / quantity
         sell_slippage_per_share = slippage / quantity
+        sell_factor = _optional_float(row.get("adj_factor"), 1.0)
+        if sell_factor <= 0:
+            sell_factor = 1.0
         symbol_lots = lots.setdefault(symbol, [])
         while remaining > 0:
             if not symbol_lots:
                 raise ValueError(f"sell fill exceeds open quantity for {symbol}")
             lot = symbol_lots[0]
             matched = min(remaining, lot.quantity)
+            # 卖出价按买入批次的成本锚定换算：raw × F(sell)/F(buy)，
+            # 跨除权日的往返交易损益才不会被价格跳变污染。
+            factor_ratio = sell_factor / lot.adj_factor if lot.adj_factor > 0 else 1.0
             direct_cost = matched * (lot.direct_cost_per_share + sell_cost_per_share)
             slippage_cost = matched * (lot.slippage_per_share + sell_slippage_per_share)
-            gross_pnl = matched * (reference_price - lot.reference_price)
+            gross_pnl = matched * (reference_price * factor_ratio - lot.reference_price)
             net_pnl = gross_pnl - direct_cost - slippage_cost
             capital = matched * lot.reference_price + matched * (
                 lot.direct_cost_per_share + lot.slippage_per_share
@@ -151,9 +160,9 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
                     "sell_date": trade_date.date(),
                     "quantity": matched,
                     "buy_price": lot.price,
-                    "sell_price": price,
+                    "sell_price": price * factor_ratio,
                     "buy_reference_price": lot.reference_price,
-                    "sell_reference_price": reference_price,
+                    "sell_reference_price": reference_price * factor_ratio,
                     "gross_pnl": gross_pnl,
                     "direct_cost": direct_cost,
                     "slippage_cost": slippage_cost,

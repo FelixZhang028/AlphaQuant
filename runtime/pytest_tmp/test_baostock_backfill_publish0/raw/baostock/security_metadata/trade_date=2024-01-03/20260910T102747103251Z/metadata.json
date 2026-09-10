@@ -1,0 +1,22 @@
+{
+  "provider": "baostock",
+  "dataset": "security_metadata",
+  "trade_date": "2024-01-03",
+  "captured_at": "2026-09-10T10:27:47.103251+00:00",
+  "request": {
+    "symbols": [
+      "000001.SZ"
+    ]
+  },
+  "rows": 1,
+  "columns": [
+    "code",
+    "code_name",
+    "ipoDate",
+    "outDate",
+    "type",
+    "status",
+    "symbol"
+  ],
+  "sha256": "bbdd283f3b67d3715057cf5890d91d2aeee1d1c90ac87e12d6d631a799802b48"
+}

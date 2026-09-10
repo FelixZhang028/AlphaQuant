@@ -19,6 +19,11 @@ from quant_platform.application.benchmarks import BENCHMARKS
 from quant_platform.data.network import friendly_data_error
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame
+from quant_platform.web.service_cache import (
+    cached_overview_or_stop,
+    data_fingerprint,
+    get_coverage_bars,
+)
 
 
 def _download_csv(
@@ -45,13 +50,9 @@ else:
     st.title("数据管理")
 st.caption("按配置的数据源顺序更新行情，检查覆盖率并记录数据版本。")
 
-config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
-try:
-    service = DataCenterService(config_path)
-    overview = service.overview()
-except Exception as exc:
-    st.error(f"数据中心加载失败：{friendly_data_error(exc)}")
-    st.stop()
+service: DataCenterService
+service, overview = cached_overview_or_stop()
+repo_fingerprint = data_fingerprint(service.repository)
 
 market = overview.market
 source_status = service.market_source_status()
@@ -226,7 +227,9 @@ with coverage_tab:
 
 with market_tab:
     st.subheader("配置股票池日线行情")
-    daily_bars = service.repository.read_table("daily_bars")
+    daily_bars = get_coverage_bars(
+        "configs/app.yaml", repo_fingerprint
+    )
     if daily_bars.empty:
         st.info("暂无股票行情，请先运行数据更新。")
     else:

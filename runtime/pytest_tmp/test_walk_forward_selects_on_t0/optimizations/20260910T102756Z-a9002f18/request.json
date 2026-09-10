@@ -1,0 +1,13 @@
+{
+  "optimization_id": "20260910T102756Z-a9002f18",
+  "objective": "sharpe",
+  "max_drawdown_limit": null,
+  "parameter_grid": {
+    "short_window": [
+      10,
+      20
+    ]
+  },
+  "combination_count": 2,
+  "baseline_run_id": "baseline-1"
+}

@@ -14,3 +14,9 @@ class Universe(ABC):
     @abstractmethod
     def select(self, trade_date: date, history: pd.DataFrame) -> list[str]:
         """Return eligible symbols using only data available by ``trade_date``."""
+
+    @property
+    def symbols(self) -> tuple[str, ...] | None:
+        """Return the fixed symbol pool, or None when the universe is dynamic."""
+
+        return None

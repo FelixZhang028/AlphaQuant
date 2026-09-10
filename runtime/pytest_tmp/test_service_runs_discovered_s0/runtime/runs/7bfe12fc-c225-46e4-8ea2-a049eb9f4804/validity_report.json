@@ -1,0 +1,25 @@
+{
+  "status": "WARNING",
+  "metrics_reliable": true,
+  "issues": [
+    {
+      "code": "FIXED_UNIVERSE",
+      "severity": "WARNING",
+      "message": "本次使用当前固定股票池，结果只代表这些股票，可能存在事后选股偏差。"
+    },
+    {
+      "code": "IN_SAMPLE_ONLY",
+      "severity": "WARNING",
+      "message": "本次是普通历史回测，尚未经过样本外或滚动验证。"
+    }
+  ],
+  "observations": 259,
+  "maximum_calendar_gap_days": 3,
+  "blocks_completion": false,
+  "unknown_market_rows": 0,
+  "unknown_market_symbols": 0,
+  "unknown_status_orders": 0,
+  "missing_adj_factor_rows": 0,
+  "audit_version": 2,
+  "legacy_unverified": false
+}

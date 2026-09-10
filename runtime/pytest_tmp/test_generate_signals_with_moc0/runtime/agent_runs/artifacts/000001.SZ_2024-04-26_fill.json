@@ -1,0 +1,12 @@
+{
+  "ticker": "000001.SZ",
+  "trade_date": "2024-04-26",
+  "action": "buy",
+  "quantity": 999.50025,
+  "price": 10.005,
+  "reference_price": 10.0,
+  "slippage": 0.005,
+  "commission": 5.0,
+  "settlement_date": "2024-04-29",
+  "timestamp": "2026-09-10T10:27:52.696124Z"
+}

@@ -1,0 +1,8 @@
+providers:
+  pytdx:
+    enabled: true
+    servers:
+    - mock:7709
+routing:
+  daily_bars:
+  - pytdx

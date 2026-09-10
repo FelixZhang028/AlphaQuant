@@ -19,7 +19,6 @@ import pandas as pd
 import streamlit as st
 
 from quant_platform.application.factor_research_service import research_combination
-from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -33,18 +32,18 @@ from quant_platform.factors.custom import (
 )
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
 from quant_platform.factors.registry import default_registry, reload_default_registry
+from quant_platform.web.service_cache import (
+    data_fingerprint,
+    get_coverage_bars,
+    get_data_repository,
+    service_or_stop,
+)
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
 
 _DIRECTION_LABELS = {1: "正向（值越大越看好）", -1: "反向（值越小越看好）"}
 _NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def _repository(config_path: str) -> ParquetMarketDataRepository:
-    config = load_yaml(config_path)
-    data_section = require_mapping(config, "data")
-    return ParquetMarketDataRepository(data_section["repository"])
 
 
 def _evaluate(
@@ -110,12 +109,7 @@ flash = st.session_state.pop("custom_factor_flash", None)
 if flash:
     st.success(flash)
 
-config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
-try:
-    repository = _repository(config_path)
-except Exception as exc:  # noqa: BLE001 - 配置损坏时给出可读提示
-    st.error(f"无法加载数据仓库：{exc}")
-    st.stop()
+repository = service_or_stop(get_data_repository, "无法加载数据仓库")
 
 registry = default_registry()
 custom_factors = load_custom_factors()
@@ -124,7 +118,7 @@ custom_factors = load_custom_factors()
 factors = {item.name: item for item in registry.list()}
 factor_names = list(factors)
 
-coverage_bars = repository.read_table("daily_bars")
+coverage_bars = get_coverage_bars("configs/app.yaml", data_fingerprint(repository))
 if coverage_bars.empty:
     st.warning("本地还没有行情数据。请先到「数据管理」更新股票池行情。")
 

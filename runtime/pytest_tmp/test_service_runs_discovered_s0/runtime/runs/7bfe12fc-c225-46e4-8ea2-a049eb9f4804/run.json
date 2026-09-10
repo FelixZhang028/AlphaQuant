@@ -1,0 +1,14 @@
+{
+  "run_id": "7bfe12fc-c225-46e4-8ea2-a049eb9f4804",
+  "status": "SUCCESS",
+  "created_at": "2026-09-10T10:27:42.256709+00:00",
+  "updated_at": "2026-09-10T10:27:42.998783+00:00",
+  "strategy_plugin": "a_share_momentum",
+  "strategy_id": "service_test",
+  "start_date": "2023-01-03",
+  "end_date": "2023-12-29",
+  "run_kind": "single",
+  "parent_experiment_id": null,
+  "baseline_run_id": null,
+  "error": null
+}

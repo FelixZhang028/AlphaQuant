@@ -1,0 +1,7 @@
+execution:
+  lot_size: 100
+  commission_rate: 0.0003
+  minimum_commission: 5
+  stamp_tax_rate: 0.0005
+  slippage_rate: 0
+  unknown_status_policy: reject_trade

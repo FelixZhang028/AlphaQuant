@@ -1,0 +1,3 @@
+﻿window,train_start,train_end,test_start,test_end,status,error,optimization_id,train_run_id,test_run_id,selected_parameters,train_objective_value,test_cumulative_return,test_annual_return,test_max_drawdown,test_sharpe,test_metrics_reliable
+1,2022-01-01,2022-06-30,2022-07-01,2022-09-30,SUCCESS,,20260910T102756Z-883d856f,run-2,run-3,"{""short_window"": 20}",2.0,0.1,0.1,-0.05,1.0,True
+2,2022-04-01,2022-09-30,2022-10-01,2022-12-31,SUCCESS,,20260910T102756Z-a9002f18,run-5,run-6,"{""short_window"": 20}",2.0,0.1,0.1,-0.05,1.0,True

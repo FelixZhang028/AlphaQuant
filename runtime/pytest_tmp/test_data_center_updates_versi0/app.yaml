@@ -1,0 +1,8 @@
+app:
+  runtime_dir: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_updates_versi0\runtime
+data:
+  repository: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_updates_versi0\market
+universe:
+  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_updates_versi0\universe.yaml
+backtest:
+  benchmark: 000300.SH

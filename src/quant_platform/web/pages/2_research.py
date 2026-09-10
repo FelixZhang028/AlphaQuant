@@ -15,7 +15,6 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from quant_platform.application.backtest_service import BacktestService
 from quant_platform.application.optimization_service import (
     OBJECTIVES,
     OptimizationRequest,
@@ -30,6 +29,7 @@ from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
+from quant_platform.web.service_cache import get_backtest_service, service_or_stop
 
 
 def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]:
@@ -53,7 +53,7 @@ def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]
             return tuple(aliases[part.lower()] for part in parts)
         except KeyError as exc:
             raise ValueError(f"{parameter.label} 请填写“是,否”（也支持 true,false）") from exc
-    return tuple(parts)
+    raise ValueError(f"{parameter.label} 暂不支持多候选值")
 
 
 def _metric(value: Any, *, percent: bool = False) -> str:
@@ -68,12 +68,7 @@ else:
     st.title("参数优化与稳健性验证")
 st.caption("从一次成功回测出发，寻找候选参数，并用未见数据检查策略是否稳定。")
 
-config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
-try:
-    service = BacktestService(config_path)
-except Exception as exc:
-    st.error(f"无法加载验证配置：{exc}")
-    st.stop()
+service = service_or_stop(get_backtest_service, "无法加载验证配置")
 
 metadata_by_name = {item.plugin_name: item for item in service.available_strategies()}
 strategy_names = {name: item.display_name for name, item in metadata_by_name.items()}

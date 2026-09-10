@@ -224,6 +224,10 @@ class BacktestService:
         )
         repository_path = require_mapping(app, "data")["repository"]
         portfolio_section = require_mapping(app, "portfolio")
+        backtest_section = require_mapping(app, "backtest")
+        # 空值或显式留空表示关闭基准对比；缺省沿用沪深 300。
+        benchmark_symbol = str(backtest_section.get("benchmark", "000300.SH") or "")
+        warmup_days = int(backtest_section.get("warmup_days", 120))
         registry = default_registry()
         engine = BacktestEngine(
             repository=ParquetMarketDataRepository(repository_path),
@@ -240,6 +244,8 @@ class BacktestService:
             risk_limits=effective.risk_limits,
             evaluation_mode=effective.evaluation_mode,
             fixed_universe=True,
+            benchmark_symbol=benchmark_symbol or None,
+            warmup_days=warmup_days,
         )
         return engine, self._config_snapshot(effective)
 

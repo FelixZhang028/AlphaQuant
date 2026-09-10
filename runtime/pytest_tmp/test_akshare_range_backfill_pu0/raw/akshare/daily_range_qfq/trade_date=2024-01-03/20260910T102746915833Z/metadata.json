@@ -1,0 +1,25 @@
+{
+  "provider": "akshare",
+  "dataset": "daily_range_qfq",
+  "trade_date": "2024-01-03",
+  "captured_at": "2026-09-10T10:27:46.915833+00:00",
+  "request": {
+    "symbol": "000001",
+    "period": "daily",
+    "start_date": "20240102",
+    "end_date": "20240103",
+    "adjust": "qfq"
+  },
+  "rows": 2,
+  "columns": [
+    "日期",
+    "股票代码",
+    "开盘",
+    "收盘",
+    "最高",
+    "最低",
+    "成交量",
+    "成交额"
+  ],
+  "sha256": "a65e983040da4cb70c14ff64990c009ed0e4f86ddb5b0a74618ddbd94542adcc"
+}

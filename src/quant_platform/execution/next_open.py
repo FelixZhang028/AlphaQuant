@@ -40,8 +40,13 @@ class NextOpenExecutionModel:
         orders: list[Order],
         market_rows: pd.DataFrame,
         account: Account,
+        adj_factors: dict[str, float] | None = None,
     ) -> tuple[list[Order], list[Fill]]:
-        """Execute sells before buys and apply successful fills to the account."""
+        """Execute sells before buys and apply successful fills to the account.
+
+        ``adj_factors`` 是引擎前向填充的最近复权因子：当日行缺因子时兜底，
+        仍取不到则回退 1（未复权口径），由引擎计入有效性告警。
+        """
 
         rows = {str(row["symbol"]): row for _, row in market_rows.iterrows()}
         updated: list[Order] = []
@@ -81,6 +86,7 @@ class NextOpenExecutionModel:
                 stamp_tax,
                 reference_price=raw_open,
                 slippage_cost=abs(price - raw_open) * quantity,
+                adj_factor=self._resolve_adj_factor(order.symbol, row, adj_factors),
             )
             try:
                 account.apply_fill(fill)
@@ -90,6 +96,25 @@ class NextOpenExecutionModel:
             fills.append(fill)
             updated.append(order.with_fill(quantity))
         return updated, fills
+
+    @staticmethod
+    def _resolve_adj_factor(
+        symbol: str, row: pd.Series, adj_factors: dict[str, float] | None
+    ) -> float:
+        """Resolve the trade-date adjustment factor, defaulting to a raw ratio of 1."""
+
+        value = row.get("adj_factor", pd.NA)
+        if pd.notna(value):
+            try:
+                factor = float(value)
+            except (TypeError, ValueError):
+                factor = 0.0
+            if factor > 0:
+                return factor
+        fallback = (adj_factors or {}).get(str(symbol))
+        if fallback and fallback > 0:
+            return float(fallback)
+        return 1.0
 
     def _rejection_reason(self, order: Order, row: pd.Series | None) -> str | None:
         if row is None:

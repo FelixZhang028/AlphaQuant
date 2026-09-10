@@ -1,0 +1,3 @@
+app:
+  backtest:
+    evaluation_mode: out_of_sample

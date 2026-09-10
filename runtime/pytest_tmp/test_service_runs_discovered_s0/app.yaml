@@ -1,0 +1,17 @@
+app:
+  runtime_dir: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\runtime
+data:
+  repository: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\market
+universe:
+  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\universe.yaml
+strategy:
+  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\strategy.yaml
+portfolio:
+  plugin: equal_weight
+  top_n: 2
+execution:
+  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\execution.yaml
+backtest:
+  start_date: '2023-01-03'
+  end_date: '2023-12-29'
+  initial_cash: 1000000

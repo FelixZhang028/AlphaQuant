@@ -118,6 +118,7 @@ class Fill:
     filled_at: datetime
     reference_price: float
     slippage_cost: float
+    adj_factor: float = 1.0
 
     @classmethod
     def create(
@@ -129,6 +130,7 @@ class Fill:
         stamp_tax: float,
         reference_price: float | None = None,
         slippage_cost: float = 0.0,
+        adj_factor: float = 1.0,
     ) -> Fill:
         """Create a fill for an order on its configured execution date."""
 
@@ -145,4 +147,5 @@ class Fill:
             filled_at=datetime.now(UTC),
             reference_price=(price if reference_price is None else reference_price),
             slippage_cost=slippage_cost,
+            adj_factor=adj_factor,
         )

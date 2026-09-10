@@ -1,0 +1,12 @@
+{
+  "ticker": "600000.SH",
+  "trade_date": "2024-04-26",
+  "action": "buy",
+  "quantity": 908.636591,
+  "price": 11.0055,
+  "reference_price": 11.0,
+  "slippage": 0.0055,
+  "commission": 5.0,
+  "settlement_date": "2024-04-29",
+  "timestamp": "2026-09-10T10:27:52.635202Z"
+}

@@ -1,0 +1,61 @@
+app:
+  app:
+    runtime_dir: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\runtime
+  data:
+    repository: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\market
+  universe:
+    config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\universe.yaml
+  strategy:
+    config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\strategy.yaml
+  portfolio:
+    plugin: equal_weight
+    top_n: 2
+  execution:
+    config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_service_runs_discovered_s0\execution.yaml
+  backtest:
+    start_date: '2023-01-03'
+    end_date: '2023-12-29'
+    initial_cash: 1000000.0
+    evaluation_mode: in_sample
+    run_kind: single
+    parent_experiment_id: null
+    baseline_run_id: null
+universe:
+  universe:
+    symbols:
+    - 000001.SZ
+    - 000002.SZ
+    - 600000.SH
+    - 600036.SH
+    filters:
+      minimum_listing_days: 61
+      minimum_history_days: 61
+      minimum_average_amount: 1
+strategy:
+  strategy:
+    id: service_test
+    plugin: a_share_momentum
+    rebalance: weekly
+    parameters:
+      short_window: 20
+      long_window: 60
+      minimum_average_amount: 1.0
+execution:
+  execution:
+    lot_size: 100
+    commission_rate: 0.0003
+    minimum_commission: 5
+    stamp_tax_rate: 0.0005
+    slippage_rate: 0
+    unknown_status_policy: reject_trade
+risk:
+  risk:
+    enabled: true
+    max_total_weight: 1.0
+    max_single_weight: 1.0
+    max_positions: 10
+    minimum_cash_ratio: 0.0
+    max_drawdown: 0.2
+    daily_position_limits: true
+    drawdown_action: stop_new
+    drawdown_target_weight: 0.5

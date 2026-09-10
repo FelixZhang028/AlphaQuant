@@ -45,6 +45,7 @@ class Account:
                 quantity=existing.quantity,
                 available_quantity=existing.available_quantity,
                 average_cost=existing.average_cost,
+                cost_adj_factor=existing.cost_adj_factor,
             )
             if existing is not None
             else Position(symbol=fill.symbol)
@@ -58,16 +59,38 @@ class Account:
             if total > cash + 1e-9:
                 raise AccountError(f"Insufficient cash for fill {fill.fill_id}")
             old_cost = position.quantity * position.average_cost
+            # 成本锚定因子按数量加权调和平均更新：保持 Σ(N_i/F_i) 恒等，
+            # 使 blended 锚定估值与逐笔买入分别锚定的结果一致（算术平均会失真）。
+            old_units = (
+                position.quantity / position.cost_adj_factor
+                if position.cost_adj_factor > 0
+                else 0.0
+            )
+            new_units = (
+                fill.quantity / fill.adj_factor if fill.adj_factor > 0 else float(fill.quantity)
+            )
             position.quantity += fill.quantity
             position.average_cost = (old_cost + total) / position.quantity
+            anchor_units = old_units + new_units
+            position.cost_adj_factor = (
+                position.quantity / anchor_units if anchor_units > 0 else 1.0
+            )
             cash -= total
         else:
             if fill.quantity > position.available_quantity:
                 raise AccountError(f"Insufficient sellable quantity for fill {fill.fill_id}")
-            realized_pnl += notional - fees - fill.quantity * position.average_cost
+            # 卖出按成本锚定价结算：raw × F(t)/cost_adj_factor，与估值同一口径，
+            # 跨除权日卖出不再出现净值跳变（等价于把分红送转在卖出时点变现）。
+            anchor_ratio = (
+                fill.adj_factor / position.cost_adj_factor
+                if fill.adj_factor > 0 and position.cost_adj_factor > 0
+                else 1.0
+            )
+            settled_notional = notional * anchor_ratio
+            realized_pnl += settled_notional - fees - fill.quantity * position.average_cost
             position.quantity -= fill.quantity
             position.available_quantity -= fill.quantity
-            cash += notional - fees
+            cash += settled_notional - fees
             if position.quantity == 0:
                 positions.pop(fill.symbol)
 

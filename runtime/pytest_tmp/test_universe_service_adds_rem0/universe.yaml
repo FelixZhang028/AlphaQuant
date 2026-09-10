@@ -1,0 +1,12 @@
+universe:
+  id: personal
+  symbols:
+  - 000001.SZ
+  - 300750.SZ
+  custom_key: keep-me
+  filters:
+    exclude_st: true
+    minimum_history_days: 61
+    exclude_suspended: true
+    minimum_listing_days: 120
+    minimum_average_amount: 12000000.0

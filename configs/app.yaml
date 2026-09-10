@@ -29,3 +29,6 @@ backtest:
   initial_cash: 1000000.0
   benchmark: 000300.SH
   benchmark_name: 沪深 300
+  # 回测起点之前额外加载的交易日数：覆盖策略动量回看、估值底仓与
+  # 最小上市历史要求；0 会截断 start 之前的全部历史（不建议）。
+  warmup_days: 120

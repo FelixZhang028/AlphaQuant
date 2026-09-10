@@ -1,0 +1,26 @@
+{
+  "provider": "ifind",
+  "dataset": "daily_range_qfq",
+  "trade_date": "2024-01-03",
+  "captured_at": "2026-09-10T10:27:52.413052+00:00",
+  "request": {
+    "symbols": [
+      "000001.SZ"
+    ],
+    "start_date": "2024-01-02",
+    "end_date": "2024-01-03",
+    "CPS": 2
+  },
+  "rows": 2,
+  "columns": [
+    "thscode",
+    "time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount"
+  ],
+  "sha256": "ed7f81616e194e8d0a0f3eada2d2ee4d5d661fc35fdaa743faacf464d68d01fe"
+}

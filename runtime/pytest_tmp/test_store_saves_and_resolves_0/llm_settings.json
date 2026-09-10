@@ -1,0 +1,9 @@
+{
+  "providers": {
+    "kimi": {
+      "base_url": "https://api.kimi.com/v1",
+      "api_key": "sk-test",
+      "model": "kimi-k2.6"
+    }
+  }
+}

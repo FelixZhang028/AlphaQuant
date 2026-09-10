@@ -1,0 +1,13 @@
+app:
+  backtest:
+    baseline_run_id: baseline-1
+    end_date: '2024-12-31'
+    parent_experiment_id: experiment-1
+    run_kind: optimization
+    start_date: '2024-01-01'
+strategy:
+  strategy:
+    id: test
+    parameters:
+      lookback: 20
+    plugin: momentum

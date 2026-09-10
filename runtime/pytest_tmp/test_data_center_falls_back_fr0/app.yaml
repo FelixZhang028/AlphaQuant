@@ -1,0 +1,9 @@
+app:
+  runtime_dir: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_falls_back_fr0\runtime
+data:
+  repository: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_falls_back_fr0\market
+  source_config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_falls_back_fr0\sources.yaml
+universe:
+  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_data_center_falls_back_fr0\universe.yaml
+backtest:
+  benchmark: 000300.SH
