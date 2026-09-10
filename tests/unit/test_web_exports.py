@@ -12,6 +12,6 @@ def test_dataframe_to_csv_bytes_uses_bom_and_excludes_index() -> None:
 
     assert content.startswith(b"\xef\xbb\xbf")
     assert content.decode("utf-8-sig").splitlines() == [
-        "股票代码,股票名称",
-        "000001.SZ,平安银行",
+        "股票名称,股票代码",
+        "平安银行,000001.SZ",
     ]

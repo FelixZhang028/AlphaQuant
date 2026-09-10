@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from quant_platform.web.embedded_page import is_embedded
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 import pandas as pd
 import streamlit as st
 
@@ -15,7 +9,13 @@ from quant_platform.application.universe_service import (
     UniverseManagementService,
     update_universe_settings,
 )
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.localization import localize_frame
+from quant_platform.web.security_names import security_label
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
 
 if is_embedded("universe_management"):
     st.subheader("股票池")
@@ -77,13 +77,13 @@ if query and search_results.empty:
     st.info("没有找到匹配股票。请检查名称，或直接在上方输入六位代码。")
 elif not search_results.empty:
     labels = {
-        str(row["symbol"]): f"{row['symbol']}｜{row['name']}"
+        str(row["symbol"]): row["name"]
         for _, row in search_results.iterrows()
     }
     selected_search_symbols = st.multiselect(
         "搜索结果",
         list(labels),
-        format_func=lambda symbol: labels[str(symbol)],
+        format_func=lambda symbol: security_label(str(symbol), labels),
         key="security_master_search_results",
     )
     if st.button(
@@ -100,16 +100,11 @@ elif not search_results.empty:
 
 st.divider()
 st.subheader("移除股票")
-name_by_symbol = {
-    str(row["symbol"]): (
-        f"{row['symbol']}｜{row['name']}" if pd.notna(row["name"]) else str(row["symbol"])
-    )
-    for _, row in description.iterrows()
-}
+name_by_symbol = {str(row["symbol"]): row["name"] for _, row in description.iterrows()}
 selected_to_remove = st.multiselect(
     "选择需要移除的股票",
     list(settings.symbols),
-    format_func=lambda symbol: name_by_symbol.get(str(symbol), str(symbol)),
+    format_func=lambda symbol: security_label(str(symbol), name_by_symbol),
     key="universe_symbols_to_remove",
 )
 confirm_remove = st.checkbox(

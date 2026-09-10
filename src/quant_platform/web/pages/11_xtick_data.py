@@ -11,11 +11,6 @@
 
 from __future__ import annotations
 
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 import io
 import json
 import re
@@ -32,6 +27,11 @@ import streamlit as st
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
 from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
+from quant_platform.web.security_names import xtick_security_names
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
+
 
 DEFAULT_BASE_URL = "http://api.xtick.top"
 
@@ -197,7 +197,9 @@ def _render_field(
         return st.number_input(label, value=value, step=0.01, help=f"类型：{kind}", key=widget_key)
 
     if name.lower() in _DATE_PARAM_HINTS:
-        default_date = date.today() - timedelta(days=30) if name.lower() == "startdate" else date.today()
+        default_date = (
+            date.today() - timedelta(days=30) if name.lower() == "startdate" else date.today()
+        )
         return st.date_input(label, value=default_date, key=widget_key)
 
     return st.text_input(label, value=str(default) if default else "", key=widget_key)
@@ -285,6 +287,7 @@ def _render_api_form(cat_id: int, api: dict[str, Any]) -> None:
                     st.session_state[f"xtick_result_{form_key}"] = _request_xtick(
                         base_url, url, token, request_params
                     )
+                    st.session_state[f"xtick_result_type_{form_key}"] = request_params.get("type")
             except Exception as exc:
                 st.error(f"请求失败：{exc}")
                 st.session_state.pop(f"xtick_result_{form_key}", None)
@@ -294,7 +297,12 @@ def _render_api_form(cat_id: int, api: dict[str, Any]) -> None:
         return
     frame = _to_frame(result)
     if frame is not None:
-        frame = frame.rename(columns=_output_rename_map(api))
+        frame = xtick_security_names(frame, st.session_state.get(f"xtick_result_type_{form_key}"))
+        rename_map = _output_rename_map(api)
+        for name_key in ("name", "股票名称", "证券名称"):
+            if name_key in frame:
+                rename_map[name_key] = "股票名称"
+        frame = frame.rename(columns=rename_map)
         st.caption(f"返回 {len(frame):,} 行 × {frame.shape[1]:,} 列。")
         st.dataframe(frame, width="stretch", hide_index=True)
         with st.expander("原始 JSON"):
@@ -336,7 +344,7 @@ except Exception as exc:
     st.stop()
 
 tabs = st.tabs([_TAB_NAMES.get(category.get("id"), category.get("name")) for category in catalog])
-for tab, category in zip(tabs, catalog):
+for tab, category in zip(tabs, catalog, strict=True):
     with tab:
         for api in category.get("docApis", []):
             _render_api_form(category.get("id"), api)

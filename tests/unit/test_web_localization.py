@@ -24,6 +24,7 @@ def test_localize_frame_translates_columns_and_enum_values() -> None:
     result = localize_frame(source)
 
     assert list(result.columns) == [
+        "股票名称",
         "股票代码",
         "未复权开盘价",
         "买卖方向",

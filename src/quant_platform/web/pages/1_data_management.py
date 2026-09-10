@@ -2,28 +2,27 @@
 
 from __future__ import annotations
 
-from quant_platform.web.embedded_page import is_embedded
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 from dataclasses import asdict
 from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
 
-from quant_platform.application.data_service import DataCenterService
 from quant_platform.application.benchmarks import BENCHMARKS
+from quant_platform.application.data_service import DataCenterService
 from quant_platform.data.network import friendly_data_error
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame
+from quant_platform.web.security_names import load_security_names, security_label
 from quant_platform.web.service_cache import (
     cached_overview_or_stop,
     data_fingerprint,
     get_coverage_bars,
 )
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
 
 
 def _download_csv(
@@ -57,14 +56,12 @@ repo_fingerprint = data_fingerprint(service.repository)
 market = overview.market
 source_status = service.market_source_status()
 provider_labels = {
-    str(row["provider"]): str(row["display_name"])
-    for _, row in source_status.iterrows()
+    str(row["provider"]): str(row["display_name"]) for _, row in source_status.iterrows()
 }
 last_market_source = "暂无"
 if not overview.manifests.empty:
     successful_market = overview.manifests[
-        overview.manifests["dataset"].eq("daily_bars")
-        & overview.manifests["status"].eq("SUCCESS")
+        overview.manifests["dataset"].eq("daily_bars") & overview.manifests["status"].eq("SUCCESS")
     ]
     if not successful_market.empty:
         source = str(successful_market.iloc[0]["source"])
@@ -87,9 +84,7 @@ with st.expander("行情数据源", expanded=True):
         if primary["readiness"] == "READY":
             st.success(f"首选数据源 {primary_name} 已配置。")
         else:
-            st.warning(
-                f"首选数据源 {primary_name} 尚未就绪；更新行情时会自动尝试备用数据源。"
-            )
+            st.warning(f"首选数据源 {primary_name} 尚未就绪；更新行情时会自动尝试备用数据源。")
         st.dataframe(localize_frame(source_status), width="stretch", hide_index=True)
         st.caption("这里显示的是本机配置状态；实际成功来源以本次更新结果和数据版本为准。")
 
@@ -147,9 +142,7 @@ with st.expander("更新数据", expanded=True):
                 market_source_order = [source_choice]
                 if fallback_selected:
                     market_source_order.extend(
-                        source
-                        for source in configured_sources
-                        if source != source_choice
+                        source for source in configured_sources if source != source_choice
                     )
             try:
                 with st.spinner("正在下载和校验数据……"):
@@ -227,18 +220,18 @@ with coverage_tab:
 
 with market_tab:
     st.subheader("配置股票池日线行情")
-    daily_bars = get_coverage_bars(
-        "configs/app.yaml", repo_fingerprint
-    )
+    daily_bars = get_coverage_bars("configs/app.yaml", repo_fingerprint)
     if daily_bars.empty:
         st.info("暂无股票行情，请先运行数据更新。")
     else:
         daily_bars = daily_bars.copy()
         daily_bars["trade_date"] = pd.to_datetime(daily_bars["trade_date"])
         available_symbols = sorted(daily_bars["symbol"].dropna().astype(str).unique())
+        security_names = load_security_names()
         selected_symbols = st.multiselect(
-            "股票代码",
+            "股票",
             available_symbols,
+            format_func=lambda symbol: security_label(symbol, security_names),
             default=available_symbols[:1],
             key="daily_bars_export_symbols",
         )

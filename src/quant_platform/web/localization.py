@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform.web.security_names import with_security_names
+
 COLUMN_LABELS: dict[str, str] = {
     "run_id": "运行编号",
     "run_label": "回测名称",
@@ -329,7 +331,7 @@ def localize_value(value: Any, *, column: str | None = None) -> Any:
 def localize_frame(frame: pd.DataFrame) -> pd.DataFrame:
     """Return a display-only copy with Chinese columns and enum values."""
 
-    result = frame.copy()
+    result = with_security_names(frame)
     for column in result.columns:
         if column in VALUE_LABELS:
             result[column] = result[column].map(
