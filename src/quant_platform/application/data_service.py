@@ -12,10 +12,10 @@ from typing import Any
 
 import pandas as pd
 
-from quant_platform.application.data_source_resolver import DataSourceResolver
 from quant_platform.application.benchmarks import BENCHMARK_NAMES
+from quant_platform.application.data_source_resolver import DataSourceResolver
 from quant_platform.application.manifest_summary import add_provider_route_summary
-from quant_platform.core.config import load_yaml, require_mapping
+from quant_platform.core.config import load_app_config, load_yaml, require_mapping
 from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
     DataUnavailableError,
@@ -30,12 +30,12 @@ from quant_platform.data.network import (
     friendly_data_error,
 )
 from quant_platform.data.pytdx_backfill import PyTdxRangeBackfill
-from quant_platform.data.xtick_backfill import XTickRangeBackfill
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
 from quant_platform.data.repositories.raw_repository import RawDataRepository
 from quant_platform.data.versioning import DataManifest, save_manifest
+from quant_platform.data.xtick_backfill import XTickRangeBackfill
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +89,8 @@ class DataCenterService:
         baostock_client: Any | None = None,
         pytdx_client_factory: Any | None = None,
     ) -> None:
-        self.app_config_path = Path(app_config_path)
-        self.app = load_yaml(self.app_config_path)
+        self.app_config_path = Path(app_config_path).resolve()
+        self.app = load_app_config(self.app_config_path)
         app_section = require_mapping(self.app, "app")
         data_section = require_mapping(self.app, "data")
         self.repository = ParquetMarketDataRepository(data_section["repository"])
@@ -133,7 +133,11 @@ class DataCenterService:
     def benchmark_name(self) -> str:
         """Return the human-readable benchmark name."""
         backtest = require_mapping(self.app, "backtest")
-        return str(backtest.get("benchmark_name", BENCHMARK_NAMES.get(self.benchmark_symbol, self.benchmark_symbol)))
+        return str(
+            backtest.get(
+                "benchmark_name", BENCHMARK_NAMES.get(self.benchmark_symbol, self.benchmark_symbol)
+            )
+        )
 
     def overview(self) -> DataCenterOverview:
         """Inspect local datasets without contacting external services."""
@@ -183,7 +187,7 @@ class DataCenterService:
                 token_env = str(provider_config.get("token_env", "XTICK_TOKEN"))
                 ready = bool(os.getenv(token_env))
                 detail = (
-                    f"Token 已配置；当前仅支持 XTick 专项查询，批量回测更新尚未接入"
+                    "Token 已配置；当前仅支持 XTick 专项查询，批量回测更新尚未接入"
                     if ready
                     else f"未配置 {token_env}；当前路由会自动回退"
                 )
@@ -213,9 +217,8 @@ class DataCenterService:
                 ready = True
                 detail = "公开数据备用来源"
             elif source == "pytdx":
-                ready = (
-                    self.sources.pytdx_client_factory is not None
-                    or self.sources.sdk_ready("pytdx")
+                ready = self.sources.pytdx_client_factory is not None or self.sources.sdk_ready(
+                    "pytdx"
                 )
                 detail = (
                     "通达信日线缺口补充来源；不会覆盖已有行情"
@@ -313,7 +316,9 @@ class DataCenterService:
             save_manifest(self.repository, failed)
             raise
 
-    def update_benchmark(self, start_date: date, end_date: date, benchmark_symbol: str | None = None) -> DataUpdateResult:
+    def update_benchmark(
+        self, start_date: date, end_date: date, benchmark_symbol: str | None = None
+    ) -> DataUpdateResult:
         """Refresh and version the configured benchmark index."""
 
         symbol = benchmark_symbol or self.benchmark_symbol
@@ -324,10 +329,14 @@ class DataCenterService:
         }
         manifest = DataManifest.start("benchmark_bars", "akshare", parameters)
         try:
-            if os.getenv("XTICK_TOKEN"):
-                frame = XTickRangeBackfill(self.raw_repository, self.repository).benchmark(symbol, start_date, end_date)
+            if self.client is None and os.getenv("XTICK_TOKEN"):
+                frame = XTickRangeBackfill(self.raw_repository, self.repository).benchmark(
+                    symbol, start_date, end_date
+                )
                 existing = self.repository.read_table("benchmark_bars")
-                frame = pd.concat([existing, frame], ignore_index=True).drop_duplicates(["symbol", "trade_date"], keep="last")
+                frame = pd.concat([existing, frame], ignore_index=True).drop_duplicates(
+                    ["symbol", "trade_date"], keep="last"
+                )
                 self.repository.save_table("benchmark_bars", frame)
             else:
                 frame = self._catalog().update_benchmark(symbol, start_date, end_date)
@@ -380,9 +389,16 @@ class DataCenterService:
                 )
             )
         if include_benchmark:
-            symbols = benchmark_symbols or ([benchmark_symbol] if benchmark_symbol else [self.benchmark_symbol])
+            symbols = benchmark_symbols or (
+                [benchmark_symbol] if benchmark_symbol else [self.benchmark_symbol]
+            )
             for symbol in symbols:
-                results.append(self._capture_failure("benchmark_bars", lambda symbol=symbol: self.update_benchmark(start_date, end_date, symbol)))
+                results.append(
+                    self._capture_failure(
+                        "benchmark_bars",
+                        lambda symbol=symbol: self.update_benchmark(start_date, end_date, symbol),
+                    )
+                )
         return results
 
     def _catalog(self) -> AkShareCatalogIngestor:
@@ -426,7 +442,9 @@ class DataCenterService:
                         self.sources.baostock_provider(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "xtick":
-                    report = XTickRangeBackfill(self.raw_repository, self.repository).backfill(symbols, start_date, end_date)
+                    report = XTickRangeBackfill(self.raw_repository, self.repository).backfill(
+                        symbols, start_date, end_date
+                    )
                 elif source == "ifind":
                     report = IFindRangeBackfill(
                         self.raw_repository,
@@ -452,9 +470,7 @@ class DataCenterService:
                     )
                 success = {"source": source, "status": "success"}
                 if source == "pytdx":
-                    success.update(
-                        {key: str(value) for key, value in backfill.metadata.items()}
-                    )
+                    success.update({key: str(value) for key, value in backfill.metadata.items()})
                 attempts.append(success)
                 return source, report, attempts
             except Exception as exc:

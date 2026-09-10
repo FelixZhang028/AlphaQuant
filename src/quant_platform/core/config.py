@@ -48,3 +48,25 @@ def require_mapping(config: dict[str, Any], key: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigurationError(f"Missing or invalid mapping: {key}")
     return value
+
+
+def load_app_config(path: str | Path) -> dict[str, Any]:
+    """Freeze app paths against the construction cwd, preserving existing path semantics."""
+    config = load_yaml(path)
+    paths = {
+        "app": ("runtime_dir", "log_dir"),
+        "data": ("repository", "source_config"),
+        "universe": ("config",),
+        "strategy": ("config",),
+        "execution": ("config",),
+        "risk": ("config",),
+    }
+    if isinstance(config.get("app"), dict):
+        config["app"].setdefault("runtime_dir", "runtime")
+    for section, keys in paths.items():
+        values = config.get(section)
+        if isinstance(values, dict):
+            for key in keys:
+                if values.get(key):
+                    values[key] = str(Path(values[key]).resolve())
+    return config

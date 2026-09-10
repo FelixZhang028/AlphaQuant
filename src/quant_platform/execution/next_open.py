@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 import pandas as pd
 
@@ -109,10 +110,10 @@ class NextOpenExecutionModel:
                 factor = float(value)
             except (TypeError, ValueError):
                 factor = 0.0
-            if factor > 0:
+            if isfinite(factor) and factor > 0:
                 return factor
         fallback = (adj_factors or {}).get(str(symbol))
-        if fallback and fallback > 0:
+        if fallback and isfinite(fallback) and fallback > 0:
             return float(fallback)
         return 1.0
 

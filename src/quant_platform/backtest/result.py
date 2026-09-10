@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ class BacktestResult:
     risk_events: pd.DataFrame
     summary: dict[str, Any]
     validity: dict[str, Any]
+    corporate_actions: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     def save(self, root: str | Path, config_snapshot: dict[str, Any]) -> Path:
         """Persist all run artifacts under a unique directory."""
@@ -41,6 +42,7 @@ class BacktestResult:
             ("closed_trades", self.trades),
             ("positions", self.positions),
             ("risk_events", self.risk_events),
+            ("corporate_actions", self.corporate_actions),
         ):
             frame.to_parquet(directory / f"{name}.parquet", index=False)
         (directory / "summary.json").write_text(

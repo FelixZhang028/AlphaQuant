@@ -12,7 +12,7 @@ from uuid import uuid4
 from quant_platform.backtest.engine import BacktestEngine
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.run_store import BacktestRunStore
-from quant_platform.core.config import load_yaml, require_mapping
+from quant_platform.core.config import load_app_config, load_yaml, require_mapping
 from quant_platform.core.exceptions import PluginError
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
@@ -72,7 +72,7 @@ class BacktestService:
         app_config_path: str | Path = "configs/app.yaml",
         strategy_catalog: StrategyCatalog | None = None,
     ) -> None:
-        self.app_config_path = Path(app_config_path)
+        self.app_config_path = Path(app_config_path).resolve()
         self.configs = self._load_component_configs()
         self.user_strategy_errors: tuple[tuple[str, str], ...] = ()
         if strategy_catalog is not None:
@@ -274,7 +274,7 @@ class BacktestService:
             raise
 
     def _load_component_configs(self) -> dict[str, Any]:
-        app = load_yaml(self.app_config_path)
+        app = load_app_config(self.app_config_path)
         universe = load_yaml(require_mapping(app, "universe")["config"])
         strategy = load_yaml(require_mapping(app, "strategy")["config"])
         execution = load_yaml(require_mapping(app, "execution")["config"])

@@ -64,7 +64,11 @@ class OrderGenerator:
 
     @staticmethod
     def _estimated_equity(account: Account, closing_prices: dict[str, float]) -> float:
-        return account.cash + sum(
-            position.quantity * closing_prices.get(symbol, 0.0)
-            for symbol, position in account.positions.items()
+        return (
+            account.cash
+            + account.dividend_receivable
+            + sum(
+                position.quantity * closing_prices.get(symbol, 0.0)
+                for symbol, position in account.positions.items()
+            )
         )

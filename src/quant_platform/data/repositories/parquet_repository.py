@@ -13,6 +13,7 @@ _TABLE_KEYS: dict[str, list[str]] = {
     "daily_bars": ["symbol", "trade_date"],
     "trade_calendar": ["cal_date"],
     "security_master": ["symbol"],
+    "corporate_actions": ["symbol", "ex_date"],
 }
 
 # ``daily_bars`` is the only table that grows to millions of rows, so it is
@@ -25,7 +26,7 @@ class ParquetMarketDataRepository(MarketDataRepository):
     """Persist canonical market tables as local Parquet files or partitions."""
 
     def __init__(self, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _flat_path(self, name: str) -> Path:

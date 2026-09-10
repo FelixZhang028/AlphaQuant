@@ -13,7 +13,13 @@ from quant_platform.portfolio.equal_weight import EqualWeightPortfolio
 from quant_platform.sample_data import generate_sample_market_data
 from quant_platform.strategies.momentum import AShareMomentumStrategy, MomentumParameters
 from quant_platform.universe.a_share import AShareUniverse, AShareUniverseConfig
-from quant_platform.web.service_cache import data_fingerprint
+from quant_platform.web.service_cache import (
+    data_fingerprint,
+    get_backtest_service,
+    get_coverage_bars,
+    get_data_center_service,
+    get_data_repository,
+)
 
 SYMBOLS = ["000001.SZ", "000002.SZ", "600000.SH", "600036.SH"]
 START = date(2023, 1, 3)
@@ -31,9 +37,7 @@ class _RecordingRepository:
         self.bars_calls.append(
             (tuple(symbols) if symbols is not None else None, start_date, end_date)
         )
-        return self._inner.get_daily_bars(
-            symbols=symbols, start_date=start_date, end_date=end_date
-        )
+        return self._inner.get_daily_bars(symbols=symbols, start_date=start_date, end_date=end_date)
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -57,9 +61,7 @@ def _make_engine(repository, warmup_days: int) -> BacktestEngine:
 
 
 def test_zero_warmup_loads_only_requested_window(tmp_path: Path) -> None:
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 6, 1), END
-    )
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 6, 1), END)
     spy = _RecordingRepository(repository)
 
     _make_engine(spy, warmup_days=0).run(START, END, 1_000_000)
@@ -73,17 +75,13 @@ def test_zero_warmup_loads_only_requested_window(tmp_path: Path) -> None:
 
 
 def test_warmup_loads_exactly_trading_days_back(tmp_path: Path) -> None:
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 6, 1), END
-    )
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 6, 1), END)
     spy = _RecordingRepository(repository)
 
     _make_engine(spy, warmup_days=10).run(START, END, 1_000_000)
 
     _, start_date, end_date = spy.bars_calls[0]
-    calendar = repository.get_trade_calendar(
-        START - timedelta(days=400), START - timedelta(days=1)
-    )
+    calendar = repository.get_trade_calendar(START - timedelta(days=400), START - timedelta(days=1))
     trading_days = [ts.date() for ts in pd.to_datetime(calendar["cal_date"])]
     # 按交易日历回推 10 个交易日，而不是日历日近似。
     assert start_date == trading_days[-10]
@@ -92,9 +90,7 @@ def test_warmup_loads_exactly_trading_days_back(tmp_path: Path) -> None:
 
 def test_warmup_exceeding_available_history_falls_back_to_earliest(tmp_path: Path) -> None:
     # 本地数据只有 2022-12-01 起：warmup 120 > 可用历史 → 从最早交易日加载。
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 12, 1), END
-    )
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 12, 1), END)
     spy = _RecordingRepository(repository)
 
     _make_engine(spy, warmup_days=120).run(START, END, 1_000_000)
@@ -104,28 +100,20 @@ def test_warmup_exceeding_available_history_falls_back_to_earliest(tmp_path: Pat
 
 
 def test_fingerprint_without_manifests_uses_sentinel(tmp_path: Path) -> None:
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 6, 1), END
-    )
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 6, 1), END)
 
     assert data_fingerprint(repository) == "no-successful-manifest"
 
 
 def test_fingerprint_tracks_latest_success_manifests(tmp_path: Path) -> None:
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 6, 1), END
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 6, 1), END)
+    save_manifest(
+        repository,
+        DataManifest.start("daily_bars", "synthetic", {}).succeed(row_count=10, symbol_count=2),
     )
     save_manifest(
         repository,
-        DataManifest.start("daily_bars", "synthetic", {}).succeed(
-            row_count=10, symbol_count=2
-        ),
-    )
-    save_manifest(
-        repository,
-        DataManifest.start("benchmark_bars", "synthetic", {}).succeed(
-            row_count=5, symbol_count=1
-        ),
+        DataManifest.start("benchmark_bars", "synthetic", {}).succeed(row_count=5, symbol_count=1),
     )
 
     fingerprint = data_fingerprint(repository)
@@ -135,17 +123,13 @@ def test_fingerprint_tracks_latest_success_manifests(tmp_path: Path) -> None:
     # 新版本成功入库后指纹变化，缓存随之失效。
     save_manifest(
         repository,
-        DataManifest.start("daily_bars", "synthetic", {}).succeed(
-            row_count=20, symbol_count=4
-        ),
+        DataManifest.start("daily_bars", "synthetic", {}).succeed(row_count=20, symbol_count=4),
     )
     assert data_fingerprint(repository) != fingerprint
 
 
 def test_failed_manifests_do_not_change_fingerprint(tmp_path: Path) -> None:
-    repository = generate_sample_market_data(
-        tmp_path / "market", SYMBOLS, date(2022, 6, 1), END
-    )
+    repository = generate_sample_market_data(tmp_path / "market", SYMBOLS, date(2022, 6, 1), END)
     save_manifest(
         repository,
         DataManifest.start("daily_bars", "synthetic", {}).fail(ValueError("boom")),
@@ -153,3 +137,52 @@ def test_failed_manifests_do_not_change_fingerprint(tmp_path: Path) -> None:
 
     # 只有成功版本参与指纹：失败版本不产生缓存失效信号。
     assert data_fingerprint(repository) == "no-successful-manifest"
+
+
+def test_repository_and_dataframe_cache_are_isolated_across_chdir(tmp_path, monkeypatch):
+    repos = []
+    for name in ("a", "b"):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "app.yaml").write_text("data:\n  repository: market\n")
+        monkeypatch.chdir(folder)
+        repository = get_data_repository("app.yaml")
+        repository.save_table(
+            "daily_bars",
+            pd.DataFrame(
+                [{"symbol": name, "trade_date": pd.Timestamp("2024-01-02"), "raw_close": 1.0}]
+            ),
+        )
+        repos.append(repository)
+        assert get_coverage_bars("app.yaml", "no-successful-manifest").symbol.tolist() == [name]
+    assert repos[0].root.is_absolute()
+    assert repos[0].read_table("daily_bars").symbol.tolist() == ["a"]
+    assert repos[1].read_table("daily_bars").symbol.tolist() == ["b"]
+    monkeypatch.chdir(tmp_path / "a")
+    assert get_data_repository("./app.yaml") is repos[0]
+    assert get_coverage_bars(
+        str(tmp_path / "a" / "app.yaml"), "no-successful-manifest"
+    ).symbol.tolist() == ["a"]
+
+
+def test_cached_services_freeze_paths_at_construction(tmp_path, monkeypatch):
+    services = []
+    backtests = []
+    for name in ("a", "b"):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "app.yaml").write_text(
+            "app:\n  runtime_dir: runtime\ndata:\n  repository: market\n"
+            "universe:\n  config: universe.yaml\nstrategy:\n  config: strategy.yaml\n"
+            "execution:\n  config: execution.yaml\n"
+        )
+        for config in ("universe", "strategy", "execution"):
+            (folder / f"{config}.yaml").write_text(f"{config}: {{}}\n")
+        monkeypatch.chdir(folder)
+        services.append(get_data_center_service("app.yaml"))
+        backtests.append(get_backtest_service("app.yaml"))
+    assert services[0] is not services[1]
+    assert services[0].repository.root == tmp_path / "a" / "market"
+    assert services[0].raw_repository.root == tmp_path / "a" / "runtime" / "raw"
+    assert backtests[0].runs_root == tmp_path / "a" / "runtime" / "runs"
+    assert backtests[1].runs_root == tmp_path / "b" / "runtime" / "runs"

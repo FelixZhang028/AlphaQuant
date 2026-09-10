@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform.accounts.models import CorporateAction
 from quant_platform.backtest.metrics import TRADING_DAYS_PER_YEAR, calculate_metrics
 
 TRADE_COLUMNS = [
@@ -21,6 +22,7 @@ TRADE_COLUMNS = [
     "buy_reference_price",
     "sell_reference_price",
     "gross_pnl",
+    "dividend_income",
     "direct_cost",
     "slippage_cost",
     "net_pnl",
@@ -38,7 +40,7 @@ class _OpenLot:
     reference_price: float
     direct_cost_per_share: float
     slippage_per_share: float
-    adj_factor: float = 1.0
+    dividend_per_share: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -57,11 +59,12 @@ def analyze_backtest(
     *,
     initial_cash: float,
     risk_free_rate: float = 0.0,
+    corporate_actions: list[CorporateAction] | None = None,
 ) -> BacktestAnalytics:
     """Build the complete backward-compatible summary for one run."""
 
     summary = calculate_metrics(nav, initial_cash=initial_cash, risk_free_rate=risk_free_rate)
-    trades = build_closed_trades(fills)
+    trades = build_closed_trades(fills, corporate_actions=corporate_actions)
     summary.update(_execution_metrics(nav, orders, fills, trades, initial_cash))
     summary.update(_portfolio_metrics(nav, positions))
     summary.update(
@@ -77,7 +80,9 @@ def analyze_backtest(
     return BacktestAnalytics(summary=summary, trades=trades)
 
 
-def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
+def build_closed_trades(
+    fills: pd.DataFrame, *, corporate_actions: list[CorporateAction] | None = None
+) -> pd.DataFrame:
     """Reconstruct FIFO round trips and allocate all costs to closed lots."""
 
     if fills.empty:
@@ -98,7 +103,24 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
 
     lots: dict[str, list[_OpenLot]] = {}
     closed: list[dict[str, Any]] = []
+    actions = iter(sorted(corporate_actions or [], key=lambda action: action.ex_date))
+    next_action = next(actions, None)
     for row in working.to_dict(orient="records"):
+        while (
+            next_action is not None
+            and next_action.ex_date <= pd.Timestamp(row["trade_date"]).date()
+        ):
+            multiplier = next_action.share_multiplier
+            for lot in lots.get(next_action.symbol, []):
+                lot.quantity = round(lot.quantity * multiplier)
+                lot.price /= multiplier
+                lot.reference_price /= multiplier
+                lot.direct_cost_per_share /= multiplier
+                lot.slippage_per_share /= multiplier
+                lot.dividend_per_share = (
+                    lot.dividend_per_share + next_action.cash_per_share
+                ) / multiplier
+            next_action = next(actions, None)
         symbol = str(row["symbol"])
         side = str(row["side"])
         quantity = int(row["quantity"])
@@ -112,7 +134,6 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
             raise ValueError("fill quantity must be positive")
 
         if side == "BUY":
-            buy_factor = _optional_float(row.get("adj_factor"), 1.0)
             lots.setdefault(symbol, []).append(
                 _OpenLot(
                     order_id=str(row["order_id"]),
@@ -122,7 +143,6 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
                     reference_price=reference_price,
                     direct_cost_per_share=(commission + stamp_tax) / quantity,
                     slippage_per_share=slippage / quantity,
-                    adj_factor=buy_factor if buy_factor > 0 else 1.0,
                 )
             )
             continue
@@ -132,21 +152,16 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
         remaining = quantity
         sell_cost_per_share = (commission + stamp_tax) / quantity
         sell_slippage_per_share = slippage / quantity
-        sell_factor = _optional_float(row.get("adj_factor"), 1.0)
-        if sell_factor <= 0:
-            sell_factor = 1.0
         symbol_lots = lots.setdefault(symbol, [])
         while remaining > 0:
             if not symbol_lots:
                 raise ValueError(f"sell fill exceeds open quantity for {symbol}")
             lot = symbol_lots[0]
             matched = min(remaining, lot.quantity)
-            # 卖出价按买入批次的成本锚定换算：raw × F(sell)/F(buy)，
-            # 跨除权日的往返交易损益才不会被价格跳变污染。
-            factor_ratio = sell_factor / lot.adj_factor if lot.adj_factor > 0 else 1.0
             direct_cost = matched * (lot.direct_cost_per_share + sell_cost_per_share)
             slippage_cost = matched * (lot.slippage_per_share + sell_slippage_per_share)
-            gross_pnl = matched * (reference_price * factor_ratio - lot.reference_price)
+            dividend_income = matched * lot.dividend_per_share
+            gross_pnl = matched * (reference_price - lot.reference_price) + dividend_income
             net_pnl = gross_pnl - direct_cost - slippage_cost
             capital = matched * lot.reference_price + matched * (
                 lot.direct_cost_per_share + lot.slippage_per_share
@@ -160,10 +175,11 @@ def build_closed_trades(fills: pd.DataFrame) -> pd.DataFrame:
                     "sell_date": trade_date.date(),
                     "quantity": matched,
                     "buy_price": lot.price,
-                    "sell_price": price * factor_ratio,
+                    "sell_price": price,
                     "buy_reference_price": lot.reference_price,
-                    "sell_reference_price": reference_price * factor_ratio,
+                    "sell_reference_price": reference_price,
                     "gross_pnl": gross_pnl,
+                    "dividend_income": dividend_income,
                     "direct_cost": direct_cost,
                     "slippage_cost": slippage_cost,
                     "net_pnl": net_pnl,

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, timedelta
+from math import isclose, isfinite
 from uuid import uuid4
 
 import pandas as pd
@@ -13,6 +14,7 @@ from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import assess_backtest_validity
 from quant_platform.core.exceptions import BacktestValidityError
+from quant_platform.data.corporate_actions import load_corporate_actions
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.execution.models import Fill, Order
 from quant_platform.execution.next_open import NextOpenExecutionModel
@@ -119,11 +121,20 @@ class BacktestEngine:
         account = Account(account_id=self.strategy.strategy_id, initial_cash=initial_cash)
         # 用回测起点之前的最后收盘价做估值底仓：区间内停牌、退市或数据缺失的
         # 股票不会被错误地按 0 估值，也不会在持仓记录里留下 None 价格。
-        last_closing_prices: dict[str, float] = self._seed_closing_prices(
-            bars, start_date
-        )
+        last_closing_prices: dict[str, float] = self._seed_closing_prices(bars, start_date)
         # 复权因子底仓：同样取回测起点之前的最后有效因子，日内前向填充。
         last_adj_factors: dict[str, float] = self._seed_adj_factors(bars, start_date)
+        corporate_actions = load_corporate_actions(
+            self.repository, start_date, end_date, universe_symbols
+        )
+        actions_by_date = {}
+        for action in corporate_actions:
+            if action.ex_date not in dates:
+                raise BacktestValidityError(
+                    f"INVALID_CORPORATE_ACTION_DATE: {action.symbol} {action.ex_date} "
+                    "不在交易日历中"
+                )
+            actions_by_date.setdefault(action.ex_date, []).append(action)
         # 基准净值列：首条基准行情锚定为 initial_cash，缺失日期前向填充。
         benchmark_equity = self._benchmark_equity_series(dates, initial_cash)
 
@@ -137,15 +148,46 @@ class BacktestEngine:
         risk_rows: list[dict[str, object]] = []
 
         missing_adj_factor_events = 0
+        unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
-            account.start_day()
+            account.start_day(trade_date)
             day_rows = bars_by_date.get(trade_date, empty_day)
+            day_factors = self._valid_factors(day_rows)
+            day_actions = actions_by_date.get(trade_date, [])
+            action_symbols = {action.symbol for action in day_actions}
+            unobserved_action_symbols.update(action_symbols)
+            for symbol in account.positions:
+                previous, current = last_adj_factors.get(symbol), day_factors.get(symbol)
+                if (
+                    previous is not None
+                    and current is not None
+                    and not isclose(previous, current, rel_tol=1e-7)
+                    and symbol not in unobserved_action_symbols
+                ):
+                    raise BacktestValidityError(
+                        f"MISSING_CORPORATE_ACTION: {symbol} {trade_date} 复权因子变化，"
+                        "缺少分红/送转明细，不能用复权价格代替现金结算"
+                    )
+            unobserved_action_symbols.difference_update(day_factors)
+            todays_orders = pending.pop(trade_date, [])
+            for action in day_actions:
+                account.apply_corporate_action(action)
+                if action.symbol in last_closing_prices:
+                    last_closing_prices[action.symbol] = (
+                        last_closing_prices[action.symbol] - action.cash_per_share
+                    ) / action.share_multiplier
+                if action.share_multiplier != 1:
+                    todays_orders = [
+                        replace(order, quantity=int(order.quantity * action.share_multiplier))
+                        if order.symbol == action.symbol
+                        else order
+                        for order in todays_orders
+                    ]
             executed_orders, fills = self.execution_model.execute(
-                pending.pop(trade_date, []), day_rows, account, adj_factors=last_adj_factors
+                todays_orders, day_rows, account, adj_factors=last_adj_factors
             )
             all_orders.extend(executed_orders)
             all_fills.extend(fills)
-            day_factors = self._valid_factors(day_rows)
             # 成交当日既无行因子也无历史因子 → 执行模型已回退比率 1，计入告警。
             missing_adj_factor_events += sum(
                 1
@@ -162,19 +204,16 @@ class BacktestEngine:
                 }
             last_closing_prices.update(closing_prices)
             last_adj_factors.update(day_factors)
-            # 成本锚定估值价：raw_close × F(t)/cost_adj_factor；
-            # 持仓缺因子时回退比率 1（未复权口径）并计入告警。
+            # 实际股数 × 未复权价格；分红现金/应收款已单独入账。
             valuation_prices: dict[str, float] = {}
-            for symbol, position in account.positions.items():
+            for symbol in account.positions:
                 raw_close = last_closing_prices.get(symbol)
                 if raw_close is None:
                     continue
                 factor = last_adj_factors.get(symbol)
-                if factor is None or factor <= 0 or position.cost_adj_factor <= 0:
+                if factor is None:
                     missing_adj_factor_events += 1
-                    valuation_prices[symbol] = raw_close
-                else:
-                    valuation_prices[symbol] = raw_close * factor / position.cost_adj_factor
+                valuation_prices[symbol] = raw_close
             snapshot = account.mark_to_market(trade_date, valuation_prices)
             nav_row = asdict(snapshot)
             if self.benchmark_symbol is not None:
@@ -198,7 +237,7 @@ class BacktestEngine:
                     }
                 )
 
-            # 下单定价：持仓用锚定价（数量换算的正确分母），其余标的用未复权收盘价。
+            # 下单和成交统一使用实际股数及未复权价格。
             pricing_map = {**last_closing_prices, **valuation_prices}
             weights = self._position_weights(account, valuation_prices, snapshot.equity)
             daily_risk = evaluate_daily_portfolio_risk(
@@ -337,10 +376,9 @@ class BacktestEngine:
             positions_frame,
             initial_cash=initial_cash,
             risk_free_rate=self.risk_free_rate,
+            corporate_actions=corporate_actions,
         )
-        analytics.summary.update(
-            _benchmark_summary(nav, analytics.summary, self.benchmark_symbol)
-        )
+        analytics.summary.update(_benchmark_summary(nav, analytics.summary, self.benchmark_symbol))
         analytics.summary.update(
             {
                 "risk_checks": len(risk_frame),
@@ -376,6 +414,7 @@ class BacktestEngine:
             risk_events=risk_frame,
             summary=analytics.summary,
             validity=validity.to_dict(),
+            corporate_actions=pd.DataFrame([asdict(action) for action in corporate_actions]),
         )
 
     @staticmethod
@@ -434,15 +473,15 @@ class BacktestEngine:
         if bars.empty or "adj_factor" not in bars.columns:
             return {}
         factors = pd.to_numeric(bars["adj_factor"], errors="coerce")
-        prior = bars[(bars["trade_date"] < pd.Timestamp(start_date)) & factors.gt(0)]
+        prior = bars[
+            (bars["trade_date"] < pd.Timestamp(start_date)) & factors.gt(0) & factors.map(isfinite)
+        ]
         if prior.empty:
             return {}
         latest = prior.groupby("symbol", observed=True).tail(1)
         return {
             str(symbol): float(factor)
-            for symbol, factor in zip(
-                latest["symbol"], factors.loc[latest.index], strict=True
-            )
+            for symbol, factor in zip(latest["symbol"], factors.loc[latest.index], strict=True)
         }
 
     @staticmethod
@@ -452,7 +491,7 @@ class BacktestEngine:
         if day_rows.empty or "adj_factor" not in day_rows.columns:
             return {}
         factors = pd.to_numeric(day_rows["adj_factor"], errors="coerce")
-        valid = day_rows[factors.gt(0)]
+        valid = day_rows[factors.gt(0) & factors.map(isfinite)]
         return {
             str(symbol): float(factor)
             for symbol, factor in zip(valid["symbol"], factors.loc[valid.index], strict=True)
@@ -464,9 +503,7 @@ class BacktestEngine:
 
         if bars.empty or "raw_close" not in bars.columns:
             return {}
-        prior = bars[
-            (bars["trade_date"] < pd.Timestamp(start_date)) & bars["raw_close"].notna()
-        ]
+        prior = bars[(bars["trade_date"] < pd.Timestamp(start_date)) & bars["raw_close"].notna()]
         if prior.empty:
             return {}
         latest = prior.groupby("symbol", observed=True).tail(1)
@@ -476,9 +513,7 @@ class BacktestEngine:
             if float(price) > 0
         }
 
-    def _benchmark_equity_series(
-        self, dates: list[date], initial_cash: float
-    ) -> dict[date, float]:
+    def _benchmark_equity_series(self, dates: list[date], initial_cash: float) -> dict[date, float]:
         """Map trade dates to benchmark equity anchored at the first in-range close.
 
         未配置基准（benchmark_symbol 为空）时返回空字典且 nav 不写该列；
@@ -502,19 +537,12 @@ class BacktestEngine:
         if selected.empty:
             return {}
         selected = selected[
-            selected["trade_date"].between(
-                pd.Timestamp(dates[0]), pd.Timestamp(dates[-1])
-            )
+            selected["trade_date"].between(pd.Timestamp(dates[0]), pd.Timestamp(dates[-1]))
         ]
-        selected = (
-            selected.sort_values("trade_date")
-            .drop_duplicates("trade_date", keep="last")
-        )
+        selected = selected.sort_values("trade_date").drop_duplicates("trade_date", keep="last")
         close_by_date = {
             timestamp.date(): float(price)
-            for timestamp, price in zip(
-                selected["trade_date"], selected["raw_close"], strict=True
-            )
+            for timestamp, price in zip(selected["trade_date"], selected["raw_close"], strict=True)
         }
         series: dict[date, float] = {}
         first_close: float | None = None

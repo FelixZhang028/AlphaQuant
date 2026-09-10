@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
+from math import isclose, isfinite
 
-from quant_platform.accounts.models import AccountSnapshot, Position
+from quant_platform.accounts.models import AccountSnapshot, CorporateAction, Position
 from quant_platform.core.exceptions import AccountError
 from quant_platform.execution.models import Fill, OrderSide
 
@@ -23,12 +24,56 @@ class Account:
         self.processed_fill_ids: set[str] = set()
         self.realized_pnl = 0.0
         self._peak_equity = float(initial_cash)
+        self._corporate_actions: set[tuple[str, date]] = set()
+        self._dividends: list[tuple[date, float]] = []
+        self._locked_shares: list[tuple[date, str, int]] = []
 
-    def start_day(self) -> None:
+    @property
+    def dividend_receivable(self) -> float:
+        return sum(amount for _, amount in self._dividends)
+
+    def start_day(self, trade_date: date | None = None) -> None:
         """Release existing holdings for sale at the next trading day."""
 
+        if trade_date is not None:
+            self.cash += sum(amount for day, amount in self._dividends if day <= trade_date)
+            self._dividends = [(day, amount) for day, amount in self._dividends if day > trade_date]
+            self._locked_shares = [item for item in self._locked_shares if item[0] > trade_date]
         for position in self.positions.values():
-            position.available_quantity = position.quantity
+            locked = sum(qty for _, symbol, qty in self._locked_shares if symbol == position.symbol)
+            position.available_quantity = position.quantity - locked
+
+    def apply_corporate_action(self, action: CorporateAction) -> None:
+        """Book entitlements on ex-date before trades; cash is usable on pay-date."""
+        key = (action.symbol, action.ex_date)
+        if key in self._corporate_actions:
+            raise AccountError(f"Corporate action already processed: {key}")
+        position = self.positions.get(action.symbol)
+        if position is not None:
+            if any(symbol == action.symbol for _, symbol, _ in self._locked_shares):
+                raise AccountError(
+                    "Overlapping unlisted share entitlements require explicit handling"
+                )
+            exact_quantity = position.quantity * action.share_multiplier
+            quantity = round(exact_quantity)
+            if not isclose(exact_quantity, quantity, abs_tol=1e-8, rel_tol=0):
+                raise AccountError("Fractional corporate-action shares require explicit settlement")
+            dividend = position.quantity * action.cash_per_share
+            added = quantity - position.quantity
+            position.average_cost /= action.share_multiplier
+            position.quantity = quantity
+            listing_date = action.share_listing_date or action.ex_date
+            if listing_date > action.ex_date:
+                self._locked_shares.append((listing_date, action.symbol, added))
+            else:
+                position.available_quantity += added
+            pay_date = action.pay_date or action.ex_date
+            if pay_date > action.ex_date:
+                self._dividends.append((pay_date, dividend))
+            else:
+                self.cash += dividend
+            self.realized_pnl += dividend
+        self._corporate_actions.add(key)
 
     def apply_fill(self, fill: Fill) -> None:
         """Apply a fill atomically, rejecting duplicate or invalid state changes."""
@@ -59,34 +104,17 @@ class Account:
             if total > cash + 1e-9:
                 raise AccountError(f"Insufficient cash for fill {fill.fill_id}")
             old_cost = position.quantity * position.average_cost
-            # 成本锚定因子按数量加权调和平均更新：保持 Σ(N_i/F_i) 恒等，
-            # 使 blended 锚定估值与逐笔买入分别锚定的结果一致（算术平均会失真）。
-            old_units = (
-                position.quantity / position.cost_adj_factor
-                if position.cost_adj_factor > 0
-                else 0.0
-            )
-            new_units = (
-                fill.quantity / fill.adj_factor if fill.adj_factor > 0 else float(fill.quantity)
-            )
+            if position.quantity == 0:
+                position.cost_adj_factor = (
+                    fill.adj_factor if isfinite(fill.adj_factor) and fill.adj_factor > 0 else 1.0
+                )
             position.quantity += fill.quantity
             position.average_cost = (old_cost + total) / position.quantity
-            anchor_units = old_units + new_units
-            position.cost_adj_factor = (
-                position.quantity / anchor_units if anchor_units > 0 else 1.0
-            )
             cash -= total
         else:
             if fill.quantity > position.available_quantity:
                 raise AccountError(f"Insufficient sellable quantity for fill {fill.fill_id}")
-            # 卖出按成本锚定价结算：raw × F(t)/cost_adj_factor，与估值同一口径，
-            # 跨除权日卖出不再出现净值跳变（等价于把分红送转在卖出时点变现）。
-            anchor_ratio = (
-                fill.adj_factor / position.cost_adj_factor
-                if fill.adj_factor > 0 and position.cost_adj_factor > 0
-                else 1.0
-            )
-            settled_notional = notional * anchor_ratio
+            settled_notional = notional
             realized_pnl += settled_notional - fees - fill.quantity * position.average_cost
             position.quantity -= fill.quantity
             position.available_quantity -= fill.quantity
@@ -108,7 +136,7 @@ class Account:
             position.quantity * closing_prices.get(symbol, 0.0)
             for symbol, position in self.positions.items()
         )
-        equity = self.cash + market_value
+        equity = self.cash + market_value + self.dividend_receivable
         previous_equity = self.snapshots[-1].equity if self.snapshots else self.initial_cash
         daily_return = equity / previous_equity - 1.0 if previous_equity else 0.0
         self._peak_equity = max(self._peak_equity, equity)
@@ -120,6 +148,7 @@ class Account:
             equity=equity,
             daily_return=daily_return,
             drawdown=drawdown,
+            dividend_receivable=self.dividend_receivable,
         )
         self.snapshots.append(snapshot)
         return snapshot
