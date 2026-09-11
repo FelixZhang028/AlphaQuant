@@ -63,6 +63,9 @@ class FactorDefinition:
     direction: int = 1
     version: str = "1.0.0"
     category: str = "未分类"
+    source: str = "内置"
+    feature_type: str = "单因子"
+    source_url: str = ""
 
     @abstractmethod
     def compute(self, bars: pd.DataFrame) -> pd.DataFrame:

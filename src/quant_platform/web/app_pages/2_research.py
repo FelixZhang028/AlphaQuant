@@ -180,14 +180,14 @@ with st.expander("参数优化", expanded=True):
             st.write(f"初始资金：{baseline.initial_cash:,.0f}")
             st.write(f"最大持仓：{baseline.top_n}")
             st.write(f"调仓频率：{rebalance_label(baseline.rebalance)}")
+        max_workers = st.selectbox("并行回测进程数", [1, 2, 4], key="optimization_workers")
+        st.caption("多进程会增加内存占用；每组参数使用独立账户与回测实例。")
         submitted = st.form_submit_button("开始参数优化", type="primary")
 
     if submitted:
         try:
             grid = {
-                parameter.name: _parse_candidates(
-                    parameter, candidate_text[parameter.name]
-                )
+                parameter.name: _parse_candidates(parameter, candidate_text[parameter.name])
                 for parameter in metadata.parameters
             }
             base = replace(
@@ -198,6 +198,7 @@ with st.expander("参数优化", expanded=True):
                 end_date=end_date,
             )
             request = OptimizationRequest(
+                max_workers=int(max_workers),
                 base_request=base,
                 parameter_grid=grid,
                 objective=str(objective),
@@ -218,17 +219,13 @@ with st.expander("参数优化", expanded=True):
     latest_path = st.session_state.get(f"latest_optimization_{baseline_id}")
     if latest_path:
         latest = pd.read_csv(latest_path)
-        parameter_labels = {
-            f"param_{item.name}": item.label for item in metadata.parameters
-        }
+        parameter_labels = {f"param_{item.name}": item.label for item in metadata.parameters}
         st.dataframe(
             localize_frame(latest.rename(columns=parameter_labels)),
             width="stretch",
             hide_index=True,
         )
-        successful_runs = latest[
-            latest["status"].eq("SUCCESS") & latest["run_id"].notna()
-        ]
+        successful_runs = latest[latest["status"].eq("SUCCESS") & latest["run_id"].notna()]
         if not successful_runs.empty:
             child_ids = successful_runs["run_id"].astype(str).tolist()
             child_records = {
@@ -279,9 +276,7 @@ with st.expander("滚动样本外验证", expanded=False):
             wf_start = st.date_input(
                 "总开始日期", baseline.start_date, key=f"wf_start_{baseline_suffix}"
             )
-            wf_end = st.date_input(
-                "总结束日期", baseline.end_date, key=f"wf_end_{baseline_suffix}"
-            )
+            wf_end = st.date_input("总结束日期", baseline.end_date, key=f"wf_end_{baseline_suffix}")
         with wf_middle:
             training_months = st.number_input(
                 "训练期（月）",
@@ -324,9 +319,7 @@ with st.expander("滚动样本外验证", expanded=False):
     if wf_submitted:
         try:
             wf_grid = {
-                parameter.name: _parse_candidates(
-                    parameter, wf_candidates[parameter.name]
-                )
+                parameter.name: _parse_candidates(parameter, wf_candidates[parameter.name])
                 for parameter in metadata.parameters
             }
             wf_base = replace(
@@ -355,9 +348,7 @@ with st.expander("滚动样本外验证", expanded=False):
                 f"正在运行 {len(windows)} 个窗口，每个窗口训练 {combinations} 组参数……"
             ):
                 wf_result = validator.run(wf_request)
-            st.session_state[f"latest_walk_forward_{baseline_id}"] = str(
-                wf_result.output_dir
-            )
+            st.session_state[f"latest_walk_forward_{baseline_id}"] = str(wf_result.output_dir)
             st.success(
                 f"滚动验证完成：{wf_result.summary['successful_windows']}/"
                 f"{wf_result.summary['window_count']} 个样本外窗口成功。"
@@ -419,4 +410,4 @@ with st.expander("滚动样本外验证", expanded=False):
 st.divider()
 st.info("历史记录筛选与多回测对比已移至“回测记录库”，避免本页面重复承担复盘功能。")
 if st.button("打开回测记录库"):
-    st.switch_page("pages/6_run_library.py")
+    st.switch_page("app_pages/6_run_library.py")

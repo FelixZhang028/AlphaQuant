@@ -96,7 +96,7 @@ class PlatformReadinessService:
                     "股票池",
                     ReadinessStatus.ACTION,
                     f"股票池配置无法加载：{exc}",
-                    "pages/5_universe_management.py",
+                    "app_pages/5_universe_management.py",
                 )
             )
             return ReadinessReport(tuple(checks), False, 0, 0, 0)
@@ -109,7 +109,7 @@ class PlatformReadinessService:
                     "股票池",
                     ReadinessStatus.READY,
                     f"已配置 {configured_count} 只股票",
-                    "pages/5_universe_management.py",
+                    "app_pages/5_universe_management.py",
                 )
             )
         else:
@@ -118,7 +118,7 @@ class PlatformReadinessService:
                     "股票池",
                     ReadinessStatus.ACTION,
                     "尚未添加股票",
-                    "pages/5_universe_management.py",
+                    "app_pages/5_universe_management.py",
                 )
             )
 
@@ -130,7 +130,7 @@ class PlatformReadinessService:
                     "本地数据",
                     ReadinessStatus.ACTION,
                     f"本地数据无法读取：{exc}",
-                    "pages/1_data_management.py",
+                    "app_pages/1_data_management.py",
                 )
             )
             return ReadinessReport(tuple(checks), False, configured_count, 0, required_rows)
@@ -144,7 +144,7 @@ class PlatformReadinessService:
                     if overview.security_count
                     else "尚未下载证券主表；不影响代码方式添加股票，但不能按名称搜索"
                 ),
-                "pages/1_data_management.py",
+                "app_pages/1_data_management.py",
             )
         )
 
@@ -175,7 +175,7 @@ class PlatformReadinessService:
                 "股票行情",
                 market_status,
                 market_detail,
-                "pages/1_data_management.py",
+                "app_pages/1_data_management.py",
             )
         )
 
@@ -189,7 +189,7 @@ class PlatformReadinessService:
                     if benchmark_ready
                     else f"尚未准备基准 {overview.benchmark_symbol}；当前仍可运行策略回测"
                 ),
-                "pages/1_data_management.py",
+                "app_pages/1_data_management.py",
             )
         )
 
@@ -206,7 +206,7 @@ class PlatformReadinessService:
                         f"关键价格缺失 {overview.market.missing_price_rows} 行"
                     )
                 ),
-                "pages/1_data_management.py",
+                "app_pages/1_data_management.py",
             )
         )
 

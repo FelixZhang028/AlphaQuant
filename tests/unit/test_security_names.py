@@ -93,7 +93,7 @@ def test_xtick_uses_asset_namespace_and_preserves_provider_name(tmp_path, monkey
 
 
 def test_data_page_shows_names_in_selector_coverage_and_quotes(tmp_path, monkeypatch):
-    page = Path(__file__).resolve().parents[2] / "src/quant_platform/web/pages/1_data_management.py"
+    page = Path(__file__).resolve().parents[2] / "src/quant_platform/web/app_pages/1_data_management.py"
     _local_master(tmp_path, "平安银行")
     (tmp_path / "configs/app.yaml").write_text(
         "app:\n  runtime_dir: runtime\ndata:\n  repository: market\n"

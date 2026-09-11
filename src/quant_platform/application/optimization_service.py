@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import itertools
 import json
+from concurrent.futures import ProcessPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +24,21 @@ OBJECTIVES = {
 }
 
 
+def _run_isolated(job):
+    """Each process creates its own service, engine, account and run directory."""
+    path, configs, request, row = job
+    try:
+        service = BacktestService(path)
+        service.configs = configs
+        completed = service.run(request)
+        row["run_id"] = completed.result.run_id
+        row.update(completed.result.summary)
+    except Exception as exc:
+        row["status"] = "FAILED"
+        row["error"] = f"{type(exc).__name__}: {exc}"[:2000]
+    return row
+
+
 @dataclass(frozen=True)
 class OptimizationRequest:
     """Inputs for a bounded, reproducible grid search."""
@@ -32,6 +49,7 @@ class OptimizationRequest:
     max_drawdown_limit: float | None = None
     max_combinations: int = 100
     baseline_run_id: str | None = None
+    max_workers: int = 1
 
 
 @dataclass(frozen=True)
@@ -66,6 +84,8 @@ class OptimizationService:
 
         if request.objective not in OBJECTIVES:
             raise ValueError(f"Unsupported optimization objective: {request.objective}")
+        if not 1 <= request.max_workers <= 4:
+            raise ValueError("max_workers must be between 1 and 4")
         if not request.parameter_grid:
             raise ValueError("parameter_grid must not be empty")
         if any(not values for values in request.parameter_grid.values()):
@@ -83,6 +103,7 @@ class OptimizationService:
         optimization_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         names = list(request.parameter_grid)
         rows: list[dict[str, Any]] = []
+        jobs = []
         for index, values in enumerate(
             itertools.product(*(request.parameter_grid[name] for name in names)),
             start=1,
@@ -103,6 +124,16 @@ class OptimizationService:
                 "run_id": None,
                 "error": None,
             }
+            if request.max_workers > 1:
+                jobs.append(
+                    (
+                        str(self.backtests.app_config_path),
+                        deepcopy(self.backtests.configs),
+                        effective,
+                        row,
+                    )
+                )
+                continue
             try:
                 completed = self.backtests.run(effective)
                 row["run_id"] = completed.result.run_id
@@ -111,6 +142,10 @@ class OptimizationService:
                 row["status"] = "FAILED"
                 row["error"] = f"{type(exc).__name__}: {exc}"[:2000]
             rows.append(row)
+
+        if jobs:
+            with ProcessPoolExecutor(max_workers=request.max_workers) as executor:
+                rows = list(executor.map(_run_isolated, jobs))
 
         experiments = self._rank(pd.DataFrame(rows), request)
         output = self.root / optimization_id
@@ -124,6 +159,7 @@ class OptimizationService:
                     "max_drawdown_limit": request.max_drawdown_limit,
                     "parameter_grid": request.parameter_grid,
                     "combination_count": count,
+                    "max_workers": request.max_workers,
                     "baseline_run_id": request.baseline_run_id,
                 },
                 ensure_ascii=False,

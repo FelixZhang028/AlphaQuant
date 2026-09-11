@@ -21,6 +21,7 @@ from quant_platform.execution.next_open import NextOpenExecutionModel
 from quant_platform.execution.order_generator import OrderGenerator
 from quant_platform.portfolio.equal_weight import EqualWeightPortfolio
 from quant_platform.portfolio.models import TargetPosition
+from quant_platform.portfolio.risk_weighted import constrain_turnover
 from quant_platform.risk.basic_rules import (
     PortfolioRiskAction,
     RiskDecision,
@@ -67,6 +68,7 @@ class BacktestEngine:
         fixed_universe: bool = True,
         benchmark_symbol: str | None = None,
         warmup_days: int = 120,
+        annualization: int = 252,
     ) -> None:
         self.repository = repository
         self.universe = universe
@@ -81,6 +83,7 @@ class BacktestEngine:
         self.fixed_universe = fixed_universe
         self.benchmark_symbol = benchmark_symbol
         self.warmup_days = warmup_days
+        self.annualization = annualization
 
     def run(
         self,
@@ -99,6 +102,11 @@ class BacktestEngine:
         # 只加载股票池 × 回测区间 + warmup 缓冲的行情：策略动量与估值底仓
         # 都需要 start 之前的历史，但不需要全市场全历史。
         universe_symbols = self.universe.symbols
+        self.execution_model.reset()
+        if hasattr(self.universe, "period_symbols"):
+            universe_symbols = self.universe.period_symbols(start_date, end_date)
+            if not universe_symbols:
+                raise BacktestValidityError("回测区间内没有可验证的历史成分")
         load_start = self._warmup_start_date(start_date)
         bars = self.repository.get_daily_bars(
             symbols=list(universe_symbols) if universe_symbols else None,
@@ -109,6 +117,42 @@ class BacktestEngine:
             raise ValueError("No daily bars available for backtest")
         bars["trade_date"] = pd.to_datetime(bars["trade_date"]).dt.normalize()
         bars = bars.sort_values("trade_date").reset_index(drop=True)
+        master = self.repository.read_table("security_master")
+        if {"symbol", "list_date", "delist_date"}.issubset(master.columns):
+            lifetime = master.drop_duplicates("symbol").set_index("symbol")
+            listed = pd.to_datetime(bars.symbol.map(lifetime.list_date))
+            delisted = pd.to_datetime(bars.symbol.map(lifetime.delist_date))
+            known = listed.notna()
+            bars.loc[known, "is_listed"] = (
+                (bars.trade_date >= listed) & (delisted.isna() | (bars.trade_date <= delisted))
+            )[known]
+        if not self.fixed_universe:
+            absent = set(universe_symbols) - set(bars.symbol)
+            if absent:
+                raise BacktestValidityError(
+                    f"历史成分缺少行情（不可删除后继续回测）：{sorted(absent)}"
+                )
+        if hasattr(self.universe, "prepare"):
+            self.universe.prepare(bars)
+        # Opening capacity is capped by prior observed daily volume AND today's
+        # realized volume. This is a conservative daily proxy, not auction depth.
+        if "volume" in bars:
+            bars["liquidity_volume"] = bars.groupby("symbol", sort=False)["volume"].shift(1)
+        master = self.repository.read_table("security_master")
+        delist_dates = {}
+        if {"symbol", "delist_date"}.issubset(master.columns):
+            delist_dates = dict(zip(master.symbol, pd.to_datetime(master.delist_date), strict=True))
+        settlements = self.repository.read_table("delisting_settlements")
+        settlement_rows = (
+            {str(row["symbol"]): row for row in settlements.to_dict("records")}
+            if not settlements.empty
+            else {}
+        )
+        settled_count = 0
+        exposures = self.repository.read_table("security_exposures")
+        if not exposures.empty:
+            exposures["date"] = pd.to_datetime(exposures["date"])
+            exposures = exposures.sort_values("date")
         missing_fields = sorted(self.strategy.required_fields.difference(bars.columns))
         if missing_fields:
             raise ValueError(f"Market data does not satisfy strategy fields: {missing_fields}")
@@ -151,6 +195,21 @@ class BacktestEngine:
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
             account.start_day(trade_date)
+            for symbol in list(account.positions):
+                delisted = delist_dates.get(symbol)
+                if pd.isna(delisted) or delisted is None or pd.Timestamp(trade_date) <= delisted:
+                    continue
+                record = settlement_rows.get(symbol)
+                if record is None:
+                    raise BacktestValidityError(f"MISSING_DELISTING_SETTLEMENT: {symbol}")
+                settlement_day = pd.Timestamp(record["settlement_date"])
+                if settlement_day > pd.Timestamp(trade_date):
+                    raise BacktestValidityError(f"退市后至结算前估值未提供：{symbol}")
+                cash_per_share = float(record["cash_per_share"])
+                if not isfinite(cash_per_share) or cash_per_share < 0:
+                    raise BacktestValidityError(f"退市结算价格无效：{symbol}")
+                account.cash += account.positions.pop(symbol).quantity * cash_per_share
+                settled_count += 1
             day_rows = bars_by_date.get(trade_date, empty_day)
             day_factors = self._valid_factors(day_rows)
             day_actions = actions_by_date.get(trade_date, [])
@@ -240,12 +299,24 @@ class BacktestEngine:
             # 下单和成交统一使用实际股数及未复权价格。
             pricing_map = {**last_closing_prices, **valuation_prices}
             weights = self._position_weights(account, valuation_prices, snapshot.equity)
+            industry_map = {}
+            if not exposures.empty and "industry" in exposures:
+                known = (
+                    exposures[exposures.date <= pd.Timestamp(trade_date)]
+                    .drop_duplicates("symbol", keep="last")
+                    .dropna(subset=["industry"])
+                )
+                industry_map = dict(zip(known.symbol, known.industry, strict=True))
+            previous_equity = nav_rows[-2]["equity"] if len(nav_rows) > 1 else initial_cash
+            daily_return = snapshot.equity / previous_equity - 1 if previous_equity > 0 else 0
             daily_risk = evaluate_daily_portfolio_risk(
                 weights,
                 self.risk_limits,
                 strategy_id=self.strategy.strategy_id,
                 trade_date=trade_date,
                 current_drawdown=snapshot.drawdown,
+                daily_return=daily_return,
+                industry_map=industry_map,
             )
             risk_rows.append(
                 {
@@ -294,13 +365,24 @@ class BacktestEngine:
             )
             context.require_fields(self.strategy.required_fields)
             signals = self.strategy.generate_signals(context)
-            targets = self.portfolio.construct(signals)
+            if hasattr(self.portfolio, "construct_with_history"):
+                targets = self.portfolio.construct_with_history(signals, history)
+            else:
+                targets = self.portfolio.construct(signals)
+            if self.risk_limits.enabled:
+                targets = constrain_turnover(
+                    targets,
+                    weights,
+                    self.risk_limits.max_rebalance_turnover,
+                    reference=TargetPosition(self.strategy.strategy_id, trade_date, "", 0),
+                )
             all_signals.extend(signals)
             all_targets.extend(targets)
             evaluation = evaluate_target_risk(
                 targets,
                 self.risk_limits,
                 current_drawdown=snapshot.drawdown,
+                industry_map=industry_map,
             )
             risk_rows.append(
                 {
@@ -377,11 +459,15 @@ class BacktestEngine:
             initial_cash=initial_cash,
             risk_free_rate=self.risk_free_rate,
             corporate_actions=corporate_actions,
+            annualization=self.annualization,
         )
         analytics.summary.update(_benchmark_summary(nav, analytics.summary, self.benchmark_symbol))
         analytics.summary.update(
             {
                 "risk_checks": len(risk_frame),
+                "execution_model_version": "capacity-dated-costs-v1",
+                "delisting_settlements": settled_count,
+                "liquidity_model": "min(previous_day_volume, realized_day_volume) participation cap",
                 "risk_rejections": (
                     int(risk_frame["decision"].eq(RiskDecision.REJECT.value).sum())
                     if not risk_frame.empty

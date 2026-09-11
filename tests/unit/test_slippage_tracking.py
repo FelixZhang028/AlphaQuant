@@ -22,6 +22,7 @@ def test_next_open_fill_records_reference_price_and_slippage_cost() -> None:
         [
             {
                 "symbol": "000001.SZ",
+                "volume": 1_000_000,
                 "raw_open": 10.0,
                 "up_limit": 11.0,
                 "down_limit": 9.0,
@@ -31,9 +32,9 @@ def test_next_open_fill_records_reference_price_and_slippage_cost() -> None:
         ]
     )
 
-    _, fills = NextOpenExecutionModel(ExecutionConfig(slippage_rate=0.01)).execute(
-        [order], market, account
-    )
+    _, fills = NextOpenExecutionModel(
+        ExecutionConfig(slippage_rate=0.01, impact_coefficient=0)
+    ).execute([order], market, account)
 
     assert len(fills) == 1
     assert fills[0].reference_price == 10.0

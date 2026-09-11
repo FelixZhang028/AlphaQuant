@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 import pandas as pd
 
+from quant_platform.core.diagnostics import redact, redact_text
 from quant_platform.data.interfaces import MarketDataRepository
 
 
@@ -87,7 +89,7 @@ class DataManifest:
     def fail(self, error: Exception) -> DataManifest:
         """Return a failed immutable manifest with a bounded error message."""
 
-        message = f"{type(error).__name__}: {error}"
+        message = redact_text(f"{type(error).__name__}: {error}")
         return replace(
             self,
             status=ManifestStatus.FAILED,
@@ -112,12 +114,12 @@ class DataManifest:
                     "min_date": self.min_date,
                     "max_date": self.max_date,
                     "parameters_json": json.dumps(
-                        self.parameters, ensure_ascii=False, default=str, sort_keys=True
+                        redact(self.parameters), ensure_ascii=False, default=str, sort_keys=True
                     ),
                     "quality_json": json.dumps(
-                        self.quality, ensure_ascii=False, default=str, sort_keys=True
+                        redact(self.quality), ensure_ascii=False, default=str, sort_keys=True
                     ),
-                    "error": self.error,
+                    "error": redact_text(self.error) if self.error else None,
                 }
             ]
         )
@@ -127,6 +129,13 @@ def save_manifest(repository: MarketDataRepository, manifest: DataManifest) -> D
     """Append one final manifest and return it for fluent orchestration."""
 
     repository.save_table("data_manifests", manifest.to_frame())
+    if manifest.error:
+        logging.getLogger(__name__).warning(
+            "Data update %s (%s) failed: %s",
+            manifest.version_id,
+            manifest.dataset,
+            redact_text(manifest.error),
+        )
     return manifest
 
 

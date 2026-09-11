@@ -1,5 +1,10 @@
 execution:
   model: next_open
+  historical_fees: true
+  transfer_fee_rate: 0.00001
+  max_participation: 0.01
+  impact_coefficient: 0.001
+  max_orders_per_day: 1000
   lot_size: 100
   commission_rate: 0.0003
   minimum_commission: 5.0

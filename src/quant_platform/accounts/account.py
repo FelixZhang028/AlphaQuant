@@ -97,7 +97,7 @@ class Account:
         )
         positions[fill.symbol] = position
         notional = fill.quantity * fill.price
-        fees = fill.commission + fill.stamp_tax
+        fees = fill.commission + fill.stamp_tax + fill.transfer_fee
 
         if fill.side == OrderSide.BUY:
             total = notional + fees

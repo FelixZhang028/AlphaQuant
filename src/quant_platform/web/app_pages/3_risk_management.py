@@ -22,7 +22,7 @@ if is_embedded("risk_management"):
     st.subheader("风险规则")
 else:
     st.title("风险管理")
-st.caption("所有策略共用的组合级风控参数；修改后会应用到新运行的回测和模拟账户。")
+st.caption("所有策略共用的组合级风控参数；修改后会应用到新运行的回测。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口
 try:
@@ -81,11 +81,28 @@ with st.form("risk_limits_form"):
             disabled=drawdown_action != "reduce",
         )
         st.info("风控在每日收盘后检查实际持仓，纠偏订单在下一交易日开盘执行。")
+    max_industry_weight = st.number_input(
+        "单行业最大权重（1为不限制）", 0.0, 1.0, limits.max_industry_weight, 0.05
+    )
+    max_daily_loss = st.number_input(
+        "单日亏损停止线（收盘检查，1为不限制）", 0.0, 1.0, limits.max_daily_loss, 0.01
+    )
+    max_rebalance_turnover = st.number_input(
+        "每次调仓买卖权重变化总额上限",
+        0.0,
+        2.0,
+        limits.max_rebalance_turnover,
+        0.1,
+        help="买卖绝对权重变化之和；现金建仓100%计1，全部换股计2。强制风控减仓优先。",
+    )
     saved = st.form_submit_button("保存风控配置", type="primary")
 
 if saved:
     try:
         updated = RiskLimits(
+            max_industry_weight=float(max_industry_weight),
+            max_daily_loss=float(max_daily_loss),
+            max_rebalance_turnover=float(max_rebalance_turnover),
             enabled=enabled,
             max_total_weight=float(max_total_weight),
             max_single_weight=float(max_single_weight),

@@ -10,6 +10,7 @@ import streamlit as st
 
 from quant_platform.application.benchmarks import BENCHMARKS
 from quant_platform.application.data_service import DataCenterService
+from quant_platform.core.diagnostics import public_data_error
 from quant_platform.data.network import friendly_data_error
 from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
@@ -163,27 +164,30 @@ with st.expander("更新数据", expanded=True):
 
     last_update = st.session_state.get("last_data_update")
     if last_update:
-        failed = [item for item in last_update if item["status"] == "FAILED"]
-        if failed:
-            names = "、".join(str(item["dataset"]) for item in failed)
-            st.error(f"本次有 {len(failed)} 个数据集更新失败：{names}")
-            for item in failed:
-                st.caption(f"{item['dataset']}：{item['error']}")
+        safe_rows = [
+            {
+                "数据集": item["dataset"],
+                "证券代码": item.get("symbol") or "—",
+                "状态": item["status"],
+                "记录数": item.get("rows", 0),
+                "失败原因": public_data_error(item.get("error"))
+                if item["status"] == "FAILED"
+                else "—",
+            }
+            for item in last_update
+        ]
+        result_frame = localize_frame(pd.DataFrame(safe_rows))
+        failed = result_frame[result_frame["状态"].eq("失败")]
+        if not failed.empty:
+            for (dataset, reason), group in failed.groupby(["数据集", "失败原因"], sort=False):
+                st.error(f"{dataset}：{len(group)} 项更新失败。{reason}")
+            with st.expander("查看失败对象"):
+                st.dataframe(failed, width="stretch", hide_index=True)
         else:
             st.success("本次所选数据均更新完成。")
-        market_results = [item for item in last_update if item["dataset"] == "daily_bars"]
-        if market_results and market_results[0]["status"] == "SUCCESS":
-            st.info(str(market_results[0]["message"]))
-        result_frame = pd.DataFrame(last_update).rename(
-            columns={
-                "dataset": "数据集",
-                "version_id": "版本号",
-                "status": "状态",
-                "rows": "记录数",
-                "message": "结果",
-                "error": "错误说明",
-            }
-        )
+        succeeded = result_frame[result_frame["状态"].eq("成功")]
+        if not succeeded.empty:
+            st.success("更新成功：" + "、".join(succeeded["数据集"].unique()))
         st.dataframe(localize_frame(result_frame), width="stretch", hide_index=True)
         _download_csv(
             result_frame,
@@ -332,7 +336,11 @@ with versions_tab:
             )
             if column in overview.manifests.columns
         ]
-        version_frame = overview.manifests[display_columns]
+        version_frame = overview.manifests[display_columns].copy()
+        if "error" in version_frame:
+            version_frame["error"] = version_frame["error"].map(
+                lambda value: public_data_error(value) if pd.notna(value) and value else "—"
+            )
         st.dataframe(localize_frame(version_frame), width="stretch")
         _download_csv(
             version_frame,

@@ -27,6 +27,32 @@ class AShareUniverse(Universe):
 
     def __init__(self, config: AShareUniverseConfig) -> None:
         self.config = config
+        self._eligible_by_date: dict[date, list[str]] | None = None
+
+    def prepare(self, bars: pd.DataFrame) -> None:
+        """Compute trailing filters once; no future rows influence each date."""
+        frame = bars.sort_values(["symbol", "trade_date"]).copy()
+        frame["history_count"] = frame.groupby("symbol").cumcount() + 1
+        frame["average_amount"] = frame.groupby("symbol")["amount"].transform(
+            lambda values: pd.to_numeric(values, errors="coerce").rolling(20, min_periods=1).mean()
+        )
+        required = max(self.config.minimum_history_days, self.config.minimum_listing_days)
+        mask = frame.history_count.ge(required) & frame.average_amount.ge(
+            self.config.minimum_average_amount
+        )
+        mask &= frame["symbol"].isin(self.symbols)
+        for column, expected in (("quality_status", "OK"), ("is_listed", True)):
+            mask &= frame.get(column, pd.Series(index=frame.index, dtype=object)).eq(expected)
+        for column, enabled in (
+            ("is_st", self.config.exclude_st),
+            ("is_suspended", self.config.exclude_suspended),
+        ):
+            if enabled:
+                mask &= frame.get(column, pd.Series(index=frame.index, dtype=object)).eq(False)
+        self._eligible_by_date = {
+            pd.Timestamp(day).date(): sorted(group.symbol.unique())
+            for day, group in frame[mask.fillna(False)].groupby("trade_date")
+        }
 
     @property
     def symbols(self) -> tuple[str, ...]:
@@ -35,9 +61,11 @@ class AShareUniverse(Universe):
         return self.config.symbols
 
     def select(self, trade_date: date, history: pd.DataFrame) -> list[str]:
+        if self._eligible_by_date is not None:
+            return self._eligible_by_date.get(trade_date, [])
         cutoff = pd.Timestamp(trade_date)
         available = history[
-            history["symbol"].isin(self.config.symbols) & (history["trade_date"] <= cutoff)
+            history["symbol"].isin(self.symbols) & (history["trade_date"] <= cutoff)
         ].sort_values(["symbol", "trade_date"])
         eligible: list[str] = []
         required_days = max(self.config.minimum_history_days, self.config.minimum_listing_days)

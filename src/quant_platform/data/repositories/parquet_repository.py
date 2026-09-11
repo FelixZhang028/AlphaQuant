@@ -14,6 +14,9 @@ _TABLE_KEYS: dict[str, list[str]] = {
     "trade_calendar": ["cal_date"],
     "security_master": ["symbol"],
     "corporate_actions": ["symbol", "ex_date"],
+    "universe_membership": ["symbol", "effective_from"],
+    "security_exposures": ["symbol", "date"],
+    "delisting_settlements": ["symbol"],
 }
 
 # ``daily_bars`` is the only table that grows to millions of rows, so it is

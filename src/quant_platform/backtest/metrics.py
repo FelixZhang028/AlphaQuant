@@ -15,9 +15,12 @@ def calculate_metrics(
     *,
     initial_cash: float | None = None,
     risk_free_rate: float = 0.0,
+    annualization: int = TRADING_DAYS_PER_YEAR,
 ) -> dict[str, Any]:
     """Calculate robust absolute-return and drawdown statistics."""
 
+    if annualization <= 0:
+        raise ValueError("annualization must be positive")
     prepared = _prepare_nav(nav)
     if prepared.empty:
         return {}
@@ -31,20 +34,20 @@ def calculate_metrics(
     cumulative_return = float(equity.iloc[-1] / starting_equity - 1.0)
     total_ratio = float(equity.iloc[-1] / starting_equity)
     annual_return = (
-        float(total_ratio ** (TRADING_DAYS_PER_YEAR / periods) - 1.0) if total_ratio > 0 else -1.0
+        float(total_ratio ** (annualization / periods) - 1.0) if total_ratio > 0 else -1.0
     )
-    annual_volatility = _annualized_std(returns)
+    annual_volatility = _annualized_std(returns, annualization)
 
-    daily_risk_free = (1.0 + risk_free_rate) ** (1.0 / TRADING_DAYS_PER_YEAR) - 1.0
+    daily_risk_free = (1.0 + risk_free_rate) ** (1.0 / annualization) - 1.0
     excess_returns = cast(pd.Series, returns - daily_risk_free)
-    sharpe = _annualized_ratio(excess_returns, annual_volatility)
+    sharpe = _annualized_ratio(excess_returns, annual_volatility, annualization)
     downside = excess_returns[excess_returns < 0]
     downside_volatility = (
-        float(math.sqrt(float((downside**2).mean())) * math.sqrt(TRADING_DAYS_PER_YEAR))
+        float(math.sqrt(float((downside**2).mean())) * math.sqrt(annualization))
         if not downside.empty
         else 0.0
     )
-    sortino = _annualized_ratio(excess_returns, downside_volatility)
+    sortino = _annualized_ratio(excess_returns, downside_volatility, annualization)
 
     drawdown = calculate_drawdown_series(prepared)
     drawdown_metrics = _drawdown_metrics(prepared, drawdown)
@@ -61,6 +64,7 @@ def calculate_metrics(
         "sortino": sortino,
         "calmar": calmar,
         "risk_free_rate": risk_free_rate,
+        "annualization": annualization,
         "best_day_return": float(returns.max()) if not returns.empty else 0.0,
         "worst_day_return": float(returns.min()) if not returns.empty else 0.0,
         "positive_day_ratio": (float((returns > 0).mean()) if not returns.empty else 0.0),
@@ -131,16 +135,18 @@ def _prepare_nav(nav: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _annualized_std(returns: pd.Series) -> float:
+def _annualized_std(returns: pd.Series, annualization: int = TRADING_DAYS_PER_YEAR) -> float:
     if len(returns) <= 1:
         return 0.0
-    return float(returns.std(ddof=1) * math.sqrt(TRADING_DAYS_PER_YEAR))
+    return float(returns.std(ddof=1) * math.sqrt(annualization))
 
 
-def _annualized_ratio(returns: pd.Series, annualized_risk: float) -> float | None:
+def _annualized_ratio(
+    returns: pd.Series, annualized_risk: float, annualization: int = TRADING_DAYS_PER_YEAR
+) -> float | None:
     if returns.empty or annualized_risk <= 0:
         return None
-    annualized_excess = float(returns.mean() * TRADING_DAYS_PER_YEAR)
+    annualized_excess = float(returns.mean() * annualization)
     return annualized_excess / annualized_risk
 
 

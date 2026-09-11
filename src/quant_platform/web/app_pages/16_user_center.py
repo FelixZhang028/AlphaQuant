@@ -28,7 +28,7 @@ with st.container(border=True):
     with action:
         if st.button("返回上一页", icon=":material/arrow_back:", key="account_center_back"):
             st.switch_page(
-                st.session_state.get("aq_account_return_page", "pages/15_workspace_home.py")
+                st.session_state.get("aq_account_return_page", "app_pages/15_workspace_home.py")
             )
 
 section = st.segmented_control(
@@ -83,7 +83,7 @@ elif section == "使用偏好":
     with st.container(border=True):
         st.subheader(":material/settings: 模型与数据源")
         st.caption("当前配置作用于本机工作台，尚未按账号独立保存。")
-        st.page_link("pages/14_settings.py", label="前往设置", icon=":material/arrow_forward:")
+        st.page_link("app_pages/14_settings.py", label="前往设置", icon=":material/arrow_forward:")
 
 elif section == "我的研究":
     st.info("个人研究空间即将开放，完成数据归属配置后，将展示你自己的研究成果。")

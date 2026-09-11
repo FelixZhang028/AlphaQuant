@@ -19,6 +19,7 @@ import pandas as pd
 
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.base import FactorDefinition, pivot_field
+from quant_platform.factors.statistics import annual_ic, ic_statistics, neutralize_exposures
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,9 @@ class FactorReport:
     first_half_ic: float  # 样本前半段 Rank IC 均值
     second_half_ic: float  # 样本后半段 Rank IC 均值
     notes: list[str] = field(default_factory=list)
+    significance: dict = field(default_factory=dict)
+    annual: pd.DataFrame = field(default_factory=pd.DataFrame)
+    decay: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 class FactorEvaluator:
@@ -59,6 +63,8 @@ class FactorEvaluator:
         symbols: list[str] | None = None,
         horizon: int = 5,
         n_groups: int = 5,
+        neutralization: str = "none",
+        decay_horizons: tuple[int, ...] = (1, 5, 10, 20),
     ) -> FactorReport:
         """评估因子在 [start_date, end_date] 的横截面选股能力。"""
 
@@ -66,6 +72,8 @@ class FactorEvaluator:
             raise ValueError("horizon 必须 >= 1")
         if n_groups < 2:
             raise ValueError("n_groups 必须 >= 2")
+        if neutralization not in {"none", "industry", "size", "both"}:
+            raise ValueError("未知中性化方式")
 
         # 因子值严格只用 <= end_date 的行情；未来收益另取全量价格。
         factor_bars = self.repository.get_daily_bars(symbols=symbols, end_date=end_date)
@@ -76,12 +84,16 @@ class FactorEvaluator:
         values = values[
             values["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
         ].copy()
+        if neutralization != "none":
+            values = neutralize_exposures(
+                values, self.repository.read_table("security_exposures"), neutralization
+            )
         values["adjusted"] = pd.to_numeric(values["value"], errors="coerce") * factor.direction
 
         values["adjusted"] = values["adjusted"].replace([float("inf"), -float("inf")], float("nan"))
         # Assign membership before inspecting future returns, including unlabelled tail dates.
         values = self._assign_groups(values, n_groups)
-        returns = self._forward_returns(symbols, horizon)
+        returns = self._forward_returns(symbols, horizon, end_date=end_date, bars=factor_bars)
         merged = values.merge(returns, on=["date", "symbol"], how="left")
 
         daily_ic = self._daily_ic(merged.dropna(subset=["adjusted", "fwd_ret"]))
@@ -99,12 +111,29 @@ class FactorEvaluator:
         if len(daily_ic) < 20:
             notes.append("有效截面不足 20 日，统计结论仅供参考")
         if values["group"].isna().any():
-            notes.append("部分截面因有效股票不足、因子缺失或重复分位边界无法完整分组；未强行拆分同值股票。")
+            notes.append(
+                "部分截面因有效股票不足、因子缺失或重复分位边界无法完整分组；未强行拆分同值股票。"
+            )
         if merged["fwd_ret"].isna().any():
-            notes.append("部分股票缺少完整未来收益，收益统计仅使用可观测样本；分组成员和换手不因此重算。")
+            notes.append(
+                "部分股票缺少完整未来收益，收益统计仅使用可观测样本；分组成员和换手不因此重算。"
+            )
 
         ic = daily_ic["ic"].dropna()
+        decay_rows = []
+        for period in sorted(set(decay_horizons)):
+            if period < 1:
+                raise ValueError("衰减持有期必须为正数")
+            forward = self._forward_returns(symbols, period, end_date=end_date, bars=factor_bars)
+            sample = values.merge(forward, on=["date", "symbol"], how="left")
+            # Same terminal cutoff for all horizons; no labels after the evaluation period.
+            sample = sample.dropna(subset=["adjusted", "fwd_ret"])
+            series = self._daily_ic(sample)
+            decay_rows.append({"horizon": period, **ic_statistics(series.rank_ic, period)})
         return FactorReport(
+            significance=ic_statistics(rank_ic, horizon),
+            annual=annual_ic(daily_ic, horizon),
+            decay=pd.DataFrame(decay_rows),
             factor_name=factor.name,
             display_name=factor.display_name,
             horizon=horizon,
@@ -126,10 +155,18 @@ class FactorEvaluator:
             notes=notes,
         )
 
-    def _forward_returns(self, symbols: list[str] | None, horizon: int) -> pd.DataFrame:
+    def _forward_returns(
+        self,
+        symbols: list[str] | None,
+        horizon: int,
+        *,
+        end_date: date | None = None,
+        bars: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
         """t+1 收盘买入、t+horizon+1 收盘卖出；不填补缺失价格。"""
 
-        bars = self.repository.get_daily_bars(symbols=symbols)
+        if bars is None:
+            bars = self.repository.get_daily_bars(symbols=symbols, end_date=end_date)
         price_field = (
             "adjusted_close"
             if "adjusted_close" in bars.columns and bars["adjusted_close"].notna().any()
@@ -154,6 +191,9 @@ class FactorEvaluator:
         rows: list[dict[str, object]] = []
         for trade_date, group in merged.groupby("date", observed=True):
             if len(group) < 3:
+                continue
+            if group["adjusted"].nunique() < 2 or group["fwd_ret"].nunique() < 2:
+                rows.append({"date": trade_date, "ic": float("nan"), "rank_ic": float("nan")})
                 continue
             ic = group["adjusted"].corr(group["fwd_ret"], method="pearson")
             rank_ic = group["adjusted"].corr(group["fwd_ret"], method="spearman")
@@ -187,14 +227,18 @@ class FactorEvaluator:
         frame = (
             merged.dropna(subset=["group", "fwd_ret"])
             .groupby(["date", "group"], observed=True)["fwd_ret"]
-            .mean().rename("ret").reset_index()
+            .mean()
+            .rename("ret")
+            .reset_index()
         )
         if frame.empty:
             return frame, pd.Series(dtype=float), float("nan")
         means = frame.groupby("group", observed=True)["ret"].mean()
-        paired = frame.pivot(index="date", columns="group", values="ret").reindex(
-            columns=[1, n_groups]
-        ).dropna()
+        paired = (
+            frame.pivot(index="date", columns="group", values="ret")
+            .reindex(columns=[1, n_groups])
+            .dropna()
+        )
         long_short = float((paired[n_groups] - paired[1]).mean())
         return frame, means, long_short
 

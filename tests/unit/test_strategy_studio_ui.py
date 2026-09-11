@@ -10,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 from quant_platform.application.backtest_service import BacktestRequest
 from quant_platform.application.strategy_studio_service import StrategyStudioService
 
-PAGE = Path(__file__).parents[2] / "src/quant_platform/web/pages/7_strategy_studio.py"
+PAGE = Path(__file__).parents[2] / "src/quant_platform/web/app_pages/7_strategy_studio.py"
 
 
 @pytest.fixture

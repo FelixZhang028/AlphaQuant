@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -50,6 +50,7 @@ class DataUpdateResult:
     rows: int
     message: str
     error: str | None = None
+    symbol: str | None = None
 
 
 @dataclass(frozen=True)
@@ -394,9 +395,14 @@ class DataCenterService:
             )
             for symbol in symbols:
                 results.append(
-                    self._capture_failure(
-                        "benchmark_bars",
-                        lambda symbol=symbol: self.update_benchmark(start_date, end_date, symbol),
+                    replace(
+                        self._capture_failure(
+                            "benchmark_bars",
+                            lambda symbol=symbol: self.update_benchmark(
+                                start_date, end_date, symbol
+                            ),
+                        ),
+                        symbol=symbol,
                     )
                 )
         return results
@@ -474,10 +480,12 @@ class DataCenterService:
                 attempts.append(success)
                 return source, report, attempts
             except Exception as exc:
-                message = f"{type(exc).__name__}: {exc}"
+                from quant_platform.core.diagnostics import redact_text
+
+                message = redact_text(f"{type(exc).__name__}: {exc}")
                 attempts.append({"source": source, "status": "failed", "error": message})
                 failures.append(f"{source}: {message}")
-                logger.warning("Market-data provider %s failed: %s", source, exc)
+                logger.warning("Market-data provider %s failed: %s", source, message)
                 if not fallback_enabled:
                     raise
         raise DataUnavailableError(
@@ -523,5 +531,5 @@ class DataCenterService:
             status=manifest.status.value,
             rows=manifest.row_count,
             message=message,
-            error=manifest.error,
+            error=friendly_data_error(Exception(manifest.error)) if manifest.error else None,
         )

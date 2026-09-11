@@ -228,23 +228,7 @@ class ProxyResilientAkShareClient:
 
 
 def friendly_data_error(error: Exception) -> str:
-    """Turn low-level network failures into a short user-facing message."""
+    """Return a safe user-facing failure category, never raw exception text."""
+    from quant_platform.core.diagnostics import public_data_error
 
-    message = str(error)
-    lowered = message.lower()
-    if isinstance(error, AkShareNetworkError) or any(
-        marker in lowered
-        for marker in (
-            "aksharenetworkerror",
-            "proxyerror",
-            "unable to connect to proxy",
-            "connectionerror",
-            "remotedisconnected",
-        )
-    ):
-        return (
-            "无法连接 AkShare 数据源。程序已尝试绕过代理，并切换备用接口；"
-            "请确认网络正常，或检查 HTTP_PROXY/HTTPS_PROXY 设置。"
-        )
-    compact = " ".join(message.split())
-    return f"{type(error).__name__}: {compact}"[:500]
+    return public_data_error(error)

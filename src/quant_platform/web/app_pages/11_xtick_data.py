@@ -25,6 +25,7 @@ import requests
 import streamlit as st
 
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
+from quant_platform.core.diagnostics import public_data_error
 from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.security_names import xtick_security_names
@@ -289,7 +290,7 @@ def _render_api_form(cat_id: int, api: dict[str, Any]) -> None:
                     )
                     st.session_state[f"xtick_result_type_{form_key}"] = request_params.get("type")
             except Exception as exc:
-                st.error(f"请求失败：{exc}")
+                st.error(f"XTick 请求失败：{public_data_error(exc)}")
                 st.session_state.pop(f"xtick_result_{form_key}", None)
 
     result = st.session_state.get(f"xtick_result_{form_key}")
@@ -333,14 +334,14 @@ token = credential_store.resolve("xtick", "token", "XTICK_TOKEN")
 base_url = credential_store.get("xtick").get("base_url", DEFAULT_BASE_URL)
 if not token:
     st.warning("尚未配置 XTick Token。请先在“设置 → 数据源凭证”中保存。")
-    st.page_link("pages/14_settings.py", label="前往设置", icon=":material/settings:")
+    st.page_link("app_pages/14_settings.py", label="前往设置", icon=":material/settings:")
 else:
     st.success("XTick 凭证已配置。")
 
 try:
     catalog = _load_catalog()
 except Exception as exc:
-    st.error(f"加载 XTick 接口文档失败：{exc}")
+    st.error(f"加载 XTick 接口文档失败：{public_data_error(exc)}")
     st.stop()
 
 tabs = st.tabs([_TAB_NAMES.get(category.get("id"), category.get("name")) for category in catalog])

@@ -209,6 +209,7 @@ def test_complete_ex_rights_trade_reconciles_cash_and_analytics(
                     "trade_date": day,
                     "raw_close": price,
                     "raw_open": price,
+                    "volume": 1_000_000,
                     "adj_factor": 1 if i < 2 else 10 / ex_price,
                     "quality_status": "OK",
                     "is_suspended": False,
@@ -253,6 +254,9 @@ def test_complete_ex_rights_trade_reconciles_cash_and_analytics(
                 commission_rate=0,
                 minimum_commission=0,
                 stamp_tax_rate=0,
+                historical_fees=False,
+                transfer_fee_rate=0,
+                impact_coefficient=0,
             )
         ),
         rebalance="daily",

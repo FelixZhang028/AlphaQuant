@@ -48,7 +48,7 @@ key_status = (
 with st.container(border=True):
     st.markdown(f"**当前模型：{spec.display_name} / {resolved['model'] or '—'}**")
     st.caption(f"凭证状态：{key_status}。自然语言建策略沿用全局默认模型。")
-    st.page_link("pages/14_settings.py", label="研究设置", icon=":material/settings:")
+    st.page_link("app_pages/14_settings.py", label="研究设置", icon=":material/settings:")
 
 # ------------------------------------------------------------ 策略描述 ----
 description = st.text_area(
@@ -133,7 +133,7 @@ if definition is not None:
             del st.session_state["nl_definition"]
             st.success(f"策略「{package.name}」已保存。")
             if st.button("去「策略创作中心」查看并回测", key="nl_goto_hub"):
-                st.switch_page("pages/0_strategy_hub.py")
+                st.switch_page("app_pages/0_strategy_hub.py")
     with discard_col:
         if st.button("放弃，重新描述", key="nl_discard"):
             del st.session_state["nl_definition"]

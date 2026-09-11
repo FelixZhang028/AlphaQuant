@@ -14,6 +14,7 @@ def _market_row() -> pd.DataFrame:
         [
             {
                 "symbol": "000001.SZ",
+                "volume": 1_000_000,
                 "raw_open": 10.0,
                 "up_limit": 11.0,
                 "down_limit": 9.0,

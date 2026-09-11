@@ -5,6 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from quant_platform.core.diagnostics import redact_text
+
+
+class RedactingFormatter(logging.Formatter):
+    """Scrub the complete formatted record, including exception tracebacks."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_text(super().format(record))
+
 
 def configure_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -> None:
     """Configure console and rotating-per-run file logging."""
@@ -25,6 +34,14 @@ def configure_logging(log_dir: str | Path = "logs", level: int = logging.INFO) -
         handlers=handlers,
         force=True,
     )
+    for handler in handlers:
+        handler.setFormatter(
+            RedactingFormatter(
+                "%(asctime)s %(levelname)s %(name)s "
+                "task=%(task_name)s strategy=%(strategy_id)s trade_date=%(trade_date)s "
+                "order=%(order_id)s %(message)s"
+            )
+        )
     old_factory = logging.getLogRecordFactory()
 
     def factory(*args: object, **kwargs: object) -> logging.LogRecord:

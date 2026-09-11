@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from quant_platform.core.registry import PluginRegistry
 from quant_platform.portfolio.equal_weight import EqualWeightPortfolio
+from quant_platform.portfolio.risk_weighted import RiskWeightedPortfolio
 
 
 def default_registry() -> PluginRegistry:
@@ -19,4 +20,10 @@ def default_registry() -> PluginRegistry:
         "equal_weight",
         lambda *, top_n: EqualWeightPortfolio(top_n=int(top_n)),
     )
+    for method in ("inverse_volatility", "risk_parity", "mean_variance"):
+        registry.register(
+            "portfolio",
+            method,
+            lambda *, top_n, method=method: RiskWeightedPortfolio(int(top_n), method),
+        )
     return registry

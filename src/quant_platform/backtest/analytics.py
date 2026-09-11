@@ -60,12 +60,20 @@ def analyze_backtest(
     initial_cash: float,
     risk_free_rate: float = 0.0,
     corporate_actions: list[CorporateAction] | None = None,
+    annualization: int = TRADING_DAYS_PER_YEAR,
 ) -> BacktestAnalytics:
     """Build the complete backward-compatible summary for one run."""
 
-    summary = calculate_metrics(nav, initial_cash=initial_cash, risk_free_rate=risk_free_rate)
+    summary = calculate_metrics(
+        nav, initial_cash=initial_cash, risk_free_rate=risk_free_rate, annualization=annualization
+    )
+    from quant_platform.backtest.relative_metrics import relative_metrics
+
+    summary.update(relative_metrics(nav, annualization, risk_free_rate))
     trades = build_closed_trades(fills, corporate_actions=corporate_actions)
     summary.update(_execution_metrics(nav, orders, fills, trades, initial_cash))
+    if "annualized_turnover" in summary:
+        summary["annualized_turnover"] *= annualization / TRADING_DAYS_PER_YEAR
     summary.update(_portfolio_metrics(nav, positions))
     summary.update(
         {
@@ -141,7 +149,10 @@ def build_closed_trades(
                     quantity=quantity,
                     price=price,
                     reference_price=reference_price,
-                    direct_cost_per_share=(commission + stamp_tax) / quantity,
+                    direct_cost_per_share=(
+                        commission + stamp_tax + _optional_float(row.get("transfer_fee"), 0.0)
+                    )
+                    / quantity,
                     slippage_per_share=slippage / quantity,
                 )
             )
@@ -150,7 +161,9 @@ def build_closed_trades(
             raise ValueError(f"unsupported fill side: {side}")
 
         remaining = quantity
-        sell_cost_per_share = (commission + stamp_tax) / quantity
+        sell_cost_per_share = (
+            commission + stamp_tax + _optional_float(row.get("transfer_fee"), 0.0)
+        ) / quantity
         sell_slippage_per_share = slippage / quantity
         symbol_lots = lots.setdefault(symbol, [])
         while remaining > 0:
@@ -210,8 +223,9 @@ def _execution_metrics(
 
     commission = _column_sum(fills, "commission")
     stamp_tax = _column_sum(fills, "stamp_tax")
+    transfer_fee = _column_sum(fills, "transfer_fee")
     slippage_cost = _column_sum(fills, "slippage_cost")
-    total_cost = commission + stamp_tax + slippage_cost
+    total_cost = commission + stamp_tax + transfer_fee + slippage_cost
     traded_notional = (
         float(
             (
@@ -269,6 +283,7 @@ def _execution_metrics(
         "realized_net_pnl": (float(trades["net_pnl"].sum()) if not trades.empty else 0.0),
         "commission": commission,
         "stamp_tax": stamp_tax,
+        "transfer_fee": transfer_fee,
         "slippage_cost": slippage_cost,
         "total_transaction_cost": total_cost,
         "transaction_cost_to_initial_cash": (

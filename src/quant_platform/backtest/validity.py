@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-CURRENT_AUDIT_VERSION = 2
+CURRENT_AUDIT_VERSION = 3
 UNKNOWN_STATUS_REJECTION_REASONS = frozenset(
     {
         "UNKNOWN_MARKET_STATUS",

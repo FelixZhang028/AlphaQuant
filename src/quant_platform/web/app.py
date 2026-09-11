@@ -30,7 +30,7 @@ if authenticated_user:
     navigation_pages = {
         "": [
             st.Page(
-                "pages/15_workspace_home.py",
+                "app_pages/15_workspace_home.py",
                 title="首页",
                 default=True,
             ),
@@ -42,24 +42,24 @@ if authenticated_user:
         ],
         "AI 智能投研": [
             st.Page(
-                "pages/8_agent_lab.py",
+                "app_pages/8_agent_lab.py",
                 title="AI研究员",
                 icon=":material/psychology:",
             ),
             st.Page(
-                "pages/12_prior_knowledge.py",
+                "app_pages/12_prior_knowledge.py",
                 title="先验知识库",
                 icon=":material/library_books:",
             ),
         ],
         "策略与因子研究": [
             st.Page(
-                "pages/0_strategy_hub.py",
+                "app_pages/0_strategy_hub.py",
                 title="策略工作室",
                 icon=":material/widgets:",
             ),
             st.Page(
-                "pages/9_factor_lab.py",
+                "app_pages/9_factor_lab.py",
                 title="因子实验室",
                 icon=":material/science:",
             ),
@@ -68,26 +68,21 @@ if authenticated_user:
                 title="回测与验证",
                 icon=":material/candlestick_chart:",
             ),
-            st.Page("pages/6_run_library.py", title="研究记录", icon=":material/history:"),
+            st.Page("app_pages/6_run_library.py", title="研究记录", icon=":material/history:"),
         ],
-        "数据与交易": [
+        "数据管理": [
             st.Page(
-                "pages/13_data_assets.py", title="数据资产", icon=":material/database:"
-            ),
-            st.Page(
-                "pages/4_paper_trading.py",
-                title="模拟交易",
-                icon=":material/account_balance:",
+                "app_pages/13_data_assets.py", title="数据资产", icon=":material/database:"
             ),
         ],
         "系统": [
             st.Page(
-                "pages/16_user_center.py",
+                "app_pages/16_user_center.py",
                 title="个人中心",
                 icon=":material/account_circle:",
             ),
             st.Page(
-                "pages/14_settings.py",
+                "app_pages/14_settings.py",
                 title="设置",
                 icon=":material/settings:",
             ),
@@ -125,7 +120,7 @@ else:
     st.session_state.pop("aq_account_return_page", None)
 
 if authenticated_user and st.session_state.pop("aq_open_workspace_home", False):
-    st.switch_page("pages/15_workspace_home.py")
+    st.switch_page("app_pages/15_workspace_home.py")
 
 # Place a native Streamlit page link over the sidebar logo. This keeps the
 # navigation inside the current session instead of reloading the app root.
@@ -437,7 +432,7 @@ with st.sidebar:
             )
             with st.container(key="aq_sidebar_account_link"):
                 st.page_link(
-                    "pages/16_user_center.py",
+                    "app_pages/16_user_center.py",
                     label=f"{authenticated_user} · 已登录 · 打开个人中心",
                 )
 

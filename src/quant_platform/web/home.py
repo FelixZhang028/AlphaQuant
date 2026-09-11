@@ -403,9 +403,7 @@ def _render_validity(report: dict[str, Any]) -> None:
     unknown_symbols = int(report.get("unknown_market_symbols", 0) or 0)
     unknown_orders = int(report.get("unknown_status_orders", 0) or 0)
     if unknown_rows:
-        st.caption(
-            f"交易状态未知：{unknown_rows:,} 行，涉及 {unknown_symbols:,} 只股票。"
-        )
+        st.caption(f"交易状态未知：{unknown_rows:,} 行，涉及 {unknown_symbols:,} 只股票。")
     if unknown_orders:
         st.caption(f"因交易状态未知被拒绝的订单：{unknown_orders:,} 笔。")
 
@@ -455,6 +453,10 @@ def _render_return_metrics(summary: dict[str, Any]) -> None:
             ("最差单日", "worst_day_return", "percent"),
             ("正收益日比例", "positive_day_ratio", "percent"),
             ("正收益月比例", "positive_month_ratio", "percent"),
+            ("信息比率", "information_ratio", "ratio"),
+            ("跟踪误差", "tracking_error", "percent"),
+            ("回归 Alpha（年化）", "regression_alpha", "percent"),
+            ("回归 Beta", "beta", "ratio"),
         ],
     )
 
@@ -485,6 +487,7 @@ def _render_trade_metrics(summary: dict[str, Any], trades: pd.DataFrame) -> None
         [
             ("佣金", "commission", "money"),
             ("印花税", "stamp_tax", "money"),
+            ("过户费", "transfer_fee", "money"),
             ("滑点成本", "slippage_cost", "money"),
             ("总交易成本", "total_transaction_cost", "money"),
             ("成本/初始资金", "transaction_cost_to_initial_cash", "percent"),
@@ -630,15 +633,21 @@ st.caption("从单次回测开始，再进行参数优化和样本外稳健性�
 
 workspace_mode = st.segmented_control(
     "研究阶段",
-    ["单次回测", "参数优化与稳健性验证"],
+    ["单次回测", "参数优化与稳健性验证", "风险规则"],
     default="单次回测",
     key="backtest_workspace_mode",
     label_visibility="collapsed",
     width="stretch",
 )
+if workspace_mode == "风险规则":
+    run_embedded(
+        Path(__file__).parent / "app_pages" / "3_risk_management.py",
+        name="risk_management",
+    )
+    st.stop()
 if workspace_mode == "参数优化与稳健性验证":
     run_embedded(
-        Path(__file__).parent / "pages" / "2_research.py",
+        Path(__file__).parent / "app_pages" / "2_research.py",
         name="backtest_validation",
     )
     st.stop()
@@ -668,9 +677,7 @@ factor_payload = st.session_state.pop("factor_composite_payload", None)
 factor_payload_values: dict[str, Any] | None = None
 if factor_payload and "factor_composite" in plugin_names:
     default_index = plugin_names.index("factor_composite")
-    factor_payload_values = {
-        "factors_json": json.dumps(factor_payload, ensure_ascii=False)
-    }
+    factor_payload_values = {"factors_json": json.dumps(factor_payload, ensure_ascii=False)}
     st.info("已从因子研究室带入合成因子参数，确认区间后点击「运行回测」。")
 
 with st.expander("新建回测", expanded=True):
@@ -724,6 +731,31 @@ with st.expander("新建回测", expanded=True):
                 index=rebalance_options.index(default_request.rebalance),
                 format_func=rebalance_label,
             )
+        allocation_labels = {
+            "equal_weight": "等权",
+            "inverse_volatility": "波动率倒数",
+            "risk_parity": "风险平价",
+            "mean_variance": "均值方差（高级）",
+        }
+        portfolio_method = st.selectbox(
+            "组合分配",
+            list(allocation_labels),
+            format_func=allocation_labels.get,
+            index=list(allocation_labels).index(default_request.portfolio_method or "equal_weight"),
+            key="backtest_allocation",
+        )
+        universe_mode = st.selectbox(
+            "股票池口径",
+            ["fixed", "historical"],
+            index=["fixed", "historical"].index(default_request.universe_mode or "fixed"),
+            format_func=lambda mode: (
+                "固定股票池（存在选择偏差）"
+                if mode == "fixed"
+                else "历史股票池（需历史成分与退市数据）"
+            ),
+            key="backtest_universe_mode",
+        )
+        st.caption("非等权方法使用截至信号日的60日历史；策略显式指定的仓位优先。")
         submitted = st.form_submit_button("运行回测", type="primary")
 
     if submitted:
@@ -737,6 +769,8 @@ with st.expander("新建回测", expanded=True):
             initial_cash=float(initial_cash),
             top_n=int(top_n),
             rebalance=rebalance,
+            portfolio_method=portfolio_method,
+            universe_mode=universe_mode,
         )
         try:
             with st.spinner("正在运行回测……"):
@@ -777,5 +811,5 @@ if actions[0].button("用本次结果创建验证实验", type="primary"):
     st.session_state["backtest_workspace_mode"] = "参数优化与稳健性验证"
     st.rerun()
 if actions[1].button("打开回测记录库"):
-    st.switch_page("pages/6_run_library.py")
+    st.switch_page("app_pages/6_run_library.py")
 _render_result(selected_record.path)

@@ -9,8 +9,27 @@ from streamlit.testing.v1 import AppTest
 from quant_platform.factors.evaluation import FactorReport
 
 FACTOR_LAB_PAGE = (
-    Path(__file__).parents[2] / "src" / "quant_platform" / "web" / "pages" / "9_factor_lab.py"
+    Path(__file__).parents[2] / "src" / "quant_platform" / "web" / "app_pages" / "9_factor_lab.py"
 )
+
+
+def test_library_filters_and_handoff(tmp_path, monkeypatch):
+    config = tmp_path / "configs"
+    config.mkdir()
+    (config / "app.yaml").write_text("data:\n  repository: runtime/market\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    app = AppTest.from_file(str(FACTOR_LAB_PAGE)).run(timeout=20)
+    app.selectbox(key="library_source").select("Alpha101").run()
+    assert len(app.dataframe[0].value) == 4
+    app.text_input(key="library_search").set_value("033").run()
+    assert app.dataframe[0].value.iloc[0]["因子名"] == "alpha101_033"
+    app.button(key="library_to_eval").click().run()
+    assert app.selectbox(key="factor_eval_name").value == "alpha101_033"
+    app.button(key="library_to_combine").click().run()
+    assert "alpha101_033" in app.multiselect(key="factor_combine_names").value
+    app.text_input(key="library_search").set_value("nothing matches").run()
+    assert any("没有匹配" in info.value for info in app.info)
+    assert not app.exception
 
 
 def test_evaluation_error_keeps_following_tabs_rendered(tmp_path: Path, monkeypatch) -> None:

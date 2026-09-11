@@ -22,6 +22,9 @@ class RiskLimits:
     daily_position_limits: bool = True
     drawdown_action: str = "stop_new"
     drawdown_target_weight: float = 0.50
+    max_industry_weight: float = 1.0
+    max_daily_loss: float = 1.0
+    max_rebalance_turnover: float = 2.0
 
     @classmethod
     def from_mapping(cls, value: dict[str, Any] | None) -> RiskLimits:
@@ -38,6 +41,9 @@ class RiskLimits:
             daily_position_limits=bool(raw.get("daily_position_limits", True)),
             drawdown_action=str(raw.get("drawdown_action", "stop_new")),
             drawdown_target_weight=float(raw.get("drawdown_target_weight", 0.50)),
+            max_industry_weight=float(raw.get("max_industry_weight", 1.0)),
+            max_daily_loss=float(raw.get("max_daily_loss", 1.0)),
+            max_rebalance_turnover=float(raw.get("max_rebalance_turnover", 2.0)),
         )
         limits.validate()
         return limits
@@ -51,11 +57,15 @@ class RiskLimits:
             ("minimum_cash_ratio", self.minimum_cash_ratio),
             ("max_drawdown", self.max_drawdown),
             ("drawdown_target_weight", self.drawdown_target_weight),
+            ("max_industry_weight", self.max_industry_weight),
+            ("max_daily_loss", self.max_daily_loss),
         ):
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.max_positions <= 0:
             raise ValueError("max_positions must be positive")
+        if not 0 <= self.max_rebalance_turnover <= 2:
+            raise ValueError("max_rebalance_turnover must be between 0 and 2")
         if self.max_total_weight > 1.0 - self.minimum_cash_ratio + 1e-9:
             raise ValueError("max_total_weight must leave at least minimum_cash_ratio in cash")
         if self.drawdown_action not in {"stop_new", "reduce", "liquidate"}:

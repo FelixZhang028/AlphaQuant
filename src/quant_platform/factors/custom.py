@@ -12,7 +12,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from quant_platform.factors.base import (
@@ -97,9 +96,7 @@ def _wide(bars: pd.DataFrame, field: str) -> pd.DataFrame:
     return pivot_field(bars, field)
 
 
-def _make_formula(
-    field: str, operator: str, window: int, window2: int | None
-) -> str:
+def _make_formula(field: str, operator: str, window: int, window2: int | None) -> str:
     """生成人类可读的公式说明。"""
     if operator == "momentum":
         return f"{field}(t) / {field}(t-{window}) - 1"
@@ -137,9 +134,7 @@ class CustomFactor(FactorDefinition):
             raise ValueError("窗口 N 必须 >= 1")
         if op["window2"] and (self.window2 is None or self.window2 < 1):
             raise ValueError("该算子需要第二个窗口 N2")
-        history = (
-            max(self.window, self.window2) if op["window2"] else self.window
-        )
+        history = max(self.window, self.window2) if op["window2"] else self.window
         object.__setattr__(self, "min_history", history + int(op["min_extra"]))
         object.__setattr__(self, "required_fields", self._required_fields())
 
@@ -173,9 +168,7 @@ class CustomFactor(FactorDefinition):
                 if symbol not in x.columns:
                     continue
                 result[symbol] = (
-                    close[symbol]
-                    .rolling(self.window, min_periods=self.window)
-                    .corr(x[symbol])
+                    close[symbol].rolling(self.window, min_periods=self.window).corr(x[symbol])
                 )
             if not result:
                 return pd.DataFrame(columns=FACTOR_COLUMNS)
@@ -223,6 +216,7 @@ def build_custom_factor(
         window2=int(window2) if window2 is not None else None,
         direction=direction,
         category="自定义",
+        source="自定义",
         version="custom",
     )
 
@@ -276,12 +270,8 @@ def load_custom_factors(path: Path = DEFAULT_STORE_PATH) -> list[CustomFactor]:
     return factors
 
 
-def save_custom_factors(
-    factors: list[CustomFactor], path: Path = DEFAULT_STORE_PATH
-) -> None:
+def save_custom_factors(factors: list[CustomFactor], path: Path = DEFAULT_STORE_PATH) -> None:
     """把自定义因子持久化到 JSON 文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = [custom_factor_to_dict(factor) for factor in factors]
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

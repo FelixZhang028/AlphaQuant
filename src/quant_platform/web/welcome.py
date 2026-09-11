@@ -19,7 +19,6 @@ from pathlib import Path
 import streamlit as st
 
 from quant_platform.application.backtest_service import BacktestService
-from quant_platform.application.paper_service import PaperTradingService
 from quant_platform.application.readiness_service import (
     PlatformReadinessService,
     ReadinessStatus,
@@ -1576,7 +1575,7 @@ _TEXT: dict[str, dict[str, object]] = {
         "eyebrow": "FELLOWQUANT / AI-NATIVE RESEARCH WORKBENCH",
         "title": "研究交易，",
         "accent": "一站完成。",
-        "subtitle": "从数据、因子和策略，到回测、智能体研究与模拟交易，FellowQuant 把完整的量化研究闭环放进一个本地优先的工作台。",
+        "subtitle": "从数据、因子和策略，到回测、智能体研究与稳健性验证，FellowQuant 把完整的量化研究闭环放进一个本地优先的工作台。",
         "badge_local": "本地优先 · 数据私有",
         "ready_pill": "● 已具备回测条件",
         "warn_pill": "● 首次准备尚未完成",
@@ -1589,7 +1588,7 @@ _TEXT: dict[str, dict[str, object]] = {
         "term_backtest": "回测完成：年化 18.2% · 最大回撤 -8.4%",
         "scroll_hint": "向下滚动",
         "sec_guide": "新手上路",
-        "sec_guide_hint": "按顺序完成六步，即可从数据走到模拟交易；高级参数在各页面内折叠隐藏",
+        "sec_guide_hint": "按顺序完成五步，即可从数据走到结果复盘；高级参数在各页面内折叠隐藏",
         "sec_modules": "模块直达",
         "sec_modules_hint": "从任意卡片进入对应工作台",
         "open": "打开",
@@ -1620,7 +1619,7 @@ _TEXT: dict[str, dict[str, object]] = {
         "eyebrow": "FELLOWQUANT / AI-NATIVE RESEARCH WORKBENCH",
         "title": "Research to execution,",
         "accent": "in one place.",
-        "subtitle": "From data, factors and strategies to backtesting, multi-agent research and paper trading — FellowQuant brings the full quantitative workflow into one local-first workbench.",
+        "subtitle": "From data, factors and strategies to backtesting, multi-agent research and robustness validation — FellowQuant brings the full quantitative workflow into one local-first workbench.",
         "badge_local": "Local-first · Private data",
         "ready_pill": "● Ready for backtest",
         "warn_pill": "● Setup incomplete",
@@ -1633,7 +1632,7 @@ _TEXT: dict[str, dict[str, object]] = {
         "term_backtest": "Backtest done: 18.2% ann. · -8.4% max drawdown",
         "scroll_hint": "Scroll down",
         "sec_guide": "Getting Started",
-        "sec_guide_hint": "Follow the six steps from data to paper trading",
+        "sec_guide_hint": "Follow the five steps from data to result review",
         "sec_modules": "Modules",
         "sec_modules_hint": "Jump into any workbench",
         "open": "Open",
@@ -1667,83 +1666,77 @@ _MODULES: dict[str, list[tuple[str, str, str, str, str]]] = {
     "zh": [
         ("hub", "策略创作中心",
          "模板、积木、自然语言、Python 四种方式创建策略，统一注册与回测。",
-         "pages/0_strategy_hub.py", "统一入口"),
+         "app_pages/0_strategy_hub.py", "统一入口"),
         ("candlestick_chart", "单次回测与复盘",
          "选择策略并运行一次完整回测，查看收益、回撤与可信度审计。", "home.py", ""),
         ("widgets", "零代码策略工作台",
          "以声明式参数与规则搭建策略，自动生成参数表单，无需编写代码。",
-         "pages/7_strategy_studio.py", "零代码 · 参数化"),
+         "app_pages/7_strategy_studio.py", "零代码 · 参数化"),
         ("code", "自定义策略（Python）",
          "在网页中编写或上传 Python 策略，自动解析参数并生成表单。",
-         "pages/8_custom_strategy.py", "Python 进阶"),
+         "app_pages/8_custom_strategy.py", "Python 进阶"),
         ("psychology", "智能体分析台",
          "LLM 多智能体协作完成行情解读、因子研究与交易分析。",
-         "pages/8_agent_lab.py", "多智能体研究"),
+         "app_pages/8_agent_lab.py", "多智能体研究"),
         ("science", "因子研究室",
          "内置量价因子的 IC、分层收益与稳定性评估，支持多因子合成选股。",
-         "pages/9_factor_lab.py", "IC · 分层 · 合成"),
+         "app_pages/9_factor_lab.py", "IC · 分层 · 合成"),
         ("chat", "自然语言建策略",
          "用一句话描述策略，大模型转成结构化规则，确认后保存。",
-         "pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
+         "app_pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
         ("database", "数据管理",
          "下载证券主表、股票日线与基准行情，检查覆盖率和数据质量。",
-         "pages/1_data_management.py", ""),
+         "app_pages/1_data_management.py", ""),
         ("tune", "参数优化与稳健性验证",
          "网格 / 随机搜索参数组合，并用样本外数据验证策略稳健性。",
-         "pages/2_research.py", "搜索 + 样本外验证"),
+         "app_pages/2_research.py", "搜索 + 样本外验证"),
         ("history", "回测记录库",
          "统一管理单次回测、参数优化与样本外验证结果，支持比较。",
-         "pages/6_run_library.py", "历史记录 · 对比"),
+         "app_pages/6_run_library.py", "历史记录 · 对比"),
         ("shield", "风险管理",
-         "事件化风控检查与决策记录，为模拟交易提供前置拦截。",
-         "pages/3_risk_management.py", "事件检查 · 决策"),
-        ("account_balance", "模拟交易",
-         "以真实行情节奏模拟下单，追踪账户净值与交易明细。",
-         "pages/4_paper_trading.py", "paper trading"),
+         "事件化风控检查与决策记录，约束回测中的组合仓位与交易。",
+         "app_pages/3_risk_management.py", "事件检查 · 决策"),
         ("list_alt", "股票池管理",
          "添加股票、配置回测区间与最小历史天数，管理研究标的。",
-         "pages/5_universe_management.py", ""),
+         "app_pages/5_universe_management.py", ""),
     ],
     "en": [
         ("hub", "Strategy Hub",
          "Templates, blocks, natural language or Python — one registration flow.",
-         "pages/0_strategy_hub.py", "Unified entry"),
+         "app_pages/0_strategy_hub.py", "Unified entry"),
         ("candlestick_chart", "Backtest & Review",
          "Run a full backtest with a strategy; inspect returns, drawdowns and audits.",
          "home.py", ""),
         ("widgets", "No-Code Strategy Studio",
          "Build strategies declaratively with auto-generated parameter forms.",
-         "pages/7_strategy_studio.py", "No-code · Parametric"),
+         "app_pages/7_strategy_studio.py", "No-code · Parametric"),
         ("code", "Custom Strategy (Python)",
          "Write or upload Python strategies in the browser with parsed parameters.",
-         "pages/8_custom_strategy.py", "Advanced Python"),
+         "app_pages/8_custom_strategy.py", "Advanced Python"),
         ("psychology", "Agent Lab",
          "LLM multi-agent research: market reading, factor study, trade analysis.",
-         "pages/8_agent_lab.py", "Multi-agent research"),
+         "app_pages/8_agent_lab.py", "Multi-agent research"),
         ("science", "Factor Lab",
          "IC, quantile returns and stability for built-in factors; composite scoring.",
-         "pages/9_factor_lab.py", "IC · Groups · Composite"),
+         "app_pages/9_factor_lab.py", "IC · Groups · Composite"),
         ("chat", "NL Strategy Builder",
          "Describe a strategy in one sentence; the LLM drafts structured rules.",
-         "pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
+         "app_pages/10_nl_strategy.py", "DeepSeek / Kimi / Ollama"),
         ("database", "Data Management",
          "Fetch security master, daily bars and benchmarks; check coverage & quality.",
-         "pages/1_data_management.py", ""),
+         "app_pages/1_data_management.py", ""),
         ("tune", "Optimization & Robustness",
          "Grid / random parameter search with out-of-sample validation.",
-         "pages/2_research.py", "Search + OOS validation"),
+         "app_pages/2_research.py", "Search + OOS validation"),
         ("history", "Run Library",
          "Manage backtests, optimizations and OOS results; compare runs.",
-         "pages/6_run_library.py", "History · Compare"),
+         "app_pages/6_run_library.py", "History · Compare"),
         ("shield", "Risk Management",
-         "Event-based risk checks and decisions guarding paper trading.",
-         "pages/3_risk_management.py", "Event checks · Decisions"),
-        ("account_balance", "Paper Trading",
-         "Simulated orders at real market pace; track equity and fills.",
-         "pages/4_paper_trading.py", "paper trading"),
+         "Event-based risk checks and decisions for backtest portfolios and orders.",
+         "app_pages/3_risk_management.py", "Event checks · Decisions"),
         ("list_alt", "Universe",
          "Add symbols, configure backtest range and minimum history.",
-         "pages/5_universe_management.py", ""),
+         "app_pages/5_universe_management.py", ""),
     ],
 }
 
@@ -1825,7 +1818,7 @@ def _render_account_status() -> None:
                         account_label = "当前账户" if _lang() == "zh" else "Signed in as"
                         st.caption(f"{account_label}: {username}")
                         st.page_link(
-                            "pages/16_user_center.py",
+                            "app_pages/16_user_center.py",
                             label="个人中心" if _lang() == "zh" else "My account",
                             icon=":material/account_circle:",
                         )
@@ -1874,7 +1867,7 @@ def _render_hero(report) -> None:
             ),
             (
                 '<div class="aq-editor-heading">从回测走向更有把握的决策。</div>',
-                '<p class="aq-editor-copy">把风险检查前置，在模拟交易前逐步验证每一个判断。</p>',
+                '<p class="aq-editor-copy">把风险检查前置，在回测中逐步验证每一个判断。</p>',
                 '<ul class="aq-editor-list"><li>风险检查前置</li><li>结果与运行记录统一沉淀</li></ul>',
             ),
         )
@@ -1898,7 +1891,7 @@ def _render_hero(report) -> None:
             ),
             (
                 '<div class="aq-editor-heading">Move from backtests to confident decisions.</div>',
-                '<p class="aq-editor-copy">Put risk checks first and validate each decision before paper trading.</p>',
+                '<p class="aq-editor-copy">Put risk checks first and validate each decision during backtesting.</p>',
                 '<ul class="aq-editor-list"><li>Surface risk checks early</li><li>Keep results and run history together</li></ul>',
             ),
         )
@@ -1957,7 +1950,6 @@ def _render_product_overview() -> None:
             ("03", "单次回测", "查看收益、回撤、持仓与交易明细，让结果可解释。", "Backtest / review", "backtest"),
             ("04", "智能分析台", "让多智能体协作完成市场、因子与风险分析。", "Agents / research", "agent"),
             ("05", "优化与稳健性", "通过参数搜索和样本外验证，检查策略是否可靠。", "Optimize / validate", "optimize"),
-            ("06", "模拟交易", "在真实市场节奏下观察订单、资金与组合变化。", "Paper / trading", "paper"),
         ]
     else:
         kicker = "01 / THE SYSTEM"
@@ -1969,7 +1961,6 @@ def _render_product_overview() -> None:
             ("03", "Backtest & Review", "Inspect returns, drawdowns, positions and trades with clear explanations.", "Backtest / review", "backtest"),
             ("04", "Agent Lab", "Let multiple agents collaborate on market, factor and risk analysis.", "Agents / research", "agent"),
             ("05", "Optimization", "Search parameters and validate robustness with out-of-sample testing.", "Optimize / validate", "optimize"),
-            ("06", "Paper Trading", "Observe orders, capital and portfolio changes at a real market pace.", "Paper / trading", "paper"),
         ]
 
     previews = {
@@ -1978,7 +1969,6 @@ def _render_product_overview() -> None:
         "backtest": '<div class="aq-mini-metrics"><b>18.2%</b><span>annualized return</span><b>-8.4%</b><span>max drawdown</span></div><div class="aq-mini-chart line"><em></em><em></em><em></em><em></em><em></em></div>',
         "agent": '<div class="aq-mini-agent"><i>◉</i><span>Market Analyst</span><b>ready</b></div><div class="aq-mini-agent"><i>◇</i><span>Risk Analyst</span><b>ready</b></div><div class="aq-mini-agent"><i>✦</i><span>Research Debate</span><b>running</b></div>',
         "optimize": '<div class="aq-mini-grid"><b>Sharpe</b><b>Return</b><b>Drawdown</b><span>1.84</span><span>21.6%</span><span>-9.1%</span><span>1.42</span><span>18.2%</span><span>-8.4%</span></div><div class="aq-mini-status">● OOS validation passed</div>',
-        "paper": '<div class="aq-mini-order"><span>BUY</span><b>600519</b><em>100 shares</em><strong>filled</strong></div><div class="aq-mini-order"><span>SELL</span><b>000001</b><em>200 shares</em><strong>filled</strong></div><div class="aq-mini-status">Portfolio value&nbsp; ¥1,024,680</div>',
     }
     features_html = "".join(
         f'<article class="aq-feature-slide" data-feature-index="{position}"><div class="aq-feature-window"><div class="aq-feature-bar"><span class="r"></span><span class="y"></span><span class="g"></span><small>{label}</small></div><div class="aq-feature-body aq-feature-{kind}">{previews[kind]}</div></div><p>{body}</p></article>'
@@ -2042,16 +2032,14 @@ def _render_product_overview() -> None:
 
 
 def _render_guide(report, config_path: str) -> None:
-    """Typora 风格的 02 / RESEARCH LOOP：六步流程，两行三列展示。"""
+    """Typora 风格的 02 / RESEARCH LOOP：五步研究流程。"""
 
     has_strategies = False
     has_runs = False
-    has_paper = False
     try:
         backtests = BacktestService(config_path)
         has_strategies = bool(StrategyStudioService(backtests).store.list())
         has_runs = bool(backtests.run_store.list_records())
-        has_paper = bool(PaperTradingService(backtests).list_accounts())
     except Exception:  # noqa: BLE001 - 引导信息缺失不应影响主页
         pass
 
@@ -2060,7 +2048,6 @@ def _render_guide(report, config_path: str) -> None:
         symbols_with_sufficient_history=report.symbols_with_sufficient_history,
         has_strategies=has_strategies,
         has_backtest_runs=has_runs,
-        has_paper_accounts=has_paper,
     )
     if _lang() == "zh":
         loop_title = "让研究，触手可及。"
@@ -2083,7 +2070,6 @@ def _render_guide(report, config_path: str) -> None:
             "strategy": ("灵活输入", "支持模板、可视化积木、自然语言与 Python，多种方式自由选择。", '<div class="aq-preview-inputs"><span>模板</span><span>积木</span><span>自然语言</span><span class="active">Python</span></div><div class="aq-preview-code"><span><em>ask</em>("解释这个因子")</span><span><strong>→</strong> readable answer</span></div>'),
             "backtest": ("专注分析", "聚焦当前指标和关键变化，减少噪声，让每一步判断更专注。", '<div class="aq-preview-focus"><span>年化收益</span><b>18.2%</b><span class="muted">其余指标已弱化</span></div><div class="aq-preview-line"></div>'),
             "review": ("可读结果", "把复杂的收益、回撤与风险信息转成容易理解的解释。", '<div class="aq-preview-report"><span><i></i>收益来源清晰</span><span><i></i>风险变化可追溯</span><span><i></i>结论附带解释</span></div><div class="aq-preview-foot">可解释报告</div>'),
-            "paper": ("安全默认", "合理的默认值、明确的状态和逐步确认，降低误操作风险。", '<div class="aq-preview-safe"><span>下一步操作</span><b>模拟交易</b><em>已检查风险 · 可继续</em></div><div class="aq-preview-foot">明确状态 · 安全前进</div>'),
         },
         "en": {
             "data": ("Clear Workspace", "Clear hierarchy, contrast and whitespace keep important information easy to see.", '<div class="aq-preview-top"><span>CLEAR WORKSPACE</span><b>AA</b></div><div class="aq-access-lines"><i class="wide"></i><i></i><i></i><i class="short"></i></div><div class="aq-preview-foot">Clear hierarchy · easy reading</div>'),
@@ -2091,12 +2077,12 @@ def _render_guide(report, config_path: str) -> None:
             "strategy": ("Flexible Input", "Choose templates, visual blocks, natural language or Python for the task at hand.", '<div class="aq-preview-inputs"><span>Template</span><span>Blocks</span><span>Natural language</span><span class="active">Python</span></div><div class="aq-preview-code"><span><em>ask</em>("Explain this factor")</span><span><strong>→</strong> readable answer</span></div>'),
             "backtest": ("Focus Mode", "Keep attention on the active metric and meaningful changes, without visual noise.", '<div class="aq-preview-focus"><span>Annualized return</span><b>18.2%</b><span class="muted">Other metrics are softened</span></div><div class="aq-preview-line"></div>'),
             "review": ("Readable Results", "Turn complex return, drawdown and risk information into explanations people can follow.", '<div class="aq-preview-report"><span><i></i>Clear return sources</span><span><i></i>Traceable risk changes</span><span><i></i>Explained conclusions</span></div><div class="aq-preview-foot">EXPLAINABLE REPORT</div>'),
-            "paper": ("Safe Defaults", "Sensible defaults, clear status and progressive confirmation reduce the risk of mistakes.", '<div class="aq-preview-safe"><span>Next action</span><b>Paper trading</b><em>Risk checked · ready</em></div><div class="aq-preview-foot">Clear status · safe progress</div>'),
         },
     }[_lang()]
     for row_start in range(0, len(steps), 3):
         columns = st.columns(3)
-        for column, step in zip(columns, steps[row_start:row_start + 3], strict=True):
+        row_steps = steps[row_start:row_start + 3]
+        for column, step in zip(columns[:len(row_steps)], row_steps, strict=True):
             with column:
                 # key 供 CSS 做逐级延迟的滚动渐入，请勿改名（theme.py 有对应选择器）
                 with st.container(border=True, key=f"aq_guide_step_{step.key}"):
@@ -2118,13 +2104,13 @@ def _render_modules(report) -> None:
             ("ok" if report.ready_for_backtest else "warn"),
             _t("ready_footer") if report.ready_for_backtest else _t("not_ready_footer"),
         ),
-        "pages/1_data_management.py": (
+        "app_pages/1_data_management.py": (
             _check_state(report, "股票行情"),
             _t("data_footer")
             .replace("{ok}", str(report.symbols_with_sufficient_history))
             .replace("{total}", str(report.configured_symbols)),
         ),
-        "pages/5_universe_management.py": (
+        "app_pages/5_universe_management.py": (
             "ok" if pool_ok else "err",
             _t("pool_footer_ok").replace("{n}", str(report.configured_symbols))
             if pool_ok
@@ -2147,28 +2133,28 @@ def _render_modules(report) -> None:
                     _t("open"), key=f"welcome_module_{page}", width="stretch"
                 ):
                     strategy_modes = {
-                        "pages/7_strategy_studio.py": "策略搭建",
-                        "pages/8_custom_strategy.py": "Python 策略",
-                        "pages/10_nl_strategy.py": "自然语言",
+                        "app_pages/7_strategy_studio.py": "策略搭建",
+                        "app_pages/8_custom_strategy.py": "Python 策略",
+                        "app_pages/10_nl_strategy.py": "自然语言",
                     }
                     data_modes = {
-                        "pages/1_data_management.py": "本地数据",
-                        "pages/5_universe_management.py": "股票池",
+                        "app_pages/1_data_management.py": "本地数据",
+                        "app_pages/5_universe_management.py": "股票池",
                     }
                     if page in strategy_modes:
                         st.session_state["strategy_workspace_mode"] = strategy_modes[page]
-                        st.switch_page("pages/0_strategy_hub.py")
+                        st.switch_page("app_pages/0_strategy_hub.py")
                     elif page in data_modes:
                         st.session_state["data_assets_mode"] = data_modes[page]
-                        st.switch_page("pages/13_data_assets.py")
-                    elif page == "pages/2_research.py":
+                        st.switch_page("app_pages/13_data_assets.py")
+                    elif page == "app_pages/2_research.py":
                         st.session_state["backtest_workspace_mode"] = (
                             "参数优化与稳健性验证"
                         )
                         st.switch_page("home.py")
-                    elif page == "pages/3_risk_management.py":
-                        st.session_state["paper_trading_mode"] = "风险规则"
-                        st.switch_page("pages/4_paper_trading.py")
+                    elif page == "app_pages/3_risk_management.py":
+                        st.session_state["backtest_workspace_mode"] = "风险规则"
+                        st.switch_page("home.py")
                     else:
                         st.switch_page(page)
 
@@ -2230,7 +2216,7 @@ def _render_recent_runs(config_path: str) -> None:
             RUN_KIND_LABELS.get(record.run_kind, record.run_kind),
         )
     if st.button(_t("all_runs"), key="welcome_all_runs"):
-        st.switch_page("pages/6_run_library.py")
+        st.switch_page("app_pages/6_run_library.py")
 
 
 def _render_auth_modal(mode: str, logo_src: str) -> None:

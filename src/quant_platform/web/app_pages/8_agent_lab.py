@@ -125,14 +125,14 @@ key_status = (
 with st.container(border=True):
     st.markdown(f"**当前模型：{spec.display_name} / {resolved['model'] or '—'}**")
     st.caption(f"API Key：{key_status}。模型和凭证统一在“设置”中管理。")
-    st.page_link("pages/14_settings.py", label="研究设置", icon=":material/settings:")
+    st.page_link("app_pages/14_settings.py", label="研究设置", icon=":material/settings:")
 
 entries = prior_store.list()
 with st.container(border=True):
     st.markdown(f"**本次使用的先验知识：{len(entries)} 条**")
     st.caption("运行分析时会注入知识库中的全部条目；新增、检索和删除统一在知识库管理。")
     st.page_link(
-        "pages/12_prior_knowledge.py",
+        "app_pages/12_prior_knowledge.py",
         label="管理先验知识",
         icon=":material/library_books:",
     )

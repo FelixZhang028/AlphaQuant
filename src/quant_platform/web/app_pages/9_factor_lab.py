@@ -32,6 +32,7 @@ from quant_platform.factors.custom import (
 )
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
 from quant_platform.factors.registry import default_registry, reload_default_registry
+from quant_platform.web.factor_library import render_factor_library
 from quant_platform.web.service_cache import (
     data_fingerprint,
     get_coverage_bars,
@@ -53,9 +54,10 @@ def _evaluate(
     end: date,
     horizon: int,
     n_groups: int,
+    neutralization: str = "none",
 ) -> FactorReport:
     return FactorEvaluator(repository).evaluate(
-        factor, start, end, horizon=horizon, n_groups=n_groups
+        factor, start, end, horizon=horizon, n_groups=n_groups, neutralization=neutralization
     )
 
 
@@ -86,6 +88,18 @@ def _render_report(report: FactorReport) -> None:
 
     for note in report.notes:
         st.info(note)
+    if report.significance:
+        st.write("**Rank IC 均值显著性（Newey–West HAC，双侧渐近检验）**")
+        st.dataframe(pd.DataFrame([report.significance]), hide_index=True)
+        st.caption("考虑持有期重叠导致的序列相关；样本不足不报显著性，不含多重试验校正。")
+    if not report.annual.empty:
+        st.write("**分年度表现**")
+        st.dataframe(report.annual, hide_index=True)
+    if not report.decay.empty:
+        st.write("**预测持有期衰减**")
+        st.line_chart(report.decay.set_index("horizon")[["rank_ic_mean"]])
+        st.caption("不同持有期有效样本数可能不同，详见下表；不等同于跨年份稳定性。")
+        st.dataframe(report.decay, hide_index=True)
 
     if not report.group_mean_returns.empty:
         st.markdown(
@@ -115,7 +129,9 @@ registry = default_registry()
 custom_factors = load_custom_factors()
 
 # 以英文名唯一索引全部因子（内置 + 自定义），供评估 / 组合选择。
-factors = {item.name: item for item in registry.list()}
+factors = {
+    item.name: item for item in sorted(registry.list(), key=lambda f: (f.source != "内置", f.name))
+}
 factor_names = list(factors)
 
 coverage_bars = get_coverage_bars("configs/app.yaml", data_fingerprint(repository))
@@ -128,22 +144,7 @@ library_tab, evaluate_tab, combine_tab, custom_tab = st.tabs(
 
 # ------------------------------------------------------------ 因子库 ----
 with library_tab:
-    st.subheader(f"全部因子（共 {len(registry)} 个）")
-    rows = [
-        {
-            "因子名": item.name,
-            "中文名": item.display_name,
-            "类别": item.category,
-            "说明": item.description,
-            "计算公式": item.formula,
-            "所需字段": ", ".join(item.required_fields),
-            "最小历史": f"{item.min_history} 日",
-            "方向": _DIRECTION_LABELS[item.direction],
-            "版本": item.version,
-        }
-        for item in registry.list()
-    ]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    render_factor_library(factors, has_data=not coverage_bars.empty)
 
 # ------------------------------------------------------------ 因子评估 ----
 with evaluate_tab:
@@ -167,12 +168,27 @@ with evaluate_tab:
     with date_col2:
         end = st.date_input("评估结束", today, key="factor_end")
 
+    neutrality_labels = {
+        "none": "不做中性化",
+        "industry": "行业中性化",
+        "size": "市值中性化",
+        "both": "行业＋市值中性化",
+    }
+    neutralization = st.selectbox(
+        "暴露调整",
+        list(neutrality_labels),
+        format_func=neutrality_labels.get,
+        key="factor_neutralization",
+    )
+    st.caption("中性化需要历史暴露表；缺少当时可得数据时会报错，不会静默跳过。")
     if st.button("开始评估", type="primary", key="factor_eval_run"):
         factor = factors[factor_name]
         report: FactorReport | None = None
         with st.spinner(f"正在评估因子「{factor.display_name}」……"):
             try:
-                report = _evaluate(factor, repository, start, end, horizon, n_groups)
+                report = _evaluate(
+                    factor, repository, start, end, horizon, n_groups, neutralization
+                )
             except Exception as exc:  # noqa: BLE001 - 数据不足等场景给出可读提示
                 st.error(f"评估失败：{exc}")
         if report is not None:

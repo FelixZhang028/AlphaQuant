@@ -53,6 +53,8 @@ class BacktestRequest:
     run_kind: str = "single"
     parent_experiment_id: str | None = None
     baseline_run_id: str | None = None
+    portfolio_method: str | None = None
+    universe_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,10 @@ class BacktestService:
             end_date=parse_date(str(backtest["end_date"])),
             initial_cash=float(backtest["initial_cash"]),
             top_n=int(portfolio.get("top_n", 5)),
+            portfolio_method=str(portfolio.get("plugin", "equal_weight")),
+            universe_mode=str(
+                require_mapping(self.configs["universe"], "universe").get("mode", "fixed")
+            ),
             rebalance=str(strategy_section.get("rebalance", "weekly")),
             risk_limits=RiskLimits.from_mapping(
                 risk_section if isinstance(risk_section, dict) else {}
@@ -179,6 +185,10 @@ class BacktestService:
             end_date=parse_date(str(backtest.get("end_date", default.end_date))),
             initial_cash=float(backtest.get("initial_cash", default.initial_cash)),
             top_n=int(portfolio.get("top_n", default.top_n)),
+            portfolio_method=str(portfolio.get("plugin", "equal_weight")),
+            universe_mode=str(
+                require_mapping(snapshot["universe"], "universe").get("mode", "fixed")
+            ),
             rebalance=str(strategy.get("rebalance", default.rebalance)),
             risk_limits=RiskLimits.from_mapping(risk if isinstance(risk, dict) else {}),
             evaluation_mode="in_sample",
@@ -214,6 +224,11 @@ class BacktestService:
         )
         execution_section = require_mapping(self.configs["execution"], "execution")
         execution_config = ExecutionConfig(
+            historical_fees=bool(execution_section.get("historical_fees", True)),
+            transfer_fee_rate=float(execution_section.get("transfer_fee_rate", 0.00001)),
+            max_participation=float(execution_section.get("max_participation", 0.01)),
+            impact_coefficient=float(execution_section.get("impact_coefficient", 0.001)),
+            max_orders_per_day=int(execution_section.get("max_orders_per_day", 1000)),
             lot_size=int(execution_section.get("lot_size", 100)),
             commission_rate=float(execution_section.get("commission_rate", 0.0003)),
             minimum_commission=float(execution_section.get("minimum_commission", 5.0)),
@@ -223,6 +238,18 @@ class BacktestService:
             == "reject_trade",
         )
         repository_path = require_mapping(app, "data")["repository"]
+        repository = ParquetMarketDataRepository(repository_path)
+        universe_mode = effective.universe_mode or str(universe_section.get("mode", "fixed"))
+        if universe_mode not in {"fixed", "historical"}:
+            raise ValueError("universe.mode 必须为 fixed 或 historical")
+        if universe_mode == "historical":
+            from quant_platform.universe.historical import HistoricalUniverse
+
+            universe = HistoricalUniverse(
+                universe.config,
+                repository.read_table("universe_membership"),
+                repository.read_table("security_master"),
+            )
         portfolio_section = require_mapping(app, "portfolio")
         backtest_section = require_mapping(app, "backtest")
         # 空值或显式留空表示关闭基准对比；缺省沿用沪深 300。
@@ -230,12 +257,12 @@ class BacktestService:
         warmup_days = int(backtest_section.get("warmup_days", 120))
         registry = default_registry()
         engine = BacktestEngine(
-            repository=ParquetMarketDataRepository(repository_path),
+            repository=repository,
             universe=universe,
             strategy=strategy,
             portfolio=registry.create(
                 "portfolio",
-                str(portfolio_section.get("plugin", "equal_weight")),
+                effective.portfolio_method or str(portfolio_section.get("plugin", "equal_weight")),
                 top_n=effective.top_n,
             ),
             order_generator=OrderGenerator(execution_config.lot_size),
@@ -243,9 +270,10 @@ class BacktestService:
             rebalance=effective.rebalance,
             risk_limits=effective.risk_limits,
             evaluation_mode=effective.evaluation_mode,
-            fixed_universe=True,
+            fixed_universe=universe_mode == "fixed",
             benchmark_symbol=benchmark_symbol or None,
             warmup_days=warmup_days,
+            annualization=int(backtest_section.get("annualization", 252)),
         )
         return engine, self._config_snapshot(effective)
 
@@ -331,5 +359,9 @@ class BacktestService:
             }
         )
         require_mapping(snapshot["app"], "portfolio")["top_n"] = request.top_n
+        if request.portfolio_method:
+            require_mapping(snapshot["app"], "portfolio")["plugin"] = request.portfolio_method
+        if request.universe_mode:
+            require_mapping(snapshot["universe"], "universe")["mode"] = request.universe_mode
         snapshot["risk"] = {"risk": request.risk_limits.to_dict()}
         return snapshot

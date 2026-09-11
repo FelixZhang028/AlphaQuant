@@ -193,7 +193,7 @@ elif section == "系统信息":
     with storage[1].container(border=True):
         st.markdown("**运行记录目录**")
         st.code(runtime_dir)
-        st.caption("回测、验证、模拟账户和本地设置保存在这里。")
+        st.caption("回测、验证和本地设置保存在这里。")
 
     st.subheader("系统运行信息")
     try:

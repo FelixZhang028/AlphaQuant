@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quant_platform.factors.alpha101 import alpha101_factors
 from quant_platform.factors.base import FactorDefinition
 from quant_platform.factors.builtins import builtin_factors
 from quant_platform.factors.custom import load_custom_factors
@@ -53,6 +54,8 @@ def _build_registry() -> FactorRegistry:
     """构建一个包含内置因子与持久化自定义因子的注册表。"""
     registry = FactorRegistry()
     for factor in builtin_factors():
+        registry.register(factor)
+    for factor in alpha101_factors():
         registry.register(factor)
     for factor in load_custom_factors():
         try:

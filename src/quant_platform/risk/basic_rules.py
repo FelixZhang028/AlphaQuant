@@ -47,6 +47,7 @@ def evaluate_target_risk(
     limits: RiskLimits,
     *,
     current_drawdown: float = 0.0,
+    industry_map: dict[str, str] | None = None,
 ) -> RiskEvaluation:
     """Apply configured portfolio limits and return all rejection reasons."""
 
@@ -64,6 +65,16 @@ def evaluate_target_risk(
         )
     if any(target.target_weight < 0 for target in targets):
         reasons.append("目标权重不能为负数")
+    if limits.max_industry_weight < 1:
+        totals: dict[str, float] = {}
+        for target in targets:
+            industry = (industry_map or {}).get(target.symbol)
+            if not industry:
+                reasons.append(f"缺少历史行业：{target.symbol}")
+                continue
+            totals[industry] = totals.get(industry, 0) + target.target_weight
+        if any(value > limits.max_industry_weight + 1e-9 for value in totals.values()):
+            reasons.append("行业集中度超过限制")
     if total_weight > limits.max_total_weight + 1e-9:
         reasons.append(f"总仓位超过 {limits.max_total_weight:.0%}")
     if max_weight > limits.max_single_weight + 1e-9:
@@ -80,6 +91,8 @@ def evaluate_target_risk(
         max_weight,
         current_drawdown,
     )
+
+
 class PortfolioRiskAction(StrEnum):
     """Action produced by an end-of-day portfolio risk check."""
 
@@ -110,6 +123,8 @@ def evaluate_daily_portfolio_risk(
     strategy_id: str,
     trade_date: date,
     current_drawdown: float,
+    daily_return: float = 0.0,
+    industry_map: dict[str, str] | None = None,
 ) -> DailyPortfolioRisk:
     """Check actual holdings every day and create corrective target weights."""
 
@@ -130,6 +145,37 @@ def evaluate_daily_portfolio_risk(
     adjusted = dict(clean)
     reasons: list[str] = []
     action = PortfolioRiskAction.NONE
+    if daily_return <= -limits.max_daily_loss:
+        return DailyPortfolioRisk(
+            RiskDecision.REJECT,
+            PortfolioRiskAction.STOP_NEW,
+            ("单日亏损达到限制：收盘后停止生成下一交易日新委托",),
+            (),
+            current_total,
+            current_max,
+            current_drawdown,
+        )
+    if limits.max_industry_weight < 1:
+        if any(not (industry_map or {}).get(symbol) for symbol in clean):
+            return DailyPortfolioRisk(
+                RiskDecision.REJECT,
+                PortfolioRiskAction.STOP_NEW,
+                ("持仓缺少当时可得行业，暂停新委托",),
+                (),
+                current_total,
+                current_max,
+                current_drawdown,
+            )
+        totals: dict[str, float] = {}
+        for symbol, weight in clean.items():
+            industry = industry_map[symbol]
+            totals[industry] = totals.get(industry, 0) + weight
+        for symbol in adjusted:
+            total = totals[industry_map[symbol]]
+            if total > limits.max_industry_weight:
+                adjusted[symbol] *= limits.max_industry_weight / total
+        if adjusted != clean:
+            reasons.append("行业集中度超限，降低行业仓位")
     drawdown_breached = current_drawdown <= -limits.max_drawdown
     if drawdown_breached and limits.drawdown_action == "stop_new":
         return DailyPortfolioRisk(
@@ -152,8 +198,7 @@ def evaluate_daily_portfolio_risk(
             for weight in adjusted.values()
         ):
             adjusted = {
-                symbol: min(weight, limits.max_single_weight)
-                for symbol, weight in adjusted.items()
+                symbol: min(weight, limits.max_single_weight) for symbol, weight in adjusted.items()
             }
             reasons.append(f"实际单股权重超过 {limits.max_single_weight:.0%}，自动减仓")
         total_cap = min(limits.max_total_weight, 1.0 - limits.minimum_cash_ratio)

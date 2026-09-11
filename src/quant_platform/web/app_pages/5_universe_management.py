@@ -170,4 +170,4 @@ if with_data < len(settings.symbols):
     st.info("新增股票后，请前往“数据管理”更新配置股票池行情，再运行回测。")
     if st.button("前往数据管理"):
         st.session_state["data_assets_mode"] = "本地数据"
-        st.switch_page("pages/13_data_assets.py")
+        st.switch_page("app_pages/13_data_assets.py")

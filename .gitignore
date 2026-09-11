@@ -55,6 +55,8 @@ Thumbs.db
 /runtime/llm_settings.json
 /runtime/data_source_settings.json
 /runtime/prior_knowledge.json
+# 本地测试输出
+/runtime/*-test-results.txt
 *.pt
 *.pth
 *.onnx

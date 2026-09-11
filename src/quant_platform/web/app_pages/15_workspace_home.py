@@ -274,7 +274,7 @@ with resume:
         icon=":material/arrow_forward:",
         width="stretch",
     ):
-        st.switch_page("pages/8_agent_lab.py")
+        st.switch_page("app_pages/8_agent_lab.py")
 
 st.subheader("选择研究方式")
 st.caption("两条路径可以随时切换，研究结果会统一保存在工作台中。")
@@ -284,7 +284,7 @@ with ai_column.container(key="aq_home_choice_ai", border=True, height="stretch")
     st.write("由 AI 带你拆解问题、调用数据，并结合先验知识形成可验证的研究结论。")
     st.caption("适合刚开始量化研究，或希望快速梳理研究思路。")
     st.page_link(
-        "pages/8_agent_lab.py",
+        "app_pages/8_agent_lab.py",
         label="打开 AI研究员",
         width="stretch",
     )
@@ -295,7 +295,7 @@ with strategy_column.container(
     st.write("自主构建策略与因子，设置参数，并进入回测与稳健性验证流程。")
     st.caption("适合已有研究想法，希望完整控制策略逻辑和验证过程。")
     st.page_link(
-        "pages/0_strategy_hub.py",
+        "app_pages/0_strategy_hub.py",
         label="打开策略工作室",
         width="stretch",
     )
@@ -306,7 +306,7 @@ quick_steps = (
         "01",
         "准备数据",
         "选择数据源并维护股票池。",
-        "pages/13_data_assets.py",
+        "app_pages/13_data_assets.py",
         ":material/database:",
         "aq_home_quick_data",
     ),
@@ -314,7 +314,7 @@ quick_steps = (
         "02",
         "构建研究",
         "创建策略，或从因子实验开始。",
-        "pages/0_strategy_hub.py",
+        "app_pages/0_strategy_hub.py",
         ":material/widgets:",
         "aq_home_quick_strategy",
     ),
