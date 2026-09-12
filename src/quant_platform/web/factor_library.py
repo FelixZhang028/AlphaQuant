@@ -1,5 +1,7 @@
 """Browsable catalog; evaluation and portfolio calculations stay in their tabs."""
 
+import hashlib
+
 import pandas as pd
 import streamlit as st
 
@@ -38,6 +40,28 @@ def factor_category(factor: FactorDefinition) -> str:
     return _OVERRIDES.get(factor.name, _CATEGORIES.get(factor.category, factor.category))
 
 
+_INTENTS = {
+    "寻找上涨趋势": {"momentum_20", "high_distance_20"},
+    "寻找短期超跌": {"reversal_5", "rsi_14", "bias_10"},
+    "偏好低波动": {"volatility_20", "amplitude_20"},
+    "关注放量": {"volume_ratio_5", "amount_change_20"},
+}
+_SYNONYMS = {
+    "寻找上涨趋势": "趋势 上涨 涨幅 动量 强势 新高",
+    "寻找短期超跌": "超跌 下跌 跌幅 反弹 反转 乖离",
+    "偏好低波动": "低波动 波动 振幅 平稳 稳健",
+    "关注放量": "放量 成交量 成交额 活跃 流动性",
+}
+
+
+def factor_matches(factor, query):
+    terms = " ".join(_SYNONYMS[label] for label, names in _INTENTS.items() if factor.name in names)
+    haystack = " ".join(
+        [factor.name, factor.display_name, factor.description, factor.formula, terms]
+    ).casefold()
+    return all(part in haystack for part in query.strip().casefold().split())
+
+
 def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: bool) -> None:
     st.subheader("因子库")
     st.caption("按投资逻辑找因子，按来源库查公式；选择因子后可继续评估或加入组合。")
@@ -48,9 +72,11 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
             for source, count in counts.items()
         )
     )
+    intent = st.pills("我想研究", ["全部", *_INTENTS], default="全部", key="library_intent")
+    st.caption("意图标签用于寻找研究方向，不代表因子已被证明有效。点击表格行可查看详情。")
     cols = st.columns([2, 1, 1])
     query = cols[0].text_input(
-        "搜索因子", placeholder="名称、编号、公式或逻辑", key="library_search"
+        "搜索因子", placeholder="试试：放量、涨幅、低波动，也支持名称和编号", key="library_search"
     )
     category = cols[1].selectbox(
         "因子类别",
@@ -67,19 +93,29 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
         for f in factors.values()
         if (category == "全部" or factor_category(f) == category)
         and (source == "全部" or f.source == source)
-        and (
-            not query.strip()
-            or query.strip().casefold()
-            in " ".join([f.name, f.display_name, f.description, f.formula]).casefold()
-        )
+        and (not intent or intent == "全部" or f.name in _INTENTS[intent])
+        and factor_matches(f, query)
     ]
     st.caption(
         f"显示 {len(matching)} / {len(factors)} 个因子。评价需指定日期和持有期，不设永久有效标签。"
     )
     if not matching:
+        st.session_state.pop("library_open_factor", None)
         st.info("没有匹配的因子，请调整关键词或筛选条件。")
         return
-    st.dataframe(
+    identity = repr((query, category, source, intent, [(f.name, f.version) for f in matching]))
+    if st.session_state.get("library_open_identity") != identity:
+        st.session_state.pop("library_open_factor", None)
+        st.session_state["library_open_identity"] = identity
+    names = [f.name for f in matching]
+    selection_key = "library_rows_" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+    selection_key += "_" + str(st.session_state.get("library_selection_epoch", 0))
+
+    def remember_selection():
+        rows = st.session_state[selection_key]["selection"]["rows"]
+        st.session_state["library_open_factor"] = names[rows[0]] if rows else None
+
+    selection = st.dataframe(
         pd.DataFrame(
             [
                 {
@@ -97,16 +133,22 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
         ),
         width="stretch",
         hide_index=True,
+        on_select=remember_selection,
+        selection_mode="single-row",
+        key=selection_key,
     )
-    names = [f.name for f in matching]
-    if st.session_state.get("library_detail") not in names:
-        st.session_state["library_detail"] = names[0]
-    detail_name = st.selectbox(
-        "查看因子详情",
-        names,
-        format_func=lambda n: factors[n].display_name,
-        key="library_detail",
-    )
+    rows = selection.selection.rows
+    if rows:
+        st.session_state["library_open_factor"] = names[rows[0]]
+    detail_name = st.session_state.get("library_open_factor")
+    if detail_name not in names:
+        return
+    if st.button("收起详情", key="library_close"):
+        st.session_state.pop("library_open_factor", None)
+        st.session_state["library_selection_epoch"] = (
+            st.session_state.get("library_selection_epoch", 0) + 1
+        )
+        st.rerun()
     factor = factors[detail_name]
     with st.container(border=True):
         st.markdown(f"**{factor.display_name}**")

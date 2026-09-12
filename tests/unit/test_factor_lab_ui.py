@@ -20,13 +20,21 @@ def test_library_filters_and_handoff(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     app = AppTest.from_file(str(FACTOR_LAB_PAGE)).run(timeout=20)
     app.selectbox(key="library_source").select("Alpha101").run()
-    assert len(app.dataframe[0].value) == 4
+    assert len(app.dataframe[0].value) == 20
     app.text_input(key="library_search").set_value("033").run()
     assert app.dataframe[0].value.iloc[0]["因子名"] == "alpha101_033"
+    # AppTest has no row-selection adapter; inject the native selection event state.
+    assert not any(button.key == "library_to_eval" for button in app.button)
+    app.session_state[app.dataframe[0].key] = {
+        "selection": {"rows": [0], "columns": [], "cells": []}
+    }
+    app.run()
     app.button(key="library_to_eval").click().run()
     assert app.selectbox(key="factor_eval_name").value == "alpha101_033"
     app.button(key="library_to_combine").click().run()
     assert "alpha101_033" in app.multiselect(key="factor_combine_names").value
+    app.button(key="library_close").click().run()
+    assert not any(button.key == "library_to_eval" for button in app.button)
     app.text_input(key="library_search").set_value("nothing matches").run()
     assert any("没有匹配" in info.value for info in app.info)
     assert not app.exception

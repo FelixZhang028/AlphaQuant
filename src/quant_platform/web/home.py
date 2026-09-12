@@ -25,10 +25,10 @@ from quant_platform.backtest.metrics import (
 )
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import load_persisted_validity
-from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.strategies.spec import ParameterKind, StrategyParameter
 from quant_platform.web.embedded_page import run_embedded
 from quant_platform.web.localization import localize_frame, rebalance_label
+from quant_platform.web.result_brief import open_validation
 from quant_platform.web.run_labels import format_run_label
 
 # 侧栏「隐藏/显示」由 Streamlit 原生收起/展开控件提供（见 theme.py
@@ -594,38 +594,42 @@ def _render_result(run_dir: Path) -> None:
     validity = _load_validity(run_dir)
     _render_validity(validity)
 
-    _render_metric_grid(
-        summary,
-        [
-            ("最终权益", "final_equity", "money"),
-            ("累计收益", "cumulative_return", "percent"),
-            ("年化收益", "annual_return", "percent"),
-            ("最大回撤", "max_drawdown", "percent"),
-            ("夏普比率", "sharpe", "ratio"),
-            ("索提诺比率", "sortino", "ratio"),
-            ("卡玛比率", "calmar", "ratio"),
-            ("总交易成本", "total_transaction_cost", "money"),
-        ],
-    )
+    from quant_platform.web.result_brief import render_result_brief
 
-    _render_diagnosis(run_dir, summary, nav, orders, fills, trades, positions, validity)
+    render_result_brief(service, run_dir.name, summary, validity)
+    with st.expander("专业指标与交易明细", expanded=False):
+        _render_metric_grid(
+            summary,
+            [
+                ("最终权益", "final_equity", "money"),
+                ("累计收益", "cumulative_return", "percent"),
+                ("年化收益", "annual_return", "percent"),
+                ("最大回撤", "max_drawdown", "percent"),
+                ("夏普比率", "sharpe", "ratio"),
+                ("索提诺比率", "sortino", "ratio"),
+                ("卡玛比率", "calmar", "ratio"),
+                ("总交易成本", "total_transaction_cost", "money"),
+            ],
+        )
 
-    overview_tab, return_tab, trade_tab, position_tab, detail_tab = st.tabs(
-        ["概览", "收益与风险", "交易与成本", "持仓分析", "订单明细"]
-    )
-    with overview_tab:
-        _render_overview(summary, nav)
-    with return_tab:
-        _render_return_metrics(summary)
-    with trade_tab:
-        _render_trade_metrics(summary, trades)
-    with position_tab:
-        _render_position_metrics(summary, nav, positions)
-    with detail_tab:
-        st.subheader("订单")
-        st.dataframe(localize_frame(orders.tail(200)), width="stretch", hide_index=True)
-        st.subheader("成交")
-        st.dataframe(localize_frame(fills.tail(200)), width="stretch", hide_index=True)
+        _render_diagnosis(run_dir, summary, nav, orders, fills, trades, positions, validity)
+
+        overview_tab, return_tab, trade_tab, position_tab, detail_tab = st.tabs(
+            ["概览", "收益与风险", "交易与成本", "持仓分析", "订单明细"]
+        )
+        with overview_tab:
+            _render_overview(summary, nav)
+        with return_tab:
+            _render_return_metrics(summary)
+        with trade_tab:
+            _render_trade_metrics(summary, trades)
+        with position_tab:
+            _render_position_metrics(summary, nav, positions)
+        with detail_tab:
+            st.subheader("订单")
+            st.dataframe(localize_frame(orders.tail(200)), width="stretch", hide_index=True)
+            st.subheader("成交")
+            st.dataframe(localize_frame(fills.tail(200)), width="stretch", hide_index=True)
 
 
 st.title("回测与验证")
@@ -633,12 +637,17 @@ st.caption("从单次回测开始，再进行参数优化和样本外稳健性�
 
 workspace_mode = st.segmented_control(
     "研究阶段",
-    ["单次回测", "参数优化与稳健性验证", "风险规则"],
+    ["单次回测", "参数优化与稳健性验证", "风险规则", "方案复用"],
     default="单次回测",
     key="backtest_workspace_mode",
     label_visibility="collapsed",
     width="stretch",
 )
+if workspace_mode == "方案复用":
+    from quant_platform.web.research_plans import render_restored_plan
+
+    render_restored_plan(BacktestService("configs/app.yaml"))
+    st.stop()
 if workspace_mode == "风险规则":
     run_embedded(
         Path(__file__).parent / "app_pages" / "3_risk_management.py",
@@ -756,7 +765,7 @@ with st.expander("新建回测", expanded=True):
             key="backtest_universe_mode",
         )
         st.caption("非等权方法使用截至信号日的60日历史；策略显式指定的仓位优先。")
-        submitted = st.form_submit_button("运行回测", type="primary")
+        submitted = st.form_submit_button("检查数据并准备回测", type="primary")
 
     if submitted:
         request = replace(
@@ -772,19 +781,13 @@ with st.expander("新建回测", expanded=True):
             portfolio_method=portfolio_method,
             universe_mode=universe_mode,
         )
-        try:
-            with st.spinner("正在运行回测……"):
-                completed = service.run(request)
-            st.session_state["selected_run"] = completed.output_dir.name
-            st.success(
-                f"回测完成：{metadata.display_name}｜区间 {start_date}～{end_date}｜"
-                f"{completed.output_dir.name[:8]}"
-            )
-        except BacktestValidityError as exc:
-            st.error(f"回测已停止：{exc}")
-            st.info("请缩短回测区间或补齐相关日期后再运行。")
-        except Exception as exc:
-            st.exception(exc)
+        st.session_state["pending_backtest_request"] = request
+
+    pending = st.session_state.get("pending_backtest_request")
+    if pending is not None:
+        from quant_platform.web.guided_research import render_pending_backtest
+
+        render_pending_backtest(service, pending)
 
 st.divider()
 st.header("回测结果")
@@ -806,10 +809,12 @@ selected_id = st.selectbox(
 selected_record = record_by_id[selected_id]
 st.caption(format_run_label(selected_record, strategy_names))
 actions = st.columns(2)
-if actions[0].button("用本次结果创建验证实验", type="primary"):
-    st.session_state["research_baseline_run_id"] = selected_id
-    st.session_state["backtest_workspace_mode"] = "参数优化与稳健性验证"
-    st.rerun()
+actions[0].button(
+    "用本次结果创建验证实验",
+    type="primary",
+    on_click=open_validation,
+    args=(selected_id,),
+)
 if actions[1].button("打开回测记录库"):
     st.switch_page("app_pages/6_run_library.py")
 _render_result(selected_record.path)

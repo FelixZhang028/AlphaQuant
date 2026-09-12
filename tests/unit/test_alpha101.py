@@ -38,7 +38,11 @@ def test_known_formula_values_and_combination(bars):
     np.testing.assert_allclose(last["alpha101_012"], [-1, -1, -1])
     np.testing.assert_allclose(last["alpha101_033"], [1, 2 / 3, 1 / 3])
     np.testing.assert_allclose(last["alpha101_101"], np.array([1, 2, 3]) / 6.001)
-    combo = combine_factors(values, {name: 1.0 for name in values})
+    original = {
+        name: values[name]
+        for name in ("alpha101_006", "alpha101_012", "alpha101_033", "alpha101_101")
+    }
+    combo = combine_factors(original, {name: 1.0 for name in original})
     assert not combo.empty
     assert np.isfinite(combo.value).all()
 
@@ -53,4 +57,5 @@ def test_future_rows_do_not_change_past(factor, bars):
 
 def test_undefined_correlation_is_missing(bars):
     bars["volume"] = 100
-    assert alpha101_factors()[0].compute(bars).empty
+    factor = next(f for f in alpha101_factors() if f.name == "alpha101_006")
+    assert factor.compute(bars).empty

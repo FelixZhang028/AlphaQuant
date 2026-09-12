@@ -274,7 +274,22 @@ with resume:
         icon=":material/arrow_forward:",
         width="stretch",
     ):
-        st.switch_page("app_pages/8_agent_lab.py")
+        st.session_state["strategy_workspace_mode"] = "选股想法"
+        st.switch_page("app_pages/0_strategy_hub.py")
+
+with st.container(border=True):
+    st.subheader("验证我的选股想法")
+    st.write("不用写代码，从一个想法开始，确认选股规则并检查数据，再运行第一次回测。")
+    for column, idea in zip(st.columns(3), ["趋势上涨", "短期超跌", "低波动"], strict=True):
+        if column.button(idea, key="home_idea_" + idea, width="stretch"):
+            st.session_state["guided_draft"] = {"idea": idea}
+            st.session_state.pop("restored_plan", None)
+            for old_key in list(st.session_state):
+                if old_key.startswith("_guided_") or old_key.startswith("guided_plan_"):
+                    del st.session_state[old_key]
+            st.session_state["_guided_idea"] = idea
+            st.session_state["strategy_workspace_mode"] = "选股想法"
+            st.switch_page("app_pages/0_strategy_hub.py")
 
 st.subheader("选择研究方式")
 st.caption("两条路径可以随时切换，研究结果会统一保存在工作台中。")

@@ -33,6 +33,9 @@ except Exception as exc:
 metadata_by_name = {item.plugin_name: item for item in service.available_strategies()}
 strategy_names = {name: item.display_name for name, item in metadata_by_name.items()}
 records = service.run_store.list_records()
+from quant_platform.web.research_plans import render_saved_plans, plan_store, current_owner
+
+render_saved_plans(service)
 if not records:
     st.info("暂无回测记录，请先运行一次单次回测。")
     st.stop()
@@ -153,6 +156,17 @@ if successful_records:
         st.session_state["selected_run"] = detail_id
         st.session_state["backtest_workspace_mode"] = "单次回测"
         st.switch_page("home.py")
+    with st.expander("从此结果保存研究方案"):
+        title = st.text_input("新方案名称", value="历史回测研究方案", key="save_run_plan_title")
+        if st.button("保存为新方案", key="save_run_plan"):
+            try:
+                snapshot = service.run_store.load_config(detail_id)
+                store = plan_store(service)
+                plan = store.save(current_owner(), title, snapshot)
+                store.link_run(current_owner(), plan, detail_id, snapshot)
+                st.rerun()
+            except (ValueError, OSError):
+                st.error("未能保存，请检查名称或历史配置是否完整。")
 
 st.divider()
 st.header("结果对比")

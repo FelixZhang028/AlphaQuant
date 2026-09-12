@@ -15,6 +15,7 @@ st.title("策略工作室")
 st.caption("从模板、可视化规则、自然语言或 Python 开始，最终进入同一套回测流程。")
 
 MODES = {
+    "选股想法": None,
     "策略搭建": ("7_strategy_studio.py", "strategy_visual"),
     "自然语言": ("10_nl_strategy.py", "strategy_natural_language"),
     "Python 策略": ("8_custom_strategy.py", "strategy_python"),
@@ -23,21 +24,28 @@ MODES = {
 if st.session_state.get("strategy_workspace_mode") == "模板与积木":
     st.session_state["strategy_workspace_mode"] = "策略搭建"
 
+st.session_state.setdefault("strategy_workspace_mode", "选股想法")
 mode = st.segmented_control(
     "创建方式",
     list(MODES),
-    default="策略搭建",
     key="strategy_workspace_mode",
     label_visibility="collapsed",
     width="stretch",
 )
 
 guidance = {
+    "选股想法": "从一个选股想法开始，确认规则并检查数据后运行回测。",
     "策略搭建": "推荐从这里开始：无需编程，可选择策略模板或自行组合选股规则。",
     "自然语言": "用一句话描述想法，由 AI 转成结构化规则，保存前必须人工确认。",
     "Python 策略": "适合需要完全自定义逻辑的用户，保存前会进行安全检查。",
 }
 st.info(guidance[str(mode)])
+
+if mode == "选股想法":
+    from quant_platform.web.guided_research import render_guided_research
+
+    render_guided_research()
+    st.stop()
 
 filename, embedded_name = MODES[str(mode)]
 run_embedded(Path(__file__).with_name(filename), name=embedded_name)
