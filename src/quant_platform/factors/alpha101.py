@@ -1,4 +1,4 @@
-"""First 20 Alpha101 price-volume factors, using raw OHLC and volume.
+"""Alpha101 registry: all 82 price-volume factors across four batches.
 
 Source: https://arxiv.org/abs/1601.00991 (Appendix A).
 No silent substitution of adjusted close for raw OHLC. Corporate actions can
@@ -9,6 +9,9 @@ ranks within the supplied universe; undefined correlations remain missing.
 import numpy as np
 import pandas as pd
 
+from quant_platform.factors.alpha101_batch2 import batch2_factors
+from quant_platform.factors.alpha101_batch3 import batch3_factors
+from quant_platform.factors.alpha101_batch4 import batch4_factors
 from quant_platform.factors.alpha_operators import choose, correlation, divide, finite, rank
 from quant_platform.factors.base import FactorDefinition, melt_wide, pivot_field
 from quant_platform.factors.builtins import BuiltinFactor
@@ -336,19 +339,25 @@ def alpha101_factors() -> list[FactorDefinition]:
             _alpha101,
         ),
     ]
-    return [
-        BuiltinFactor(
-            name=f"alpha101_{number:03d}",
-            display_name=title,
-            description=f"{title}。按公式符号输出；缺失或预热不足不填零，A股有效性需独立评估。",
-            formula=formula,
-            required_fields=fields,
-            min_history=history,
-            category=category,
-            source="Alpha101",
-            source_url="https://arxiv.org/abs/1601.00991",
-            version="1.0.1" if number == 6 else "1.0.0",
-            func=func,
-        )
-        for number, title, category, history, fields, formula, func in definitions
-    ]
+    return sorted(
+        [
+            BuiltinFactor(
+                name=f"alpha101_{number:03d}",
+                display_name=title,
+                description=f"{title}。按公式符号输出；缺失或预热不足不填零，A股有效性需独立评估。",
+                formula=formula,
+                required_fields=fields,
+                min_history=history,
+                category=category,
+                source="Alpha101",
+                source_url="https://arxiv.org/abs/1601.00991",
+                version="1.0.1" if number == 6 else "1.0.0",
+                func=func,
+            )
+            for number, title, category, history, fields, formula, func in definitions
+        ]
+        + batch2_factors()
+        + batch3_factors()
+        + batch4_factors(),
+        key=lambda factor: factor.name,
+    )

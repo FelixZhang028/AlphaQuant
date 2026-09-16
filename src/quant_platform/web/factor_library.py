@@ -6,58 +6,27 @@ import pandas as pd
 import streamlit as st
 
 from quant_platform.factors.base import FactorDefinition
+from quant_platform.factors.taxonomy import (
+    INTENT_TERMS,
+    classify_factor,
+    factor_category,
+    factor_intents,
+)
 from quant_platform.web.factor_fields import field_description
-
-_CATEGORIES = {
-    "动量": "动量与趋势",
-    "反转": "反转与价格位置",
-    "波动": "波动与风险",
-    "量价": "K线与量价关系",
-    "K线": "K线与量价关系",
-    "技术": "反转与价格位置",
-}
-_OVERRIDES = {
-    "amount_change_20": "成交与流动性",
-    "volume_ratio_5": "成交与流动性",
-    "high_distance_20": "反转与价格位置",
-    "bias_10": "反转与价格位置",
-    "amplitude_20": "波动与风险",
-}
-
-
-def factor_category(factor: FactorDefinition) -> str:
-    if factor.source == "自定义":
-        operator = getattr(factor, "operator", "")
-        return {
-            "momentum": "动量与趋势",
-            "bias": "反转与价格位置",
-            "sma": "基础行情特征",
-            "ma_ratio": "动量与趋势",
-            "rolling_std": "波动与风险",
-            "volatility": "波动与风险",
-            "pv_corr": "K线与量价关系",
-        }.get(operator, "未分类")
-    return _OVERRIDES.get(factor.name, _CATEGORIES.get(factor.category, factor.category))
-
-
-_INTENTS = {
-    "寻找上涨趋势": {"momentum_20", "high_distance_20"},
-    "寻找短期超跌": {"reversal_5", "rsi_14", "bias_10"},
-    "偏好低波动": {"volatility_20", "amplitude_20"},
-    "关注放量": {"volume_ratio_5", "amount_change_20"},
-}
-_SYNONYMS = {
-    "寻找上涨趋势": "趋势 上涨 涨幅 动量 强势 新高",
-    "寻找短期超跌": "超跌 下跌 跌幅 反弹 反转 乖离",
-    "偏好低波动": "低波动 波动 振幅 平稳 稳健",
-    "关注放量": "放量 成交量 成交额 活跃 流动性",
-}
 
 
 def factor_matches(factor, query):
-    terms = " ".join(_SYNONYMS[label] for label, names in _INTENTS.items() if factor.name in names)
+    terms = " ".join(INTENT_TERMS[label] for label in factor_intents(factor))
     haystack = " ".join(
-        [factor.name, factor.display_name, factor.description, factor.formula, terms]
+        [
+            factor.name,
+            factor.display_name,
+            factor.description,
+            factor.formula,
+            factor_category(factor),
+            " ".join(factor_intents(factor)),
+            terms,
+        ]
     ).casefold()
     return all(part in haystack for part in query.strip().casefold().split())
 
@@ -72,8 +41,16 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
             for source, count in counts.items()
         )
     )
-    intent = st.pills("我想研究", ["全部", *_INTENTS], default="全部", key="library_intent")
-    st.caption("意图标签用于寻找研究方向，不代表因子已被证明有效。点击表格行可查看详情。")
+    intent = st.multiselect(
+        "我想研究",
+        list(INTENT_TERMS),
+        key="library_intents",
+        placeholder="全部研究方向，可多选",
+        help="不选时显示全部；多选时匹配任一方向，再与类别、来源和关键词共同筛选。",
+    )
+    st.caption(
+        "多选匹配任一研究方向。分类依据公式结构，不代表因子已被证明有效。点击表格行查看详情。"
+    )
     cols = st.columns([2, 1, 1])
     query = cols[0].text_input(
         "搜索因子", placeholder="试试：放量、涨幅、低波动，也支持名称和编号", key="library_search"
@@ -93,7 +70,7 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
         for f in factors.values()
         if (category == "全部" or factor_category(f) == category)
         and (source == "全部" or f.source == source)
-        and (not intent or intent == "全部" or f.name in _INTENTS[intent])
+        and (not intent or set(intent).intersection(factor_intents(f)))
         and factor_matches(f, query)
     ]
     st.caption(
@@ -122,6 +99,7 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
                     "因子名": f.name,
                     "中文名": f.display_name,
                     "类别": factor_category(f),
+                    "研究意图": "、".join(factor_intents(f)) or "待补充",
                     "来源": f.source,
                     "类型": f.feature_type,
                     "最小历史（条/股票）": f.min_history,
@@ -153,6 +131,8 @@ def render_factor_library(factors: dict[str, FactorDefinition], *, has_data: boo
     with st.container(border=True):
         st.markdown(f"**{factor.display_name}**")
         st.write(factor.description)
+        st.write("研究意图：" + ("、".join(factor_intents(factor)) or "待补充"))
+        st.caption("分类依据：" + classify_factor(factor).rationale)
         st.code(factor.formula, language="text")
         st.caption(
             f"类别：{factor_category(factor)} ｜ 来源：{factor.source} ｜ 日频 ｜ "

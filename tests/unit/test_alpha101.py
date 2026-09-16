@@ -23,6 +23,7 @@ def bars():
                     "raw_high": opening + 5,
                     "raw_low": opening - 1,
                     "volume": (day + 1) * (index + 1) * 100,
+                    "amount": opening * (day + 1) * (index + 1) * 100,
                 }
             )
     return pd.DataFrame(rows)
