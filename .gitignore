@@ -7,6 +7,8 @@ __pycache__/
 pytest-of-Administrator/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
+.tmp_pycache/
 
 # Python 虚拟环境与构建产物
 venv/
@@ -26,6 +28,9 @@ dist/
 # IDE
 .vscode/
 .idea/
+.trae/
+.codex/
+.codex_replacements/
 
 # 系统文件
 .DS_Store
@@ -43,21 +48,7 @@ Thumbs.db
 /checkpoints/
 /weights/
 /runs/
-/runtime/raw/
-/runtime/market/
-/runtime/market_akshare/
-/runtime/sample_market/
-/runtime/runs/
-/runtime/state/
-/runtime/user_strategies/
-/runtime/agent_cache/
-/runtime/agent_runs/
-/runtime/llm_settings.json
-/runtime/data_source_settings.json
-/runtime/prior_knowledge.json
 /runtime/
-# 本地测试输出
-/runtime/*-test-results.txt
 *.pt
 *.pth
 *.onnx
@@ -68,8 +59,15 @@ Thumbs.db
 *.rar
 *.7z
 
+# 本地测试输出
+/pytest_out.txt
+/pytest_full.txt
+
+# AI 工具本地会话文件
 CLAUDE.md
 .claude-summary.md
 .agents/
 .claude/
+.cn_data_src_tmp/
+.tasks/
 src/quant_platform/web/assets/fellowquant-icon-v*.png
