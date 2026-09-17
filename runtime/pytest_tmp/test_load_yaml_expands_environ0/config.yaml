@@ -1,2 +1,0 @@
-provider:
-  token: ${TEST_TOKEN}

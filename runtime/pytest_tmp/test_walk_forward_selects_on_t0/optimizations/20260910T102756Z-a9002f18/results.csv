@@ -1,3 +1,0 @@
-﻿param_short_window,status,run_id,error,sharpe,annual_return,max_drawdown,calmar,metrics_reliable,eligible,objective_value,rank
-20,SUCCESS,run-5,,2.0,0.2,-0.1,1.0,True,True,2.0,1
-10,SUCCESS,run-4,,1.0,0.1,-0.1,1.0,True,True,1.0,2

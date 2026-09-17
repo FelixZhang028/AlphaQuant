@@ -1,8 +1,0 @@
-strategy:
-  id: service_test
-  plugin: a_share_momentum
-  rebalance: weekly
-  parameters:
-    short_window: 20
-    long_window: 60
-    minimum_average_amount: 1

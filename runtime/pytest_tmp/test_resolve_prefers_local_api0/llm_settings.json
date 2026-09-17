@@ -1,9 +1,0 @@
-{
-  "providers": {
-    "deepseek": {
-      "base_url": "",
-      "api_key": "local-key",
-      "model": "deepseek-v4-pro"
-    }
-  }
-}

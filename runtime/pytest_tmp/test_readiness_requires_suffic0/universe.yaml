@@ -1,7 +1,0 @@
-universe:
-  symbols:
-  - 000001.SZ
-  filters:
-    minimum_listing_days: 61
-    minimum_history_days: 61
-    minimum_average_amount: 1

@@ -1,1 +1,0 @@
-{"run_id": "oos-run", "status": "SUCCESS", "created_at": "2024-01-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00", "strategy_plugin": "fake", "strategy_id": "paper_wf_test", "start_date": "2024-01-01", "end_date": "2024-06-30", "run_kind": "walk_forward_oos", "error": null}

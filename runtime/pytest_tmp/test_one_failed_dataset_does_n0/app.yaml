@@ -1,8 +1,0 @@
-app:
-  runtime_dir: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_one_failed_dataset_does_n0\runtime
-data:
-  repository: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_one_failed_dataset_does_n0\market
-universe:
-  config: C:\Users\admin\.trae-cn\worktrees\quant\branch-nqQGAY\runtime\pytest_tmp\test_one_failed_dataset_does_n0\universe.yaml
-backtest:
-  benchmark: 000300.SH
