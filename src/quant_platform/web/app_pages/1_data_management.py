@@ -96,6 +96,12 @@ with st.expander("更新数据", expanded=True):
             start_date = st.date_input("开始日期", value=date.today() - timedelta(days=365))
             include_security_master = st.checkbox("更新全 A 证券主表", value=True)
             include_market = st.checkbox("更新配置股票池行情", value=True)
+            include_corporate_actions = st.checkbox(
+                "更新分红送配明细",
+                value=True,
+                help="分红和送股明细是回测现金结算的必需数据；"
+                "缺少明细时回测会被有效性检查阻断。",
+            )
         with right:
             end_date = st.date_input("结束日期", value=date.today())
             benchmark_names = st.multiselect(
@@ -135,7 +141,9 @@ with st.expander("更新数据", expanded=True):
     if submitted:
         if start_date > end_date:
             st.warning("开始日期不能晚于结束日期。")
-        elif not any((include_security_master, include_market, include_benchmark)):
+        elif not any(
+            (include_security_master, include_market, include_corporate_actions, include_benchmark)
+        ):
             st.warning("请至少选择一个数据集。")
         else:
             market_source_order: list[str] | None = None
@@ -152,6 +160,7 @@ with st.expander("更新数据", expanded=True):
                         end_date,
                         include_security_master=include_security_master,
                         include_market=include_market,
+                        include_corporate_actions=include_corporate_actions,
                         include_benchmark=include_benchmark,
                         market_source_order=market_source_order,
                         allow_market_fallback=fallback_selected,

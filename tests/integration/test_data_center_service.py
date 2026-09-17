@@ -40,6 +40,18 @@ class FakeAkShareDataCenter:
             }
         )
 
+    def stock_fhps_detail_em(self, symbol: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "报告期": ["2023-12-31"],
+                "现金分红-现金分红比例": [7.6],
+                "送转股份-送股比例": [None],
+                "送转股份-转股比例": [None],
+                "除权除息日": ["2024-01-03"],
+                "方案进度": ["实施分配"],
+            }
+        )
+
 
 def _write_yaml(path: Path, value: object) -> None:
     path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -74,6 +86,7 @@ def test_data_center_updates_versions_and_reports_coverage(tmp_path: Path) -> No
     assert [result.dataset for result in results] == [
         "security_master",
         "daily_bars",
+        "corporate_actions",
         "benchmark_bars",
     ]
     assert all(result.status == "SUCCESS" for result in results)
@@ -81,7 +94,9 @@ def test_data_center_updates_versions_and_reports_coverage(tmp_path: Path) -> No
     assert overview.market.coverage_ratio == 1.0
     assert overview.market.unknown_status_rows == 2
     assert overview.benchmark.coverage_ratio == 1.0
-    assert len(overview.manifests) == 3
+    assert len(overview.manifests) == 4
+    actions = service.repository.read_table("corporate_actions")
+    assert actions["cash_per_share"].tolist() == [0.76]
     market_manifest = overview.manifests[overview.manifests["dataset"].eq("daily_bars")].iloc[0]
     market_parameters = json.loads(market_manifest["parameters_json"])
     assert market_parameters["requested_sources"] == ["akshare"]

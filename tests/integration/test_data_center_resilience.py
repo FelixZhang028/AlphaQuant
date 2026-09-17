@@ -26,6 +26,9 @@ class PartiallyFailingAkShare:
             }
         )
 
+    def stock_fhps_detail_em(self, symbol: str) -> pd.DataFrame:
+        return pd.DataFrame()
+
 
 def _write_yaml(path: Path, value: object) -> None:
     path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -55,7 +58,12 @@ def test_one_failed_dataset_does_not_stop_remaining_updates(
         pd.Timestamp("2024-01-02").date(), pd.Timestamp("2024-01-03").date()
     )
 
-    assert [result.status for result in results] == ["SUCCESS", "FAILED", "SUCCESS"]
+    assert [result.status for result in results] == [
+        "SUCCESS",
+        "FAILED",
+        "SUCCESS",
+        "SUCCESS",
+    ]
     assert results[1].dataset == "daily_bars"
     assert results[1].error
     assert service.overview().benchmark.rows == 2

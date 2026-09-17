@@ -44,6 +44,68 @@ def normalize_akshare_security_master(frame: pd.DataFrame) -> pd.DataFrame:
     ].drop_duplicates("symbol", keep="last")
 
 
+def normalize_akshare_corporate_actions(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Normalize AkShare ``stock_fhps_detail_em`` entitlements for one symbol.
+
+    接口口径：现金分红与送转比例均按"每 10 股"计；仅保留已实施方案
+    （``方案进度`` 含"实施"）且有除权除息日的记录；同一除权日的多次
+    分配合并为一条（回测引擎按 symbol+ex_date 唯一消费）。
+    """
+
+    columns = ["symbol", "ex_date", "cash_per_share", "share_multiplier"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    _require_columns(
+        frame,
+        {"除权除息日", "方案进度", "现金分红-现金分红比例"},
+        "akshare.stock_fhps_detail_em",
+    )
+    result = frame.copy()
+    result["ex_date"] = pd.to_datetime(result["除权除息日"], errors="coerce")
+    result = result[
+        result["ex_date"].notna()
+        & result["方案进度"].astype(str).str.contains("实施", na=False)
+    ]
+    if result.empty:
+        return pd.DataFrame(columns=columns)
+    cash_per_ten = pd.to_numeric(
+        result["现金分红-现金分红比例"], errors="coerce"
+    ).fillna(0.0)
+    bonus_columns = ("送转股份-送股比例", "送转股份-转股比例")
+    if all(column in result.columns for column in bonus_columns):
+        bonus_per_ten = sum(
+            pd.to_numeric(result[column], errors="coerce").fillna(0.0)
+            for column in bonus_columns
+        )
+    elif "送转股份-送转总比例" in result.columns:
+        bonus_per_ten = pd.to_numeric(
+            result["送转股份-送转总比例"], errors="coerce"
+        ).fillna(0.0)
+    else:
+        bonus_per_ten = pd.Series(0.0, index=result.index)
+    normalized = pd.DataFrame(
+        {
+            "symbol": str(symbol),
+            "ex_date": result["ex_date"].dt.normalize(),
+            "cash_per_share": cash_per_ten / 10.0,
+            "share_multiplier": 1.0 + bonus_per_ten / 10.0,
+        }
+    )
+    aggregated = (
+        normalized.groupby("ex_date", as_index=False)
+        .agg(
+            cash_per_share=("cash_per_share", "sum"),
+            share_multiplier=("share_multiplier", "prod"),
+        )
+    )
+    aggregated["symbol"] = str(symbol)
+    # 既无现金也无送转的记录对结算没有意义，直接剔除。
+    meaningful = (aggregated["cash_per_share"] > 0) | (
+        aggregated["share_multiplier"] != 1.0
+    )
+    return aggregated.loc[meaningful, columns].sort_values("ex_date").reset_index(drop=True)
+
+
 def normalize_akshare_index_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     """Normalize AkShare ``index_zh_a_hist`` daily output."""
 

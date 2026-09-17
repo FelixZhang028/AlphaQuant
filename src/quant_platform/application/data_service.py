@@ -317,6 +317,48 @@ class DataCenterService:
             save_manifest(self.repository, failed)
             raise
 
+    def update_corporate_actions(
+        self,
+        start_date: date,
+        end_date: date,
+        symbols: list[str] | None = None,
+    ) -> DataUpdateResult:
+        """Refresh dividend and bonus entitlements for the configured universe.
+
+        分红送配明细是回测引擎现金结算的必需数据：复权因子变化的交易日
+        若缺少对应明细，回测会被有效性检查阻断。
+        """
+
+        selected = symbols or self.configured_symbols
+        parameters: dict[str, Any] = {
+            "symbols": selected,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        }
+        manifest = DataManifest.start("corporate_actions", "akshare", parameters)
+        try:
+            frame, failures = self._catalog().update_corporate_actions(selected)
+            quality: dict[str, Any] = {"failed_symbols": failures}
+            if not frame.empty:
+                quality["cash_records"] = int(frame["cash_per_share"].gt(0).sum())
+                quality["bonus_records"] = int(frame["share_multiplier"].ne(1.0).sum())
+            completed = manifest.succeed(
+                row_count=len(frame),
+                symbol_count=int(frame["symbol"].nunique()) if not frame.empty else 0,
+                min_date=(frame["ex_date"].min().date() if not frame.empty else None),
+                max_date=(frame["ex_date"].max().date() if not frame.empty else None),
+                quality=quality,
+            )
+            save_manifest(self.repository, completed)
+            message = "分红送配明细更新完成"
+            if failures:
+                preview = ", ".join(failures[:5])
+                message += f"（{len(failures)} 只获取失败：{preview}）"
+            return self._result(completed, message)
+        except Exception as exc:
+            save_manifest(self.repository, manifest.fail(exc))
+            raise
+
     def update_benchmark(
         self, start_date: date, end_date: date, benchmark_symbol: str | None = None
     ) -> DataUpdateResult:
@@ -366,6 +408,7 @@ class DataCenterService:
         *,
         include_security_master: bool = True,
         include_market: bool = True,
+        include_corporate_actions: bool = True,
         include_benchmark: bool = True,
         market_source_order: list[str] | None = None,
         allow_market_fallback: bool | None = None,
@@ -387,6 +430,13 @@ class DataCenterService:
                         source_order=market_source_order,
                         allow_fallback=allow_market_fallback,
                     ),
+                )
+            )
+        if include_corporate_actions:
+            results.append(
+                self._capture_failure(
+                    "corporate_actions",
+                    lambda: self.update_corporate_actions(start_date, end_date),
                 )
             )
         if include_benchmark:
