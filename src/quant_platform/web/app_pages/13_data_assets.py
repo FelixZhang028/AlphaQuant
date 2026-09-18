@@ -16,12 +16,10 @@ from quant_platform.web.theme import inject_global_css
 inject_global_css()
 
 st.title("数据资产")
-st.caption("统一查看数据源、更新本地数据、维护股票池，并按需调用 XTick 专项接口。")
+st.caption("对比数据源并按需调用 XTick 专项接口；本地数据更新与股票池已提升为左侧导航一级入口。")
 
 MODES = {
     "来源对比": None,
-    "本地数据": ("1_data_management.py", "data_management"),
-    "股票池": ("5_universe_management.py", "universe_management"),
     "XTick 接口": ("11_xtick_data.py", "xtick_data"),
 }
 

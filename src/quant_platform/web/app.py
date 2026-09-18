@@ -27,6 +27,8 @@ st.session_state.setdefault("aq_authenticated_user", None)
 authenticated_user = st.session_state.get("aq_authenticated_user")
 
 if authenticated_user:
+    # 导航叙事 = 用户旅程：首页(我在哪) → 研究工作台(我创造) →
+    # 验证与审计(我求真，平台定位核心) → 数据(我依赖) → 系统。
     navigation_pages = {
         "": [
             st.Page(
@@ -34,13 +36,18 @@ if authenticated_user:
                 title="首页",
                 default=True,
             ),
-            st.Page(
-                "welcome.py",
-                title="开始使用",
-                url_path="welcome",
-            ),
         ],
-        "AI 智能投研": [
+        "研究工作台": [
+            st.Page(
+                "app_pages/9_factor_lab.py",
+                title="因子实验室",
+                icon=":material/science:",
+            ),
+            st.Page(
+                "app_pages/0_strategy_hub.py",
+                title="策略工作室",
+                icon=":material/widgets:",
+            ),
             st.Page(
                 "app_pages/8_agent_lab.py",
                 title="AI研究员",
@@ -52,30 +59,45 @@ if authenticated_user:
                 icon=":material/library_books:",
             ),
         ],
-        "策略与因子研究": [
-            st.Page(
-                "app_pages/0_strategy_hub.py",
-                title="策略工作室",
-                icon=":material/widgets:",
-            ),
-            st.Page(
-                "app_pages/9_factor_lab.py",
-                title="因子实验室",
-                icon=":material/science:",
-            ),
+        "验证与审计": [
             st.Page(
                 "home.py",
                 title="回测与验证",
                 icon=":material/candlestick_chart:",
             ),
+            st.Page(
+                "app_pages/audit_report.py",
+                title="可信度审计",
+                icon=":material/fact_check:",
+            ),
+            st.Page(
+                "app_pages/strategy_forensics.py",
+                title="策略验伪",
+                icon=":material/troubleshoot:",
+            ),
             st.Page("app_pages/6_run_library.py", title="研究记录", icon=":material/history:"),
         ],
-        "数据管理": [
+        "数据": [
+            st.Page(
+                "app_pages/1_data_management.py",
+                title="数据更新",
+                icon=":material/cloud_download:",
+            ),
             st.Page(
                 "app_pages/13_data_assets.py", title="数据资产", icon=":material/database:"
             ),
+            st.Page(
+                "app_pages/5_universe_management.py",
+                title="股票池",
+                icon=":material/format_list_bulleted:",
+            ),
         ],
         "系统": [
+            st.Page(
+                "welcome.py",
+                title="开始使用",
+                url_path="welcome",
+            ),
             st.Page(
                 "app_pages/16_user_center.py",
                 title="个人中心",

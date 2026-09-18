@@ -167,7 +167,6 @@ with st.expander("股票过滤设置"):
             st.error(f"保存失败：{exc}")
 
 if with_data < len(settings.symbols):
-    st.info("新增股票后，请前往“数据管理”更新配置股票池行情，再运行回测。")
-    if st.button("前往数据管理"):
-        st.session_state["data_assets_mode"] = "本地数据"
-        st.switch_page("app_pages/13_data_assets.py")
+    st.info("新增股票后，请前往“数据更新”更新配置股票池行情，再运行回测。")
+    if st.button("前往数据更新"):
+        st.switch_page("app_pages/1_data_management.py")
