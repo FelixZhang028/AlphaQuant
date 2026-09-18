@@ -49,7 +49,10 @@ def neutralize_exposures(values: pd.DataFrame, exposures: pd.DataFrame, mode: st
     if not required.issubset(exposures.columns) or exposures.empty:
         raise ValueError("中性化缺少历史暴露表 security_exposures：" + ", ".join(sorted(required)))
     left, right = values.copy(), exposures.copy()
-    left["date"], right["date"] = pd.to_datetime(left.date), pd.to_datetime(right.date)
+    # pandas 2.x 支持多级时间精度（ns/s 等），merge_asof 要求两侧 dtype 一致；
+    # 统一升到 ns 精度，兼容不同来源（Parquet/外部表）的暴露表。
+    left["date"] = pd.to_datetime(left.date).astype("datetime64[ns]")
+    right["date"] = pd.to_datetime(right.date).astype("datetime64[ns]")
     if right.duplicated(["date", "symbol"]).any():
         raise ValueError("历史暴露表存在重复日期/股票")
     joined = pd.merge_asof(

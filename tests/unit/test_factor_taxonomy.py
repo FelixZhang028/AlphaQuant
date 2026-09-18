@@ -59,9 +59,9 @@ render_factor_library({f.name:f for f in [*alpha101_factors(), *builtin_factors(
     app.selectbox(key="library_category").select("反转与偏离").run()
     app.text_input(key="library_search").set_value("033").run()
     assert list(app.dataframe[0].value["因子名"]) == ["alpha101_033"]
-    app.session_state[app.dataframe[0].key] = {
-        "selection": {"rows": [0], "columns": [], "cells": []}
-    }
+    # Streamlit 1.50 AppTest 无行选择适配器，用 conftest 补丁的
+    # _test_selection 属性注入原生 string_value 选择事件。
+    app.dataframe[0]._test_selection = {"selection": {"rows": [0], "columns": [], "cells": []}}
     app.run()
     assert any("分类依据" in c.value for c in app.caption)
     app.multiselect(key="library_intents").set_value(["关注放量"]).run()

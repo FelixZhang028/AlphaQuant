@@ -63,9 +63,9 @@ def test_factor_intents_and_close_filter_state():
     assert not any(b.key == "library_close" for b in app.button)
     app.text_input(key="library_search").set_value("放量").run()
     assert set(app.dataframe[0].value["因子名"]) == {"amount_change_20", "volume_ratio_5"}
-    app.session_state[app.dataframe[0].key] = {
-        "selection": {"rows": [0], "columns": [], "cells": []}
-    }
+    # Streamlit 1.50 AppTest 无行选择适配器，用 conftest 补丁的
+    # _test_selection 属性注入原生 string_value 选择事件。
+    app.dataframe[0]._test_selection = {"selection": {"rows": [0], "columns": [], "cells": []}}
     app.run()
     assert any(b.key == "library_close" for b in app.button)
     app.text_input(key="library_search").set_value("低波动").run()
