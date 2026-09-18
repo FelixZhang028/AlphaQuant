@@ -19,6 +19,7 @@ from quant_platform.web.security_names import load_security_names, security_labe
 from quant_platform.web.service_cache import (
     cached_overview_or_stop,
     data_fingerprint,
+    get_closed_loop_status,
     get_coverage_bars,
 )
 from quant_platform.web.theme import inject_global_css
@@ -88,6 +89,42 @@ with st.expander("行情数据源", expanded=True):
             st.warning(f"首选数据源 {primary_name} 尚未就绪；更新行情时会自动尝试备用数据源。")
         st.dataframe(localize_frame(source_status), width="stretch", hide_index=True)
         st.caption("这里显示的是本机配置状态；实际成功来源以本次更新结果和数据版本为准。")
+
+with st.expander("全市场数据闭环（退市股 + 历史成分）"):
+    closed_loop = get_closed_loop_status("configs/app.yaml", repo_fingerprint)
+    closed_columns = st.columns(5)
+    closed_columns[0].metric("主表证券", f"{closed_loop['master_total']:,}")
+    closed_columns[1].metric("其中退市", f"{closed_loop['master_delisted']:,}")
+    closed_columns[2].metric("行情覆盖股票", f"{closed_loop['bars_symbols']:,}")
+    closed_columns[3].metric("历史成分", f"{closed_loop['membership_rows']:,}")
+    closed_columns[4].metric("退市结算", f"{closed_loop['settlement_rows']:,}")
+    if closed_loop["bars_min"]:
+        st.caption(
+            f"本地全市场行情 {closed_loop['bars_min']} 至 {closed_loop['bars_max']}"
+            f"（{closed_loop['bars_rows']:,} 行）；分红送配明细 "
+            f"{closed_loop['corporate_action_rows']:,} 条。历史成分为规则近似："
+            "上市即入池、退市即出池，消除固定股票池的幸存者偏差。"
+        )
+    checkpoint = closed_loop.get("checkpoint") or {}
+    if checkpoint:
+        checkpoint_frame = pd.DataFrame(
+            [
+                {
+                    "数据集": dataset,
+                    "回填区间": record.get("range", "—"),
+                    "已完成": record.get("done", 0),
+                    "失败": record.get("failed", 0),
+                    "更新时间": record.get("updated_at", "—"),
+                }
+                for dataset, record in checkpoint.items()
+            ]
+        )
+        st.dataframe(localize_frame(checkpoint_frame), width="stretch", hide_index=True)
+    st.info(
+        "全市场回填是数小时级长任务，请在命令行执行并利用断点续传："
+        "`python -m quant_platform.cli closed-loop --start-date 2022-06-01 "
+        "--end-date 2026-09-17`。中断后重跑同一命令会自动跳过已完成部分。"
+    )
 
 with st.expander("更新数据", expanded=True):
     with st.form("data_update_form"):

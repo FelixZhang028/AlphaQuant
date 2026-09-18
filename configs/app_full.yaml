@@ -1,0 +1,35 @@
+app:
+  name: quant-platform
+  runtime_dir: runtime
+  log_dir: logs
+
+data:
+  repository: runtime/market_akshare
+  source_config: configs/data_sources.yaml
+
+universe:
+  # 全市场历史股票池：消除幸存者偏差的闭环回测配置（CLI 验证用）。
+  config: configs/universes/a_share_full.yaml
+
+strategy:
+  config: configs/strategies/momentum.yaml
+
+portfolio:
+  plugin: equal_weight
+  top_n: 5
+
+execution:
+  config: configs/execution/paper.yaml
+
+risk:
+  config: configs/risk.yaml
+
+backtest:
+  start_date: "2023-01-03"
+  end_date: "2024-12-31"
+  initial_cash: 1000000.0
+  benchmark: 000300.SH
+  benchmark_name: 沪深 300
+  # 回测起点之前额外加载的交易日数：覆盖策略动量回看、估值底仓与
+  # 最小上市历史要求；0 会截断 start 之前的全部历史（不建议）。
+  warmup_days: 120

@@ -1,0 +1,12 @@
+universe:
+  id: a_share_full
+  # historical 模式：成分由 universe_membership 表（规则近似生成的
+  # 历史股票池，含已退市证券）驱动，下方 symbols 占位不参与历史选股。
+  mode: historical
+  symbols: []
+  filters:
+    exclude_st: true
+    exclude_suspended: true
+    minimum_listing_days: 120
+    minimum_history_days: 61
+    minimum_average_amount: 20000000.0

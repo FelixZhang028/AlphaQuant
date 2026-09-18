@@ -24,6 +24,7 @@ from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.coverage import DatasetCoverage, calculate_daily_coverage
+from quant_platform.data.full_market_backfill import FullMarketBackfill
 from quant_platform.data.ifind_backfill import IFindRangeBackfill
 from quant_platform.data.network import (
     ProxyResilientAkShareClient,
@@ -456,6 +457,69 @@ class DataCenterService:
                     )
                 )
         return results
+
+    def full_market_backfill(self) -> FullMarketBackfill:
+        """构造全市场闭环回填器，与数据中心共享仓库和网络客户端。"""
+
+        runtime_dir = require_mapping(self.app, "app").get("runtime_dir", "runtime")
+        return FullMarketBackfill(
+            self.raw_repository,
+            self.repository,
+            self.sources.baostock_provider(),
+            akshare_client=self._akshare_client(),
+            state_path=Path(str(runtime_dir)) / "full_market_backfill_state.json",
+        )
+
+    def run_closed_loop(
+        self,
+        start_date: date,
+        end_date: date,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """执行全市场数据闭环（主表/日线/分红送配/历史成分/退市结算）。"""
+
+        return self.full_market_backfill().run_closed_loop(start_date, end_date, **kwargs)
+
+    def closed_loop_status(self) -> dict[str, Any]:
+        """只读汇总闭环五张表的落地情况与断点进度（不访问外网）。"""
+
+        master = self.repository.read_table("security_master")
+        bars = self.repository.read_table("daily_bars")
+        membership = self.repository.read_table("universe_membership")
+        settlements = self.repository.read_table("delisting_settlements")
+        actions = self.repository.read_table("corporate_actions")
+        bars_symbols = int(bars["symbol"].nunique()) if not bars.empty else 0
+        status: dict[str, Any] = {
+            "master_total": int(len(master)) if not master.empty else 0,
+            "master_delisted": (
+                int(master["delist_date"].notna().sum())
+                if not master.empty and "delist_date" in master.columns
+                else 0
+            ),
+            "bars_symbols": bars_symbols,
+            "bars_rows": int(len(bars)),
+            "bars_min": (
+                bars["trade_date"].min().date().isoformat() if bars_symbols else None
+            ),
+            "bars_max": (
+                bars["trade_date"].max().date().isoformat() if bars_symbols else None
+            ),
+            "membership_rows": int(len(membership)) if not membership.empty else 0,
+            "membership_symbols": (
+                int(membership["symbol"].nunique()) if not membership.empty else 0
+            ),
+            "settlement_rows": int(len(settlements)) if not settlements.empty else 0,
+            "corporate_action_rows": int(len(actions)) if not actions.empty else 0,
+        }
+        runtime_dir = require_mapping(self.app, "app").get("runtime_dir", "runtime")
+        state_path = Path(str(runtime_dir)) / "full_market_backfill_state.json"
+        backfill = FullMarketBackfill(
+            self.raw_repository,
+            self.repository,
+            state_path=state_path,
+        )
+        status["checkpoint"] = backfill.state.snapshot()
+        return status
 
     def _catalog(self) -> AkShareCatalogIngestor:
         return AkShareCatalogIngestor(

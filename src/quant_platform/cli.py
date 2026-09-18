@@ -97,6 +97,27 @@ def command_data_update(args: argparse.Namespace) -> None:
     )
 
 
+def command_closed_loop(args: argparse.Namespace) -> None:
+    """全市场数据闭环：主表（含退市股）→ 日线 → 分红送配 → 历史成分/退市结算。"""
+
+    service = DataCenterService(args.config)
+
+    def progress(stage: str, done: int, total: int) -> None:
+        print(f"[closed-loop:{stage}] {done}/{total}", flush=True)
+
+    results = service.run_closed_loop(
+        parse_date(args.start_date),
+        parse_date(args.end_date),
+        limit=args.limit,
+        resume=not args.reset,
+        skip_bars=args.skip_bars,
+        skip_actions=args.skip_actions,
+        skip_derived=args.skip_derived,
+        progress=progress,
+    )
+    print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
+
+
 def command_strategies(args: argparse.Namespace) -> None:
     """List strategies found without manual registration."""
 
@@ -148,6 +169,24 @@ def make_parser() -> argparse.ArgumentParser:
     update.add_argument("--skip-market", action="store_true")
     update.add_argument("--skip-benchmark", action="store_true")
     update.set_defaults(func=command_data_update)
+
+    closed_loop = subparsers.add_parser(
+        "closed-loop",
+        help="全市场数据闭环回填（含退市股、历史成分与退市结算，支持断点续传）",
+    )
+    _add_config_argument(closed_loop)
+    closed_loop.add_argument("--start-date", required=True)
+    closed_loop.add_argument("--end-date", required=True)
+    closed_loop.add_argument(
+        "--limit", type=int, default=0, help="限制回填股票数量（冒烟验证用，0 为全市场）"
+    )
+    closed_loop.add_argument("--reset", action="store_true", help="忽略断点，从头开始")
+    closed_loop.add_argument("--skip-bars", action="store_true", help="跳过日线回填")
+    closed_loop.add_argument("--skip-actions", action="store_true", help="跳过分红送配回填")
+    closed_loop.add_argument(
+        "--skip-derived", action="store_true", help="跳过历史成分与退市结算生成"
+    )
+    closed_loop.set_defaults(func=command_closed_loop)
 
     strategies = subparsers.add_parser(
         "strategies", help="list automatically discovered strategies"

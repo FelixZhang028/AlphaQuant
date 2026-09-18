@@ -19,6 +19,53 @@ from quant_platform.data.repositories.raw_repository import RawDataRepository
 logger = logging.getLogger(__name__)
 
 
+def normalize_baostock_master(
+    metadata: pd.DataFrame, symbols: list[str] | None = None
+) -> pd.DataFrame:
+    """把 BaoStock 证券资料归一为证券主表结构（退市股带 delist_date）。"""
+
+    if metadata.empty:
+        return pd.DataFrame(
+            {
+                "symbol": symbols or [],
+                "name": symbols or [],
+                "exchange": [symbol.split(".")[-1] for symbol in (symbols or [])],
+                "list_date": pd.NaT,
+                "delist_date": pd.NaT,
+                "list_status": "UNKNOWN",
+                "source": "baostock",
+            }
+        )
+    result = metadata.rename(
+        columns={
+            "code_name": "name",
+            "ipoDate": "list_date",
+            "outDate": "delist_date",
+        }
+    ).copy()
+    result["list_date"] = pd.to_datetime(result.get("list_date"), errors="coerce")
+    result["delist_date"] = pd.to_datetime(result.get("delist_date"), errors="coerce")
+    result["exchange"] = result["symbol"].astype(str).str.split(".").str[-1]
+    current_status = result.get("status", pd.Series(index=result.index, dtype="string"))
+    result["list_status"] = current_status.astype("string").map(
+        {"1": "L", "0": "D"}
+    ).fillna("UNKNOWN")
+    result["source"] = "baostock"
+    columns = [
+        "symbol",
+        "name",
+        "exchange",
+        "list_date",
+        "delist_date",
+        "list_status",
+        "source",
+    ]
+    for column in columns:
+        if column not in result.columns:
+            result[column] = pd.NA
+    return result[columns].drop_duplicates("symbol", keep="last")
+
+
 class BaoStockRangeBackfill:
     """Publish canonical bars only after status and limit derivation are auditable."""
 
@@ -46,10 +93,10 @@ class BaoStockRangeBackfill:
                 metadata,
                 {"symbols": symbols},
             )
-            master = self._normalize_master(metadata, symbols)
+            master = normalize_baostock_master(metadata, symbols)
             frames: list[pd.DataFrame] = []
             for symbol in symbols:
-                frame = self._fetch_symbol(symbol, start_date, end_date, master)
+                frame = self.fetch_symbol(symbol, start_date, end_date, master)
                 if not frame.empty:
                     frames.append(frame)
         finally:
@@ -79,13 +126,17 @@ class BaoStockRangeBackfill:
         self.market_repository.save_table("daily_bars", daily)
         return report
 
-    def _fetch_symbol(
+    def fetch_symbol(
         self,
         symbol: str,
         start_date: date,
         end_date: date,
         master: pd.DataFrame,
     ) -> pd.DataFrame:
+        """抓取并归一化单只证券的日线（含状态、涨跌停与质量标记）。
+
+        全市场闭环回填复用此方法逐只抓取，由调用方控制批量落库与断点。
+        """
         request = {
             "symbol": symbol,
             "start_date": start_date.isoformat(),
@@ -148,46 +199,3 @@ class BaoStockRangeBackfill:
         bars.loc[missing_adjustment, "quality_status"] = "MISSING_ADJ_FACTOR"
         bars.loc[missing_price, "quality_status"] = "MISSING_PRICE"
         return bars.drop(columns=["status_known"])
-
-    @staticmethod
-    def _normalize_master(metadata: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
-        if metadata.empty:
-            return pd.DataFrame(
-                {
-                    "symbol": symbols,
-                    "name": symbols,
-                    "exchange": [symbol.split(".")[-1] for symbol in symbols],
-                    "list_date": pd.NaT,
-                    "delist_date": pd.NaT,
-                    "list_status": "UNKNOWN",
-                    "source": "baostock",
-                }
-            )
-        result = metadata.rename(
-            columns={
-                "code_name": "name",
-                "ipoDate": "list_date",
-                "outDate": "delist_date",
-            }
-        ).copy()
-        result["list_date"] = pd.to_datetime(result.get("list_date"), errors="coerce")
-        result["delist_date"] = pd.to_datetime(result.get("delist_date"), errors="coerce")
-        result["exchange"] = result["symbol"].astype(str).str.split(".").str[-1]
-        current_status = result.get("status", pd.Series(index=result.index, dtype="string"))
-        result["list_status"] = current_status.astype("string").map(
-            {"1": "L", "0": "D"}
-        ).fillna("UNKNOWN")
-        result["source"] = "baostock"
-        columns = [
-            "symbol",
-            "name",
-            "exchange",
-            "list_date",
-            "delist_date",
-            "list_status",
-            "source",
-        ]
-        for column in columns:
-            if column not in result.columns:
-                result[column] = pd.NA
-        return result[columns].drop_duplicates("symbol", keep="last")

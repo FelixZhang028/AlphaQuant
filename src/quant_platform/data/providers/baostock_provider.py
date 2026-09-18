@@ -19,6 +19,23 @@ _HISTORY_FIELDS = (
 )
 
 
+def _ensure_baostock_pandas_compat() -> None:
+    """补齐 baostock 0.8.x 依赖的 pandas 1.x ``DataFrame.append``。
+
+    baostock 在合并分页结果时调用 pandas 2 已移除的 ``DataFrame.append``；
+    全量证券列表（约 9000 行）超过单页即触发，单只查询不受影响。
+    shim 与旧语义等价（baostock 只用 ignore_index 参数）。
+    """
+
+    if hasattr(pd.DataFrame, "append"):
+        return
+    pd.DataFrame.append = (  # type: ignore[method-assign, attr-defined]
+        lambda self, other, ignore_index=False, **_: pd.concat(
+            [self, other], ignore_index=ignore_index
+        )
+    )
+
+
 class BaoStockDataProvider(DataProvider):
     """Fetch free A-share history and daily status fields from BaoStock."""
 
@@ -28,6 +45,7 @@ class BaoStockDataProvider(DataProvider):
         if client is None:
             import baostock as bs
 
+            _ensure_baostock_pandas_compat()
             client = bs
         self._client = client
         self._logged_in = False

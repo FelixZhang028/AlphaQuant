@@ -61,6 +61,30 @@ def test_provider_uses_one_session_and_canonical_symbol_format() -> None:
     assert canonical_symbol("sh.600000") == "600000.SH"
 
 
+def test_baostock_pandas_compat_shim_merges_frames_like_append() -> None:
+    # pandas 2 移除 DataFrame.append 后，真实 baostock 分页合并会崩溃；
+    # shim 需按旧语义合并，且已存在 append 时保持幂等。
+    from quant_platform.data.providers.baostock_provider import (
+        _ensure_baostock_pandas_compat,
+    )
+
+    had_append = hasattr(pd.DataFrame, "append")
+    original = getattr(pd.DataFrame, "append", None)
+    try:
+        if had_append:
+            del pd.DataFrame.append
+        _ensure_baostock_pandas_compat()
+        frame = pd.DataFrame({"a": [1]})
+        combined = frame.append(pd.DataFrame({"a": [2]}), ignore_index=True)
+        assert list(combined["a"]) == [1, 2]
+        _ensure_baostock_pandas_compat()  # 二次调用不重复打补丁
+    finally:
+        if had_append:
+            pd.DataFrame.append = original
+        elif hasattr(pd.DataFrame, "append"):
+            del pd.DataFrame.append
+
+
 def test_provider_errors_fail_closed() -> None:
     class FailedLogin(FakeBaoStock):
         def login(self) -> FakeResult:

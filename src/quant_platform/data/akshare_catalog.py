@@ -38,7 +38,13 @@ class AkShareCatalogIngestor:
         self.market_repository = market_repository
 
     def update_security_master(self) -> pd.DataFrame:
-        """Refresh the current沪深京 A-share security list."""
+        """Refresh the current沪深京 A-share security list.
+
+        AkShare 只提供当前在市列表（无上市/退市日期）。本地已有全市场
+        闭环主表（BaoStock，含退市股与 PIT 日期）时，带日期的记录优先
+        保留，避免被空值覆盖；无日期的旧记录让位于新列表（名称刷新），
+        新出现的证券增量插入。
+        """
 
         raw = pd.DataFrame(self.client.stock_info_a_code_name())
         if raw.empty:
@@ -46,8 +52,18 @@ class AkShareCatalogIngestor:
         captured_date = date.today()
         self.raw_repository.save("akshare", "security_master", captured_date, raw, {})
         normalized = normalize_akshare_security_master(raw)
-        self.market_repository.save_table("security_master", normalized)
-        return normalized
+        existing = self.market_repository.read_table("security_master")
+        if not existing.empty and "list_date" in existing.columns:
+            dated = existing["list_date"].notna()
+            pit_symbols = set(existing.loc[dated, "symbol"])
+            combined = pd.concat(
+                [existing[dated], normalized[~normalized["symbol"].isin(pit_symbols)]],
+                ignore_index=True,
+            )
+        else:
+            combined = normalized
+        self.market_repository.save_table("security_master", combined)
+        return combined
 
     def update_corporate_actions(self, symbols: list[str]) -> tuple[pd.DataFrame, list[str]]:
         """Refresh dividend and bonus entitlements for the requested symbols.

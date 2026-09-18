@@ -76,7 +76,15 @@ def data_fingerprint(repository: ParquetMarketDataRepository) -> str:
     """最近一次成功数据版本的完成时间，作为缓存失效指纹。"""
 
     parts: list[str] = []
-    for dataset in ("daily_bars", "benchmark_bars", "security_master", "corporate_actions"):
+    datasets = (
+        "daily_bars",
+        "benchmark_bars",
+        "security_master",
+        "corporate_actions",
+        "universe_membership",
+        "delisting_settlements",
+    )
+    for dataset in datasets:
         manifest = latest_successful_manifest(repository, dataset)
         if manifest:
             stamp = manifest.get("completed_at") or manifest.get("version_id") or ""
@@ -98,6 +106,21 @@ def _coverage_at(repository_root: str, repo_fingerprint: str) -> pd.DataFrame:
     """页面级全量日线行情（覆盖率检查 / 导出筛选），按指纹 + TTL 缓存。"""
 
     return _data_repository_at(repository_root).read_table("daily_bars")
+
+
+@st.cache_data(ttl=600)
+def _closed_loop_at(
+    config_path: str, working_directory: str, repo_fingerprint: str
+) -> dict[str, Any]:
+    """全市场闭环状态（一次读多张表），按指纹 + TTL 缓存。"""
+
+    return _data_center_at(config_path, working_directory).closed_loop_status()
+
+
+def get_closed_loop_status(config_path: str, repo_fingerprint: str) -> dict[str, Any]:
+    return _closed_loop_at(
+        str(Path(config_path).resolve()), str(Path.cwd()), repo_fingerprint
+    )
 
 
 def get_data_overview(config_path: str, repo_fingerprint: str) -> DataCenterOverview:
