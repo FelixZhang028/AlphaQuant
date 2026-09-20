@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+import time
 from datetime import date, datetime, UTC
 from pathlib import Path
 from typing import Any, Callable
@@ -38,8 +40,84 @@ logger = logging.getLogger(__name__)
 CONSECUTIVE_FAILURE_LIMIT = 30
 # 整批公司行为抓取连续失败的熔断阈值（AkShare 网络层故障）。
 BATCH_FAILURE_LIMIT = 3
+# 看门狗强杀进程的退出码：外层守护脚本据此识别并重启续传。
+WATCHDOG_EXIT_CODE = 86
 
 ProgressCallback = Callable[[str, int, int], None]
+
+
+class _ProgressWatchdog:
+    """外网请求心跳看门狗，防数据源挂死后进程永久空转。
+
+    实测教训：baostock 连接中断后其内部循环可能既不返回也不抛异常，
+    进程以单核 100% 空转十几个小时零进度。本看门狗由守护线程周期
+    检查心跳，超时即 ``os._exit`` 强杀进程，交由外层重启循环从断点
+    续传；本地落库窗口用 ``pause``/``resume`` 暂停监控，避免写
+    Parquet 中途被杀损坏数据文件。
+    """
+
+    def __init__(self, timeout_seconds: float) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("watchdog timeout must be positive")
+        self._timeout = float(timeout_seconds)
+        self._deadline: float | None = None
+        self._paused = False
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        """武装看门狗并启动守护线程。"""
+
+        self._arm()
+        threading.Thread(
+            target=self._run, name="backfill-watchdog", daemon=True
+        ).start()
+
+    def _arm(self) -> None:
+        with self._lock:
+            self._deadline = time.monotonic() + self._timeout
+
+    def feed(self) -> None:
+        """喂狗：每次外网请求或落库进展前调用。"""
+
+        with self._lock:
+            if self._deadline is not None and not self._paused:
+                self._deadline = time.monotonic() + self._timeout
+
+    def pause(self) -> None:
+        """暂停监控（本地落库窗口内不判超时）。"""
+
+        with self._lock:
+            self._paused = True
+
+    def resume(self) -> None:
+        """恢复监控并顺带喂狗。"""
+
+        with self._lock:
+            self._paused = False
+            if self._deadline is not None:
+                self._deadline = time.monotonic() + self._timeout
+
+    def expired(self) -> bool:
+        with self._lock:
+            return (
+                self._deadline is not None
+                and not self._paused
+                and time.monotonic() > self._deadline
+            )
+
+    def _run(self) -> None:
+        interval = min(self._timeout / 10.0, 5.0)
+        while True:
+            time.sleep(interval)
+            if not self.expired():
+                continue
+            message = (
+                f"看门狗超时：{self._timeout:.0f} 秒无心跳，疑似数据源挂死，"
+                f"强制退出进程（exit={WATCHDOG_EXIT_CODE}）等待外层重启续传"
+            )
+            logger.critical(message)
+            print(message, flush=True)
+            os._exit(WATCHDOG_EXIT_CODE)
 
 
 def _range_key(start_date: date, end_date: date) -> str:
@@ -172,6 +250,7 @@ class FullMarketBackfill:
         resume: bool = True,
         limit: int = 0,
         progress: ProgressCallback | None = None,
+        watchdog: _ProgressWatchdog | None = None,
     ) -> dict[str, Any]:
         """逐只回填全市场日线；单只失败可容忍，连续失败熔断。"""
 
@@ -193,8 +272,12 @@ class FullMarketBackfill:
         frames: list[pd.DataFrame] = []
 
         provider.login()
+        if watchdog is not None:
+            watchdog.feed()
         try:
             for symbol in pending:
+                if watchdog is not None:
+                    watchdog.feed()
                 try:
                     frame = self._range().fetch_symbol(symbol, start_date, end_date, master)
                     consecutive_failures = 0
@@ -208,15 +291,24 @@ class FullMarketBackfill:
                     if consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
                         raise
                 if len(frames) >= batch_size:
-                    rows_this_run += self._flush_bars(frames, status_counts)
+                    rows_this_run += self._flush_bars_checkpoint(
+                        frames, status_counts, done, failed, key, watchdog
+                    )
                     frames = []
-                    self.state.record("daily_bars", key, done, failed)
                     if progress:
                         progress("daily_bars", len(done) + len(failed), total)
             if frames:
-                rows_this_run += self._flush_bars(frames, status_counts)
+                rows_this_run += self._flush_bars_checkpoint(
+                    frames, status_counts, done, failed, key, watchdog
+                )
         finally:
-            self.state.record("daily_bars", key, done, failed)
+            if watchdog is not None:
+                watchdog.pause()
+            try:
+                self.state.record("daily_bars", key, done, failed)
+            finally:
+                if watchdog is not None:
+                    watchdog.resume()
             provider.close()
         if progress:
             progress("daily_bars", len(done) + len(failed), total)
@@ -239,6 +331,7 @@ class FullMarketBackfill:
         resume: bool = True,
         limit: int = 0,
         progress: ProgressCallback | None = None,
+        watchdog: _ProgressWatchdog | None = None,
     ) -> dict[str, Any]:
         """逐批刷新全市场分红送配；复权因子变化的持仓必须有明细可结算。"""
 
@@ -259,10 +352,17 @@ class FullMarketBackfill:
             client=self._akshare_client(),
         )
         batch_failures = 0
+        heartbeat: Callable[[str], None] | None = (
+            (lambda _symbol: watchdog.feed()) if watchdog is not None else None
+        )
         for index in range(0, len(pending), batch_size):
             chunk = pending[index : index + batch_size]
+            if watchdog is not None:
+                watchdog.feed()
             try:
-                _, chunk_failures = catalog.update_corporate_actions(chunk)
+                _, chunk_failures = catalog.update_corporate_actions(
+                    chunk, heartbeat=heartbeat
+                )
                 done.extend(chunk)
                 for symbol in chunk_failures:
                     failed[symbol] = "akshare stock_fhps_detail_em 获取失败"
@@ -420,10 +520,22 @@ class FullMarketBackfill:
         skip_actions: bool = False,
         skip_derived: bool = False,
         progress: ProgressCallback | None = None,
+        watchdog_timeout: float | None = None,
     ) -> dict[str, Any]:
-        """执行全量主表 → 日线 → 分红送配 → 历史成分/退市结算的完整闭环。"""
+        """执行全量主表 → 日线 → 分红送配 → 历史成分/退市结算的完整闭环。
+
+        ``watchdog_timeout`` 启用心跳看门狗：单次外网请求超过该秒数
+        无进展即强杀进程（退出码 86），供外层守护脚本重启续传；默认
+        关闭以保持库调用可测。
+        """
 
         results: dict[str, Any] = {}
+        watchdog = (
+            _ProgressWatchdog(watchdog_timeout) if watchdog_timeout is not None else None
+        )
+        if watchdog is not None:
+            watchdog.start()
+            watchdog.feed()
         master_manifest = DataManifest.start(
             "security_master", "baostock", {"closed_loop": True}
         )
@@ -462,6 +574,7 @@ class FullMarketBackfill:
                     resume=resume,
                     limit=limit,
                     progress=progress,
+                    watchdog=watchdog,
                 )
                 results["daily_bars"] = stats
                 save_manifest(
@@ -501,6 +614,7 @@ class FullMarketBackfill:
                     resume=resume,
                     limit=limit,
                     progress=progress,
+                    watchdog=watchdog,
                 )
                 results["corporate_actions"] = stats
                 save_manifest(
@@ -523,6 +637,8 @@ class FullMarketBackfill:
                 "universe_membership", "derived", {"closed_loop": True, "method": "规则近似"}
             )
             try:
+                if watchdog is not None:
+                    watchdog.feed()
                 membership = self.build_universe_membership()
                 results["universe_membership"] = {
                     "rows": len(membership),
@@ -543,6 +659,8 @@ class FullMarketBackfill:
                 "delisting_settlements", "derived", {"closed_loop": True}
             )
             try:
+                if watchdog is not None:
+                    watchdog.feed()
                 settlements = self.build_delisting_settlements()
                 results["delisting_settlements"] = {"rows": len(settlements)}
                 save_manifest(
@@ -601,6 +719,27 @@ class FullMarketBackfill:
             delisted.isna() | (delisted >= pd.Timestamp(start_date))
         )
         return sorted(master.loc[overlap, "symbol"].astype(str).unique())
+
+    def _flush_bars_checkpoint(
+        self,
+        frames: list[pd.DataFrame],
+        status_counts: dict[str, int],
+        done: list[str],
+        failed: dict[str, str],
+        range_key: str,
+        watchdog: _ProgressWatchdog | None,
+    ) -> int:
+        """落库一批日线并记断点；写文件期间暂停看门狗防误杀。"""
+
+        if watchdog is not None:
+            watchdog.pause()
+        try:
+            rows = self._flush_bars(frames, status_counts)
+            self.state.record("daily_bars", range_key, done, failed)
+            return rows
+        finally:
+            if watchdog is not None:
+                watchdog.resume()
 
     def _flush_bars(self, frames: list[pd.DataFrame], status_counts: dict[str, int]) -> int:
         """把一批日线落库（含交易日历增量）并累计质量分布。"""

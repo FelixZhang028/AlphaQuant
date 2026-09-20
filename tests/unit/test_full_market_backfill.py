@@ -1,12 +1,16 @@
 """全市场数据闭环（含退市股、历史成分、退市结算）的单元测试。"""
 
+import time
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
-from quant_platform.data.full_market_backfill import FullMarketBackfill
+from quant_platform.data.full_market_backfill import (
+    FullMarketBackfill,
+    _ProgressWatchdog,
+)
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -303,6 +307,42 @@ def test_build_delisting_settlements_uses_last_close_before_delist(
     row = settlements.iloc[0]
     assert pd.Timestamp(row["settlement_date"]) == pd.Timestamp("2024-03-28")
     assert float(row["cash_per_share"]) == 3.30
+
+
+def test_progress_watchdog_tracks_heartbeat_and_pause() -> None:
+    watchdog = _ProgressWatchdog(timeout_seconds=0.05)
+
+    # 未启动时不监控
+    assert not watchdog.expired()
+    watchdog._arm()
+    assert not watchdog.expired()
+    time.sleep(0.1)
+    # 超时无心跳 → 判定过期
+    assert watchdog.expired()
+    # 喂狗重置
+    watchdog.feed()
+    assert not watchdog.expired()
+    # 暂停窗口内不判过期
+    watchdog.pause()
+    time.sleep(0.1)
+    assert not watchdog.expired()
+    # 恢复监控并顺带喂狗
+    watchdog.resume()
+    assert not watchdog.expired()
+    time.sleep(0.1)
+    assert watchdog.expired()
+
+
+def test_run_closed_loop_with_watchdog_completes(tmp_path: Path) -> None:
+    provider = FakeFullMarketProvider()
+    backfill = _backfill(tmp_path, provider)
+
+    results = backfill.run_closed_loop(
+        RANGE_START, RANGE_END, batch_size=2, watchdog_timeout=600.0
+    )
+
+    assert results["daily_bars"]["done"] == 3
+    assert results["corporate_actions"]["done"] == 3
 
 
 def test_run_closed_loop_writes_all_datasets_and_manifests(tmp_path: Path) -> None:

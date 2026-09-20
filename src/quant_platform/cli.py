@@ -114,6 +114,8 @@ def command_closed_loop(args: argparse.Namespace) -> None:
         skip_actions=args.skip_actions,
         skip_derived=args.skip_derived,
         progress=progress,
+        # 数据源挂死时强杀进程（exit=86），由外层守护脚本重启续传。
+        watchdog_timeout=600.0,
     )
     print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
 

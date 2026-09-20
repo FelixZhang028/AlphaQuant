@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -65,19 +65,29 @@ class AkShareCatalogIngestor:
         self.market_repository.save_table("security_master", combined)
         return combined
 
-    def update_corporate_actions(self, symbols: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    def update_corporate_actions(
+        self,
+        symbols: list[str],
+        *,
+        heartbeat: Callable[[str], None] | None = None,
+    ) -> tuple[pd.DataFrame, list[str]]:
         """Refresh dividend and bonus entitlements for the requested symbols.
 
         逐只调用个股分红送配接口，保存原始快照后写入 ``corporate_actions``
         标准表。单只失败不阻断其余股票；全部失败才抛 ``DataUnavailableError``。
         返回 (本次新增的标准明细, 失败代码列表)。存量表按 symbol+ex_date
         幂等合并，因此重复更新不会产生重复明细。
+
+        ``heartbeat`` 在每次外网请求与最终落库前回调（传入证券代码或
+        "flush"），供回填看门狗监测挂死。
         """
 
         frames: list[pd.DataFrame] = []
         failures: list[str] = []
         captured = date.today()
         for symbol in dict.fromkeys(str(item) for item in symbols):
+            if heartbeat is not None:
+                heartbeat(symbol)
             code = symbol.split(".", maxsplit=1)[0]
             try:
                 raw = pd.DataFrame(self.client.stock_fhps_detail_em(symbol=code))
@@ -106,6 +116,8 @@ class AkShareCatalogIngestor:
             )
         )
         if not combined.empty:
+            if heartbeat is not None:
+                heartbeat("flush")
             self.market_repository.save_table("corporate_actions", combined)
         return combined, failures
 
