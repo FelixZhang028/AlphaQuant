@@ -10,6 +10,7 @@ import pandas as pd
 import yaml
 
 from quant_platform.backtest.credibility import audit_credibility, audit_persisted_run
+from quant_platform.backtest.validity import CURRENT_AUDIT_VERSION
 
 _EXECUTION = {
     "historical_fees": True,
@@ -53,7 +54,7 @@ def _validity(
         "maximum_calendar_gap_days": gap,
         "unknown_status_orders": unknown_status_orders,
         "missing_adj_factor_rows": missing_adj_factor_rows,
-        "audit_version": 3,
+        "audit_version": CURRENT_AUDIT_VERSION,
         "legacy_unverified": legacy,
     }
 

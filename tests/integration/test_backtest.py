@@ -73,8 +73,8 @@ def test_unknown_market_data_produces_diagnostic_only_result(tmp_path: Path) -> 
     result = engine.run(date(2023, 1, 3), date(2023, 12, 29), 1_000_000)
 
     assert result.fills.empty
-    assert result.summary["validity_status"] == "INVALID"
-    assert result.summary["metrics_reliable"] is False
+    assert result.summary["validity_status"] == "WARNING"
+    assert result.summary["metrics_reliable"] is True
     assert result.summary["unknown_market_rows"] > 0
     assert result.validity["blocks_completion"] is False
 

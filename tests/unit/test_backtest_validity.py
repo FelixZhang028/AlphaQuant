@@ -83,6 +83,32 @@ def test_unknown_market_status_makes_metrics_unreliable_but_keeps_diagnostics() 
     }
 
 
+def test_unknown_market_rows_without_rejections_stay_reliable() -> None:
+    """股票池内存在不可验证行情但未影响任何订单时，只披露不计为失效。"""
+
+    dates = pd.bdate_range("2024-01-02", "2024-02-29")
+    nav = pd.DataFrame({"trade_date": dates, "equity": 1_000_000.0})
+
+    report = assess_backtest_validity(
+        nav,
+        start_date=date(2024, 1, 2),
+        end_date=date(2024, 2, 29),
+        unknown_market_rows=2401,
+        unknown_market_symbols=323,
+        fixed_universe=False,
+        evaluation_mode="out_of_sample",
+    )
+
+    assert report.status == ValidityStatus.WARNING
+    assert report.metrics_reliable
+    assert not report.blocks_completion
+    assert report.unknown_status_orders == 0
+    assert {issue.code for issue in report.issues} == {"UNKNOWN_MARKET_STATUS"}
+    assert all(
+        issue.severity.value == "WARNING" for issue in report.issues
+    )
+
+
 def test_old_validity_report_fails_closed_as_legacy_unverified(tmp_path) -> None:
     (tmp_path / "validity_report.json").write_text(
         '{"status":"WARNING","metrics_reliable":true}', encoding="utf-8"

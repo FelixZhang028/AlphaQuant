@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-CURRENT_AUDIT_VERSION = 3
+CURRENT_AUDIT_VERSION = 4
 UNKNOWN_STATUS_REJECTION_REASONS = frozenset(
     {
         "UNKNOWN_MARKET_STATUS",
@@ -200,9 +200,11 @@ def assess_backtest_validity(
         issues.append(
             ValidityIssue(
                 "UNKNOWN_MARKET_STATUS",
-                IssueSeverity.ERROR,
+                IssueSeverity.WARNING,
                 f"回测区间内有 {unknown_market_rows:,} 行行情缺少可验证的交易状态"
-                f"（涉及 {unknown_market_symbols:,} 只股票），绩效指标不可用于策略评价。",
+                f"（涉及 {unknown_market_symbols:,} 只股票，多为新上市初期或数据缺口）。"
+                "这类行情不会被动进入模拟：所有落在其上的订单都会被拒绝执行；"
+                "只有在伴随拒单时绩效才不可用，见 UNKNOWN_STATUS_ORDERS。",
             )
         )
     if unknown_order_count > 0:
@@ -226,7 +228,7 @@ def assess_backtest_validity(
 
     issues = _deduplicate_issues(issues)
     has_error = any(issue.severity == IssueSeverity.ERROR for issue in issues)
-    diagnostic_issue_codes = {"UNKNOWN_MARKET_STATUS", "UNKNOWN_STATUS_ORDERS"}
+    diagnostic_issue_codes = {"UNKNOWN_STATUS_ORDERS"}
     blocks_completion = any(
         issue.severity == IssueSeverity.ERROR and issue.code not in diagnostic_issue_codes
         for issue in issues
