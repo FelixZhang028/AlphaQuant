@@ -49,6 +49,10 @@ Thumbs.db
 /weights/
 /runs/
 /runtime/
+# 本地博客稿件、配图、研究方案及发布材料
+/docs/blog/
+/docs/blog-series-research-plan.md
+
 *.pt
 *.pth
 *.onnx
