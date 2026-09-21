@@ -261,6 +261,9 @@ class FullMarketBackfill:
             symbols = symbols[:limit]
         key = _range_key(start_date, end_date)
         done, failed = self.state.progress("daily_bars", key) if resume else ([], {})
+        # Resume retries failures, skipping only successfully persisted symbols.
+        done = [symbol for symbol in done if symbol not in failed]
+        failed = {}
         done_set = set(done)
         pending = [
             symbol for symbol in symbols if symbol not in done_set and symbol not in failed
@@ -271,6 +274,8 @@ class FullMarketBackfill:
         consecutive_failures = 0
         frames: list[pd.DataFrame] = []
 
+        if progress:
+            progress("daily_bars", len(done), total)
         provider.login()
         if watchdog is not None:
             watchdog.feed()
@@ -341,11 +346,15 @@ class FullMarketBackfill:
             symbols = symbols[:limit]
         key = _range_key(start_date, end_date)
         done, failed = self.state.progress("corporate_actions", key) if resume else ([], {})
+        done = [symbol for symbol in done if symbol not in failed]
+        failed = {}
         done_set = set(done)
         pending = [
             symbol for symbol in symbols if symbol not in done_set and symbol not in failed
         ]
         total = len(symbols)
+        if progress:
+            progress("corporate_actions", len(done), total)
         catalog = AkShareCatalogIngestor(
             self.raw_repository,
             self.market_repository,
@@ -363,7 +372,7 @@ class FullMarketBackfill:
                 _, chunk_failures = catalog.update_corporate_actions(
                     chunk, heartbeat=heartbeat
                 )
-                done.extend(chunk)
+                done.extend(symbol for symbol in chunk if symbol not in chunk_failures)
                 for symbol in chunk_failures:
                     failed[symbol] = "akshare stock_fhps_detail_em 获取失败"
                 batch_failures = 0
@@ -555,6 +564,9 @@ class FullMarketBackfill:
             save_manifest(self.market_repository, master_manifest.fail(exc))
             raise
 
+        if progress:
+            progress("security_master", 1, 1)
+
         if not skip_bars:
             bars_manifest = DataManifest.start(
                 "daily_bars",
@@ -633,6 +645,8 @@ class FullMarketBackfill:
                 raise
 
         if not skip_derived:
+            if progress:
+                progress("universe_membership", 0, 1)
             membership_manifest = DataManifest.start(
                 "universe_membership", "derived", {"closed_loop": True, "method": "规则近似"}
             )
@@ -655,6 +669,8 @@ class FullMarketBackfill:
             except Exception as exc:
                 save_manifest(self.market_repository, membership_manifest.fail(exc))
                 raise
+            if progress:
+                progress("delisting_settlements", 0, 1)
             settlements_manifest = DataManifest.start(
                 "delisting_settlements", "derived", {"closed_loop": True}
             )
@@ -673,6 +689,8 @@ class FullMarketBackfill:
             except Exception as exc:
                 save_manifest(self.market_repository, settlements_manifest.fail(exc))
                 raise
+        if progress and not skip_derived:
+            progress("delisting_settlements", 1, 1)
         results["checkpoint"] = self.state.snapshot()
         return results
 

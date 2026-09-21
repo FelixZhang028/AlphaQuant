@@ -170,11 +170,15 @@ def test_backfill_daily_bars_tolerates_single_failures(tmp_path: Path) -> None:
     assert set(stats["failed"]) == {"300001.SZ"}
     bars = backfill.market_repository.read_table("daily_bars")
     assert "300001.SZ" not in set(bars["symbol"])
-    # 失败证券记录在断点中，重跑时跳过
+    # 数据源恢复后，续传应只重试失败证券。
+    provider.fail_symbols.clear()
+    provider.range_calls.clear()
     resumed = backfill.backfill_daily_bars(
         RANGE_START, RANGE_END, batch_size=1, resume=True
     )
-    assert resumed["done"] == 2
+    assert resumed["done"] == 3
+    assert resumed["failed"] == {}
+    assert {symbol for symbol, _ in provider.range_calls} == {"300001.SZ"}
 
 
 def _write_membership_fixture(market: ParquetMarketDataRepository) -> None:

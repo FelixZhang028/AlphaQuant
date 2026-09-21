@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from quant_platform.application.benchmarks import BENCHMARK_NAMES
+from quant_platform.application.data_jobs import serialized_update
 from quant_platform.application.data_source_resolver import DataSourceResolver
 from quant_platform.application.manifest_summary import add_provider_route_summary
 from quant_platform.core.config import load_app_config, load_yaml, require_mapping
@@ -402,6 +403,7 @@ class DataCenterService:
             save_manifest(self.repository, manifest.fail(exc))
             raise
 
+    @serialized_update
     def update_all(
         self,
         start_date: date,
@@ -470,6 +472,7 @@ class DataCenterService:
             state_path=Path(str(runtime_dir)) / "full_market_backfill_state.json",
         )
 
+    @serialized_update
     def run_closed_loop(
         self,
         start_date: date,
