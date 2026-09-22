@@ -70,11 +70,6 @@ if authenticated_user:
                 title="可信度审计",
                 icon=":material/fact_check:",
             ),
-            st.Page(
-                "app_pages/strategy_forensics.py",
-                title="策略验伪",
-                icon=":material/troubleshoot:",
-            ),
             st.Page("app_pages/6_run_library.py", title="研究记录", icon=":material/history:"),
         ],
         "数据": [

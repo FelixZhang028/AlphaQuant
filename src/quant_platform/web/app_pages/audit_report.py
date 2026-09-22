@@ -22,6 +22,16 @@ STATUS_LABELS = {"pass": "通过", "warn": "警告", "fail": "不通过"}
 FINDING_FEEDBACK = {"info": st.caption, "warn": st.warning, "fail": st.error}
 
 st.title("可信度审计")
+mode = st.segmented_control(
+    "审计对象", ["平台回测", "外部材料"], default="平台回测", key="audit_subject",
+    width="stretch",
+)
+if mode == "外部材料":
+    from quant_platform.web.external_audit import render_external_audit
+
+    render_external_audit()
+    st.stop()
+
 st.caption(
     "对已完成回测做五维可信度评级：数据完整性、未来函数防护、样本与选股偏差、"
     "成本真实性、容量约束。评级回答的不是'赚不赚钱'，而是'这份结果有多少水分'。"
