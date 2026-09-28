@@ -60,6 +60,9 @@ def test_localize_frame_handles_already_renamed_columns_and_general_values() -> 
 def test_research_result_headers_are_fully_localized() -> None:
     optimization_columns = [
         "optimization_id",
+        "dsr",
+        "selection_bias_status",
+        "selection_bias_reason",
         "train_run_id",
         "objective_value",
         "risk_free_rate",

@@ -10,6 +10,7 @@ import pandas as pd
 import yaml
 
 from quant_platform.backtest.credibility import audit_credibility, audit_persisted_run
+from quant_platform.backtest.multiple_testing import SelectionBiasResult
 from quant_platform.backtest.validity import CURRENT_AUDIT_VERSION
 
 _EXECUTION = {
@@ -30,6 +31,10 @@ _SUMMARY = {
     "transaction_cost_to_initial_cash": 0.00352,
     "delisting_settlements": 0,
 }
+
+_SINGLE_TRIAL = SelectionBiasResult(
+    "not_applicable", "本批仅一次尝试。", trial_count=1, effective_trials=1,
+)
 
 
 def _validity(
@@ -67,6 +72,7 @@ def _audit(
     orders: pd.DataFrame | None = None,
     fills: pd.DataFrame | None = None,
     run_kind: str = "single",
+    selection_bias: SelectionBiasResult | None = _SINGLE_TRIAL,
 ):
     return audit_credibility(
         validity if validity is not None else _validity(),
@@ -75,6 +81,7 @@ def _audit(
         orders if orders is not None else pd.DataFrame(),
         fills if fills is not None else pd.DataFrame(),
         run_kind=run_kind,
+        selection_bias=selection_bias,
     )
 
 
@@ -87,8 +94,9 @@ def test_clean_run_grades_a() -> None:
 
     assert report.grade == "A"
     assert report.metrics_reliable
-    assert all(dimension.status == "pass" for dimension in report.dimensions)
-    assert "通过全部审计检查" in report.headline
+    assert all(dimension.status in {"pass", "not_applicable"} for dimension in report.dimensions)
+    assert len(report.dimensions) == 6
+    assert "通过全部适用审计检查" in report.headline
     assert report.transaction_cost_ratio == 0.00352
 
 
@@ -236,12 +244,36 @@ def test_liquidity_rejections_warn_capacity() -> None:
 
 
 def test_out_of_sample_run_noted_in_sample_bias() -> None:
-    report = _audit(run_kind="walk_forward_oos")
+    report = _audit(run_kind="walk_forward_oos", selection_bias=None)
 
     assert report.grade == "A"
     sample_bias = _dimension(report, "sample_bias")
     assert sample_bias.status == "pass"
     assert "样本外" in sample_bias.findings[0].message
+    assert _dimension(report, "selection_bias").status == "not_applicable"
+
+
+def test_missing_search_evidence_is_unknown_and_grades_b() -> None:
+    report = _audit(selection_bias=None)
+    assert report.grade == "B"
+    assert _dimension(report, "selection_bias").status == "unavailable"
+    assert report.selection_bias.dsr is None
+
+
+def test_low_dsr_adds_one_warning_without_invalidating_metrics() -> None:
+    selection = SelectionBiasResult("warn", "DSR 62%，证据不足。", dsr=0.62)
+    report = _audit(selection_bias=selection)
+    assert report.grade == "B"
+    assert report.metrics_reliable
+    assert _dimension(report, "selection_bias").status == "warn"
+    combined = _audit(selection_bias=selection, execution={**_EXECUTION, "historical_fees": False})
+    assert combined.grade == "C"
+
+
+def test_high_dsr_does_not_cancel_other_audit_failures() -> None:
+    selection = SelectionBiasResult("pass", "DSR 99%。", dsr=0.99)
+    assert _audit(selection_bias=selection).grade == "A"
+    assert _audit(selection_bias=selection, validity=_validity(legacy=True)).grade == "D"
 
 
 def test_audit_persisted_run_reads_run_directory(tmp_path: Path) -> None:

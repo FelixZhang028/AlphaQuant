@@ -1,14 +1,16 @@
 """可信度审计：把引擎严谨性校验汇总为 A/B/C/D 评级与可追溯证据链。
 
-只做测量与解读，不改动任何绩效指标。五个维度分别回答：
+只做测量与解读，不改动任何绩效指标。六个维度分别回答：
 - 数据完整性：净值轴、交易日历与行情状态是否可验证；
 - 未来函数防护：未知状态拒单、复权因子回退与公司行为校验的记录；
 - 样本与选股偏差：固定股票池、样本内回测的暴露程度；
 - 成本真实性：历史分期费率是否启用、费用分解与占比；
 - 容量约束：参与率上限下被拒绝或削减的订单。
+- 参数搜索偏差：同批尝试数量、相关性与 DSR 显著性。
 
-评级规则确定且可复核：任一维度不通过为 D；两个及以上维度有警告
-为 C；单个维度有警告为 B；全部通过为 A。每条结论都携带引擎原始
+评级规则确定且可复核：任一维度不通过为 D；两条及以上警告为 C；
+一条警告为 B；无警告为 A。无法评估搜索偏差计一条警告，不适用不扣分。
+每条结论都携带引擎原始
 检查记录作为证据，评级可以逐条追溯。
 """
 
@@ -23,6 +25,11 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from quant_platform.backtest.multiple_testing import (
+    SelectionBiasResult,
+    load_selection_bias,
+    unlinked_selection,
+)
 from quant_platform.backtest.validity import load_persisted_validity
 
 # 参与率/流动性类拒单：说明订单已触及容量约束，而非数据或规则错误。
@@ -31,7 +38,7 @@ CAPACITY_REJECT_REASONS = frozenset(
 )
 
 HEADLINES: dict[str, str] = {
-    "A": "通过全部审计检查，绩效指标可用于策略评价。",
+    "A": "通过全部适用审计检查，绩效指标可用于策略评价；不代表未来盈利。",
     "B": "整体可信，存在一项需要复核的警告。",
     "C": "多项审计警告叠加，结果仅作方向性参考。",
     "D": "存在错误级问题，绩效指标不可用于策略评价。",
@@ -43,6 +50,7 @@ DIMENSION_TITLES: dict[str, str] = {
     "sample_bias": "样本与选股偏差",
     "cost_realism": "成本真实性",
     "capacity": "容量约束",
+    "selection_bias": "参数搜索偏差",
 }
 
 
@@ -60,7 +68,7 @@ class CredibilityDimension:
 
     key: str
     title: str
-    status: str  # "pass" | "warn" | "fail"
+    status: str  # "pass" | "warn" | "fail" | "unavailable" | "not_applicable"
     findings: tuple[CredibilityFinding, ...]
 
 
@@ -77,6 +85,7 @@ class CredibilityReport:
     maximum_calendar_gap_days: int
     total_transaction_cost: float | None
     transaction_cost_ratio: float | None
+    selection_bias: SelectionBiasResult
 
 
 def audit_credibility(
@@ -87,15 +96,25 @@ def audit_credibility(
     fills: pd.DataFrame,
     *,
     run_kind: str = "single",
+    selection_bias: SelectionBiasResult | None = None,
 ) -> CredibilityReport:
     """汇总一次回测的全部审计证据并给出 A/B/C/D 评级。"""
 
+    selection = selection_bias if selection_bias is not None else unlinked_selection(run_kind)
     dimensions = [
         _dimension("data_integrity", _data_integrity_findings(validity)),
         _dimension("lookahead_guard", _lookahead_findings(validity, summary, execution)),
         _dimension("sample_bias", _sample_bias_findings(validity, summary, run_kind)),
         _dimension("cost_realism", _cost_realism_findings(summary, fills, execution)),
         _dimension("capacity", _capacity_findings(orders, execution)),
+        CredibilityDimension(
+            key="selection_bias", title=DIMENSION_TITLES["selection_bias"],
+            status=selection.status,
+            findings=(CredibilityFinding(
+                "warn" if selection.status in {"warn", "unavailable"} else "info",
+                selection.message,
+            ),),
+        ),
     ]
     grade = _grade(dimensions)
     total = _total_cost(summary, fills)
@@ -110,6 +129,7 @@ def audit_credibility(
         maximum_calendar_gap_days=int(validity.get("maximum_calendar_gap_days") or 0),
         total_transaction_cost=total,
         transaction_cost_ratio=(total / initial if total is not None and initial else None),
+        selection_bias=selection,
     )
 
 
@@ -120,9 +140,11 @@ def audit_persisted_run(run_dir: str | Path, *, run_kind: str | None = None) -> 
     validity = load_persisted_validity(directory)
     summary = _read_json_mapping(directory / "summary.json")
     config = _read_yaml_mapping(directory / "config.snapshot.yaml")
+    lifecycle = _read_json_mapping(directory / "run.json")
+    backtest = _nested_mapping(_nested_mapping(config, "app"), "backtest")
     if run_kind is None:
-        backtest = _nested_mapping(_nested_mapping(config, "app"), "backtest")
-        run_kind = str(backtest.get("run_kind", "single"))
+        run_kind = str(lifecycle.get("run_kind") or backtest.get("run_kind", "single"))
+    parent_id = lifecycle.get("parent_experiment_id") or backtest.get("parent_experiment_id")
     return audit_credibility(
         validity,
         summary,
@@ -130,6 +152,10 @@ def audit_persisted_run(run_dir: str | Path, *, run_kind: str | None = None) -> 
         _read_parquet(directory / "orders.parquet"),
         _read_parquet(directory / "fills.parquet"),
         run_kind=run_kind,
+        selection_bias=load_selection_bias(
+            directory, run_kind=run_kind,
+            parent_experiment_id=str(parent_id) if parent_id else None,
+        ),
     )
 
 

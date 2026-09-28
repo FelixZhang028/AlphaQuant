@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -29,7 +24,11 @@ from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.exports import dataframe_to_csv_bytes
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.run_labels import format_run_label
+from quant_platform.web.selection_bias import cached_search, render_selection_bias
 from quant_platform.web.service_cache import get_backtest_service, service_or_stop
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
 
 
 def _parse_candidates(parameter: StrategyParameter, raw: str) -> tuple[Any, ...]:
@@ -219,9 +218,28 @@ with st.expander("参数优化", expanded=True):
     latest_path = st.session_state.get(f"latest_optimization_{baseline_id}")
     if latest_path:
         latest = pd.read_csv(latest_path)
+        try:
+            latest, selection_results = cached_search(
+                str(Path(latest_path).parent), str(service.runs_root),
+            )
+            if selection_results:
+                st.caption("以下为结果表首行的参数搜索审计；原排名仍按所选目标指标排序。")
+                render_selection_bias(selection_results[0])
+        except (OSError, ValueError, TypeError, KeyError):
+            st.warning("参数搜索记录不完整，无法评估选择偏差。")
+            # Never leave a stale probability visible when its evidence is missing.
+            latest["dsr"] = None
+            latest["selection_bias_status"] = "无法评估"
+            latest["selection_bias_reason"] = "参数搜索记录不完整。"
         parameter_labels = {f"param_{item.name}": item.label for item in metadata.parameters}
+        display_columns = ["rank", "sharpe", "dsr", "selection_bias_status"]
+        display_columns = [name for name in display_columns if name in latest]
+        display_columns += [name for name in latest if name not in display_columns]
         st.dataframe(
-            localize_frame(latest.rename(columns=parameter_labels)),
+            localize_frame(latest[display_columns].rename(columns=parameter_labels)),
+            column_config={"DSR 显著性": st.column_config.NumberColumn(
+                format="percent", help="95% 为参考门槛；空白表示无法评估或不适用。",
+            )},
             width="stretch",
             hide_index=True,
         )
@@ -247,6 +265,13 @@ with st.expander("参数优化", expanded=True):
                 st.session_state["selected_run"] = child_id
                 st.session_state["backtest_workspace_mode"] = "单次回测"
                 st.switch_page("home.py")
+            selected_position = latest.index[latest["run_id"].astype(str).eq(child_id)][0]
+            selected_dsr = latest.loc[selected_position, "dsr"]
+            st.caption(
+                "所选组合 DSR 显著性："
+                + (f"{float(selected_dsr):.1%}" if pd.notna(selected_dsr) else "—")
+                + "｜" + str(latest.loc[selected_position, "selection_bias_reason"])
+            )
         st.download_button(
             "下载优化结果 CSV",
             dataframe_to_csv_bytes(latest),

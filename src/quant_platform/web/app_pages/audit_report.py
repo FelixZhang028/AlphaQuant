@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 import pandas as pd
+import streamlit as st
 
+from quant_platform.application.backtest_service import BacktestService
+from quant_platform.backtest.run_store import RunStatus
+from quant_platform.backtest.validity import load_persisted_validity
+from quant_platform.web.run_labels import format_run_label
+from quant_platform.web.selection_bias import cached_credibility, render_selection_bias
 from quant_platform.web.theme import inject_global_css
 
 inject_global_css()
 
-import streamlit as st
-
-from quant_platform.application.backtest_service import BacktestService
-from quant_platform.backtest.credibility import audit_persisted_run
-from quant_platform.backtest.run_store import RunStatus
-from quant_platform.backtest.validity import load_persisted_validity
-from quant_platform.web.run_labels import format_run_label
-
 # 评级与证据的视觉语言：A 绿 / B 蓝 / C 黄 / D 红，证据按严重程度着色。
 GRADE_FEEDBACK = {"A": st.success, "B": st.info, "C": st.warning, "D": st.error}
-STATUS_LABELS = {"pass": "通过", "warn": "警告", "fail": "不通过"}
+STATUS_LABELS = {
+    "pass": "通过", "warn": "警告", "fail": "不通过",
+    "unavailable": "无法评估", "not_applicable": "不适用",
+}
 FINDING_FEEDBACK = {"info": st.caption, "warn": st.warning, "fail": st.error}
 
 st.title("可信度审计")
@@ -33,8 +34,8 @@ if mode == "外部材料":
     st.stop()
 
 st.caption(
-    "对已完成回测做五维可信度评级：数据完整性、未来函数防护、样本与选股偏差、"
-    "成本真实性、容量约束。评级回答的不是'赚不赚钱'，而是'这份结果有多少水分'。"
+    "对已完成回测做六维可信度评级：数据完整性、未来函数防护、样本与选股偏差、"
+    "成本真实性、容量约束、参数搜索偏差。评级反映结果的证据质量。"
 )
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，与研究记录页一致
@@ -69,7 +70,7 @@ selected_id = st.selectbox(
 record = successful[selected_id]
 
 try:
-    report = audit_persisted_run(record.path, run_kind=record.run_kind)
+    report = cached_credibility(str(record.path), record.run_kind)
     validity = load_persisted_validity(record.path)
     config = service.run_store.load_config(record.run_id)
 except Exception as exc:
@@ -85,14 +86,15 @@ ratio_text = (
 )
 metric_columns = st.columns(5)
 metric_columns[0].metric("可信度评级", report.grade)
-metric_columns[1].metric("审计维度通过", f"{passed}/5")
+metric_columns[1].metric("审计维度通过", f"{passed}/{len(report.dimensions)}")
 metric_columns[2].metric("绩效指标", "可用" if report.metrics_reliable else "不可用")
 metric_columns[3].metric("净值观测", f"{report.observations} 个交易日")
 metric_columns[4].metric("成本占初始资金", ratio_text)
 GRADE_FEEDBACK[report.grade](f"**可信度评级 {report.grade}**——{report.headline}")
+st.caption("不适用的维度不计通过也不扣分；无法评估参数搜索偏差计一条警告。")
 
-# --- 五维审计总览 ---------------------------------------------------------
-st.subheader("五维审计")
+# --- 六维审计总览 ---------------------------------------------------------
+st.subheader("六维审计")
 dimension_frame = pd.DataFrame(
     [
         {
@@ -104,9 +106,12 @@ dimension_frame = pd.DataFrame(
     ]
 )
 st.dataframe(dimension_frame, width="stretch", hide_index=True)
+render_selection_bias(report.selection_bias)
 
 st.subheader("维度明细")
 for dimension in report.dimensions:
+    if dimension.key == "selection_bias":
+        continue  # The dedicated panel above contains its metrics and evidence.
     with st.expander(
         f"{dimension.title}——{STATUS_LABELS[dimension.status]}",
         expanded=dimension.status != "pass",
