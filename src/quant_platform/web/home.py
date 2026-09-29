@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from quant_platform.web.theme import inject_global_css
-
-inject_global_css()
-
-
 import json
 import math
 from dataclasses import replace
@@ -30,6 +25,9 @@ from quant_platform.web.embedded_page import run_embedded
 from quant_platform.web.localization import localize_frame, rebalance_label
 from quant_platform.web.result_brief import open_validation
 from quant_platform.web.run_labels import format_run_label
+from quant_platform.web.theme import inject_global_css
+
+inject_global_css()
 
 # 侧栏「隐藏/显示」由 Streamlit 原生收起/展开控件提供（见 theme.py
 # 顶部注释），本页不再单独维护。
@@ -592,11 +590,58 @@ def _render_result(run_dir: Path) -> None:
     fills = pd.read_parquet(run_dir / "fills.parquet")
     trades = _read_optional_frame(run_dir / "closed_trades.parquet")
     validity = _load_validity(run_dir)
-    _render_validity(validity)
 
     from quant_platform.web.result_brief import render_result_brief
 
     render_result_brief(service, run_dir.name, summary, validity)
+    from quant_platform.web.selection_bias import cached_credibility
+
+    record = next(
+        (
+            r
+            for r in service.run_store.list_records(successful_only=True)
+            if r.run_id == run_dir.name
+        ),
+        None,
+    )
+    try:
+        credibility = cached_credibility(str(run_dir), record.run_kind if record else "backtest")
+        grade = credibility.grade
+    except (OSError, ValueError, KeyError):
+        grade = "待检查"
+    columns = st.columns(3)
+    columns[0].metric(
+        "累计收益",
+        f"{summary['cumulative_return']:.2%}"
+        if summary.get("cumulative_return") is not None
+        else "—",
+    )
+    columns[1].metric(
+        "最大回撤",
+        f"{summary['max_drawdown']:.2%}" if summary.get("max_drawdown") is not None else "—",
+    )
+    columns[2].metric(
+        "可信度评级", grade, help="包含数据、成本与参数搜索偏差等审计维度，不代表未来盈利概率。"
+    )
+    if "equity" in nav and not nav.empty:
+        curves = nav.set_index("trade_date") if "trade_date" in nav else nav
+        chart = pd.DataFrame(index=curves.index)
+        for key, label in (("equity", "策略"), ("benchmark_equity", "基准")):
+            if key in curves:
+                values = pd.to_numeric(curves[key], errors="coerce")
+                if pd.notna(values.iloc[0]) and values.iloc[0] > 0:
+                    chart[label] = values / values.iloc[0]
+        if not chart.empty:
+            st.subheader("策略与基准走势")
+            st.line_chart(chart, y_label="净值（起点 = 1）")
+            if "基准" not in chart:
+                st.caption("缺少同一起点的基准数据，本图仅展示策略。")
+    if st.button("查看完整可信度审计", key="result_audit"):
+        st.session_state["audit_subject"] = "平台回测"
+        st.session_state["audit_report_run"] = run_dir.name
+        st.switch_page("app_pages/audit_report.py")
+    with st.expander("数据有效性与检查明细"):
+        _render_validity(validity)
     with st.expander("专业指标与交易明细", expanded=False):
         _render_metric_grid(
             summary,
@@ -689,7 +734,13 @@ if factor_payload and "factor_composite" in plugin_names:
     factor_payload_values = {"factors_json": json.dumps(factor_payload, ensure_ascii=False)}
     st.info("已从因子研究室带入合成因子参数，确认区间后点击「运行回测」。")
 
-with st.expander("新建回测", expanded=True):
+with st.expander(
+    "新建回测",
+    expanded=st.session_state.get(
+        "backtest_view", "查看结果" if st.session_state.get("selected_run") else "新建回测"
+    )
+    == "新建回测",
+):
     selected_plugin = st.selectbox(
         "策略",
         plugin_names,
@@ -706,65 +757,71 @@ with st.expander("新建回测", expanded=True):
     if factor_payload_values and selected_plugin == "factor_composite":
         configured_values = {**configured_values, **factor_payload_values}
     with st.form("backtest_form"):
-        strategy_id = st.text_input(
-            "策略实例编号",
-            value=(
-                default_request.strategy_id
-                if selected_plugin == default_request.strategy_plugin
-                else f"{selected_plugin}_web"
-            ),
-        )
-        parameter_values: dict[str, Any] = {}
-        parameter_columns = st.columns(2)
-        for index, parameter in enumerate(metadata.parameters):
-            with parameter_columns[index % 2]:
-                parameter_values[parameter.name] = _parameter_input(
-                    parameter, configured_values[parameter.name]
-                )
-        left, middle, right = st.columns(3)
-        with left:
+        dates = st.columns(2)
+        with dates[0]:
             start_date = st.date_input("开始日期", default_request.start_date)
-            initial_cash = st.number_input(
-                "初始资金", min_value=1_000.0, value=default_request.initial_cash
-            )
-        with middle:
+        with dates[1]:
             end_date = st.date_input("结束日期", default_request.end_date)
-            top_n = st.number_input(
-                "最大持仓数量", min_value=1, value=default_request.top_n, step=1
-            )
-        with right:
-            rebalance_options = ["daily", "weekly", "monthly"]
-            rebalance = st.selectbox(
-                "调仓频率",
-                rebalance_options,
-                index=rebalance_options.index(default_request.rebalance),
-                format_func=rebalance_label,
-            )
-        allocation_labels = {
-            "equal_weight": "等权",
-            "inverse_volatility": "波动率倒数",
-            "risk_parity": "风险平价",
-            "mean_variance": "均值方差（高级）",
-        }
-        portfolio_method = st.selectbox(
-            "组合分配",
-            list(allocation_labels),
-            format_func=allocation_labels.get,
-            index=list(allocation_labels).index(default_request.portfolio_method or "equal_weight"),
-            key="backtest_allocation",
+        initial_cash = st.number_input(
+            "初始资金", min_value=1_000.0, value=default_request.initial_cash
         )
-        universe_mode = st.selectbox(
-            "股票池口径",
-            ["fixed", "historical"],
-            index=["fixed", "historical"].index(default_request.universe_mode or "fixed"),
-            format_func=lambda mode: (
-                "固定股票池（存在选择偏差）"
-                if mode == "fixed"
-                else "历史股票池（需历史成分与退市数据）"
-            ),
-            key="backtest_universe_mode",
-        )
-        st.caption("非等权方法使用截至信号日的60日历史；策略显式指定的仓位优先。")
+        st.caption("默认使用当前策略参数；可展开高级设置调整持仓、调仓与股票池。")
+        with st.expander("高级设置：策略参数与组合规则"):
+            strategy_id = st.text_input(
+                "策略实例编号",
+                value=(
+                    default_request.strategy_id
+                    if selected_plugin == default_request.strategy_plugin
+                    else f"{selected_plugin}_web"
+                ),
+            )
+            parameter_values: dict[str, Any] = {}
+            parameter_columns = st.columns(2)
+            for index, parameter in enumerate(metadata.parameters):
+                with parameter_columns[index % 2]:
+                    parameter_values[parameter.name] = _parameter_input(
+                        parameter, configured_values[parameter.name]
+                    )
+            middle, right = st.columns(2)
+            with middle:
+                top_n = st.number_input(
+                    "最大持仓数量", min_value=1, value=default_request.top_n, step=1
+                )
+            with right:
+                rebalance_options = ["daily", "weekly", "monthly"]
+                rebalance = st.selectbox(
+                    "调仓频率",
+                    rebalance_options,
+                    index=rebalance_options.index(default_request.rebalance),
+                    format_func=rebalance_label,
+                )
+            allocation_labels = {
+                "equal_weight": "等权",
+                "inverse_volatility": "波动率倒数",
+                "risk_parity": "风险平价",
+                "mean_variance": "均值方差（高级）",
+            }
+            portfolio_method = st.selectbox(
+                "组合分配",
+                list(allocation_labels),
+                format_func=allocation_labels.get,
+                index=list(allocation_labels).index(
+                    default_request.portfolio_method or "equal_weight"
+                ),
+                key="backtest_allocation",
+            )
+            universe_mode = st.selectbox(
+                "股票池口径",
+                ["fixed", "historical"],
+                index=["fixed", "historical"].index(default_request.universe_mode or "fixed"),
+                format_func=lambda mode: (
+                    "固定股票池（存在选择偏差）"
+                    if mode == "fixed"
+                    else "历史股票池（需历史成分与退市数据）"
+                ),
+                key="backtest_universe_mode",
+            )
+            st.caption("非等权方法使用截至信号日的60日历史；策略显式指定的仓位优先。")
         submitted = st.form_submit_button("检查数据并准备回测", type="primary")
 
     if submitted:
@@ -811,7 +868,6 @@ st.caption(format_run_label(selected_record, strategy_names))
 actions = st.columns(2)
 actions[0].button(
     "用本次结果创建验证实验",
-    type="primary",
     on_click=open_validation,
     args=(selected_id,),
 )

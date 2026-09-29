@@ -12,6 +12,7 @@ import streamlit as st
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.backtest.run_store import RunStatus
 from quant_platform.web.exports import dataframe_to_csv_bytes
+from quant_platform.web.embedded_page import is_embedded
 from quant_platform.web.localization import localize_frame, status_label
 from quant_platform.web.run_comparison import (
     RUN_KIND_LABELS,
@@ -20,7 +21,8 @@ from quant_platform.web.run_comparison import (
 )
 from quant_platform.web.run_labels import format_run_label
 
-st.title("研究记录")
+if not is_embedded("my_research"):
+    st.title("研究记录")
 st.caption("统一管理单次回测、参数优化和样本外验证结果，并选择多个结果进行比较。")
 
 config_path = "configs/app.yaml"  # 正式版固定配置路径，不再提供侧栏修改入口

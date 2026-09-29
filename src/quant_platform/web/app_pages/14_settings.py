@@ -28,6 +28,9 @@ inject_global_css()
 
 st.title("设置")
 st.caption("集中管理模型、数据凭证和本地运行环境。")
+with st.expander("账号与使用指南"):
+    st.page_link("app_pages/16_user_center.py", label="个人中心", icon=":material/account_circle:")
+    st.page_link("welcome.py", label="使用指南", icon=":material/help:")
 
 section = st.segmented_control(
     "设置分类",

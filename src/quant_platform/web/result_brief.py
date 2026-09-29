@@ -67,17 +67,21 @@ def render_result_brief(service, run_id, summary, validity):
     related = [
         r for r in records if r.baseline_run_id == run_id and r.run_kind == "walk_forward_oos"
     ]
-    for title, text in result_brief(
+    explanations = result_brief(
         summary,
         out_of_sample=backtest.get("evaluation_mode") == "out_of_sample",
         linked_oos=len(related),
-    ):
-        st.markdown(f"**{title}**")
-        st.write(text)
-    st.caption("跑赢基准也可能亏损；本页不会把正收益、单次高夏普或样本外记录数标记为“策略有效”。")
+    )
+    st.write(explanations[0][1])
+    with st.expander("如何理解收益、风险与稳健性"):
+        for title, text in explanations[1:]:
+            st.markdown(f"**{title}**")
+            st.write(text)
+        st.caption("跑赢基准也可能亏损；单次高收益不代表策略有效。")
     st.button(
         "继续做样本外验证",
         key="brief_oos_" + run_id,
+        type="primary",
         disabled=not validity.get("metrics_reliable", False),
         on_click=open_validation,
         args=(run_id,),

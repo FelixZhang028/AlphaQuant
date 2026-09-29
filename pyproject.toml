@@ -14,7 +14,7 @@ dependencies = [
   "pandas>=2.0",
   "pyarrow",
   "PyYAML",
-  "streamlit",
+  "streamlit>=1.63",
   "pydantic>=2.5",
   "requests>=2.31",
   "rich>=13.0",
