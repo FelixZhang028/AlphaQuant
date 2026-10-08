@@ -1,0 +1,39 @@
+name: FellowQuant v4 checks
+on:
+  push:
+    branches: [fellowquant_v4]
+  pull_request:
+    branches: [fellowquant_v4]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python -m compileall -q app quant_platform trading_agents
+  frontend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: [landing, admin, dashboard/frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - run: npm ci
+      - run: npm run build

@@ -1,77 +1,36 @@
-# Python 缓存
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.pytest_root/
-.pytest_tmp/
-pytest-of-Administrator/
-.mypy_cache/
-.ruff_cache/
-.uv-cache/
-.tmp_pycache/
-
-# Python 虚拟环境与构建产物
-venv/
-.venv/
-env/
-build/
+node_modules/
+.DS_Store
 dist/
-*.egg-info/
-
-# 环境变量和密钥
+build/
 .env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# IDE
+.env.local
+*.log
 .vscode/
 .idea/
+__pycache__/
+*.pyc
+.next/
+coverage/
 .trae/
-.codex/
-.codex_replacements/
+dashboard/backend/data/runtime/
 
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# 日志和临时文件
-*.log
-/tmp/
-/temp/
-
-# 本地数据、模型和运行结果
-/data/
-/datasets/
-/outputs/
-/checkpoints/
-/weights/
-/runs/
-/runtime/
-# 本地博客稿件、配图、研究方案及发布材料
-/docs/blog/
-/docs/blog-series-research-plan.md
-
-*.pt
-*.pth
-*.onnx
-*.ckpt
-
-# 压缩包
-*.zip
-*.rar
-*.7z
-
-# 本地测试输出
-/pytest_out.txt
-/pytest_full.txt
-
-# AI 工具本地会话文件
-CLAUDE.md
-.claude-summary.md
-.agents/
-.claude/
-.cn_data_src_tmp/
-.tasks/
-src/quant_platform/web/assets/fellowquant-icon-v*.png
+# Local accounts, market data, caches and credentials
+dashboard/backend/data/
+runtime/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env.*
+!.env.example
+.venv/
+.pytest_cache/
+*.egg-info/
+*.key
+# Local design experiments (not referenced by the app)
+prompt.md
+landing/pelican.html
+landing/temp_img_small.jpg
+landing/40a470b69105efe2f9ea458436c12225.jpg
+landing/promo_video.mp4
+*.bak.js
