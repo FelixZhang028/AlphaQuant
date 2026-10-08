@@ -1,0 +1,68 @@
+/* 全局样式 —— 深色科技风（天蓝光效） */
+:root {
+  --bg: #050a14;
+  --bg-panel: #0a1424;
+  --border: rgba(56, 189, 248, 0.18);
+  --text: #dbe7f5;
+  --text-dim: #7d93b2;
+  --accent: #38bdf8;
+  --accent-2: #7dd3fc;
+  --green: #22c55e;
+  --orange: #f97316;
+  --red: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.22);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 共享面板样式（多个组件复用） */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 0 26px rgba(56, 189, 248, 0.07);
+}
+.panel-title {
+  padding: 12px 16px;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
