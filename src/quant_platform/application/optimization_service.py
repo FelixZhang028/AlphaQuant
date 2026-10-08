@@ -16,6 +16,7 @@ import pandas as pd
 
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
 from quant_platform.backtest.multiple_testing import analyze_search, annotate_search
+from quant_platform.core.exceptions import OperationCancelled
 
 OBJECTIVES = {
     "sharpe": "夏普比率",
@@ -92,6 +93,7 @@ class OptimizationService:
         if any(not values for values in request.parameter_grid.values()):
             raise ValueError("every optimized parameter needs at least one value")
         count = self.combination_count(request)
+        progress = getattr(self.backtests, "progress", None)
         if count > request.max_combinations:
             raise ValueError(
                 f"Parameter grid has {count} combinations; maximum is {request.max_combinations}"
@@ -103,6 +105,8 @@ class OptimizationService:
 
         optimization_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         names = list(request.parameter_grid)
+        if progress:
+            progress("optimization_trials", 0, count)
         rows: list[dict[str, Any]] = []
         jobs = []
         for index, values in enumerate(
@@ -139,14 +143,21 @@ class OptimizationService:
                 completed = self.backtests.run(effective)
                 row["run_id"] = completed.result.run_id
                 row.update(completed.result.summary)
+            except OperationCancelled:
+                raise
             except Exception as exc:
                 row["status"] = "FAILED"
                 row["error"] = f"{type(exc).__name__}: {exc}"[:2000]
             rows.append(row)
+            if progress:
+                progress("optimization_trials", index, count)
 
         if jobs:
             with ProcessPoolExecutor(max_workers=request.max_workers) as executor:
-                rows = list(executor.map(_run_isolated, jobs))
+                for row in executor.map(_run_isolated, jobs):
+                    rows.append(row)
+                    if progress:
+                        progress("optimization_trials", len(rows), count)
 
         experiments = self._rank(pd.DataFrame(rows), request)
         selection = analyze_search(

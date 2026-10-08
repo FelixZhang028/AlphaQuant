@@ -22,12 +22,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "httpx>=0.27,<1"]
 tushare = ["tushare"]
 tdx = ["pytdx==1.72"]
 dev = ["pytest>=8", "ruff", "mypy", "pandas-stubs", "types-PyYAML"]
 
 [project.scripts]
 quant-platform = "quant_platform.cli:main"
+quant-api = "quant_platform.api.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

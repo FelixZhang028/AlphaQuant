@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import date, timedelta
 from math import isclose, isfinite
@@ -92,6 +93,7 @@ class BacktestEngine:
         initial_cash: float,
         *,
         run_id: str | None = None,
+        progress: Callable[[str, int, int], None] | None = None,
     ) -> BacktestResult:
         """Execute a deterministic long-only backtest over the requested dates."""
 
@@ -194,6 +196,8 @@ class BacktestEngine:
         missing_adj_factor_events = 0
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
+            if progress:
+                progress("backtest_days", index, len(dates))
             account.start_day(trade_date)
             for symbol in list(account.positions):
                 delisted = delist_dates.get(symbol)
@@ -412,6 +416,8 @@ class BacktestEngine:
             )
             pending.setdefault(next_date, []).extend(orders)
 
+        if progress:
+            progress("backtest_days", len(dates), len(dates))
         nav = pd.DataFrame(nav_rows)
         signals_frame = pd.DataFrame([signal.to_dict() for signal in all_signals])
         targets_frame = pd.DataFrame([asdict(target) for target in all_targets])

@@ -18,6 +18,7 @@ from quant_platform.application.optimization_service import (
     OptimizationRequest,
     OptimizationService,
 )
+from quant_platform.core.exceptions import OperationCancelled
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,10 @@ class WalkForwardService:
         validation_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
         optimizer = OptimizationService(self.backtests)
         rows: list[dict[str, Any]] = []
+        progress = getattr(self.backtests, "progress", None)
         for index, window in enumerate(windows, start=1):
+            if progress:
+                progress("walk_forward_windows", index - 1, len(windows))
             row: dict[str, Any] = {
                 "window": index,
                 "train_start": window.train_start,
@@ -157,10 +161,14 @@ class WalkForwardService:
                         },
                     }
                 )
+            except OperationCancelled:
+                raise
             except Exception as exc:
                 row["status"] = "FAILED"
                 row["error"] = f"{type(exc).__name__}: {exc}"[:2000]
             rows.append(row)
+            if progress:
+                progress("walk_forward_windows", index, len(windows))
 
         frame = pd.DataFrame(rows)
         summary = _aggregate(frame)

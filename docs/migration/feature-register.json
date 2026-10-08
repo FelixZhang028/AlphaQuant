@@ -1,0 +1,2871 @@
+{
+  "baseline_commit": "49e3143d9955c37742221d47dac1c2a4d3c0d9a1",
+  "evidence": "源码核对；没有执行页面业务操作或迁移验收",
+  "feature_count": 125,
+  "groups": [
+    {
+      "prefix": "NAV",
+      "title": "全局导航与工作区",
+      "route": "/app/*",
+      "tests": [
+        "test_workspace_navigation.py",
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "prefix": "APP",
+      "title": "应用外壳",
+      "route": "/app/*",
+      "tests": [
+        "test_workspace_navigation.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "prefix": "HOME",
+      "title": "工作台首页",
+      "route": "/app",
+      "tests": [
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "prefix": "LAND",
+      "title": "公开欢迎页与使用指南",
+      "route": "/",
+      "tests": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "prefix": "HUB",
+      "title": "策略工作室总入口",
+      "route": "/app/strategies",
+      "tests": [
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "prefix": "IDEA",
+      "title": "选股想法与运行前检查",
+      "route": "/app/strategies/ideas",
+      "tests": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "prefix": "VIS",
+      "title": "模板与可视化策略",
+      "route": "/app/strategies/visual",
+      "tests": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "prefix": "NL",
+      "title": "自然语言创建策略",
+      "route": "/app/strategies/natural-language",
+      "tests": [
+        "test_nl_builder.py",
+        "test_strategy_studio_service.py"
+      ]
+    },
+    {
+      "prefix": "PY",
+      "title": "Python自定义策略",
+      "route": "/app/strategies/python",
+      "tests": [
+        "test_user_strategies.py",
+        "test_strategy_safety.py"
+      ]
+    },
+    {
+      "prefix": "BT",
+      "title": "单次回测与结果",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "tests": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "prefix": "OPT",
+      "title": "参数优化与DSR",
+      "route": "/app/experiments/optimization",
+      "tests": [
+        "test_optimization_service.py",
+        "test_multiple_testing.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "prefix": "WF",
+      "title": "滚动样本外验证",
+      "route": "/app/experiments/walk-forward",
+      "tests": [
+        "test_walk_forward_service.py",
+        "test_research_reliability.py"
+      ]
+    },
+    {
+      "prefix": "FAC",
+      "title": "因子实验室",
+      "route": "/app/factors/*",
+      "tests": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "prefix": "LIB",
+      "title": "因子库浏览与跨区选择",
+      "route": "/app/factors/library",
+      "tests": [
+        "test_factor_lab_ui.py",
+        "test_factor_taxonomy.py"
+      ]
+    },
+    {
+      "prefix": "KN",
+      "title": "先验知识库",
+      "route": "/app/knowledge",
+      "tests": [
+        "test_prior_knowledge.py"
+      ]
+    },
+    {
+      "prefix": "AI",
+      "title": "AI研究员与对话",
+      "route": "/app/research/ai",
+      "tests": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "prefix": "REC",
+      "title": "研究记录与回测对比",
+      "route": "/app/research/records",
+      "tests": [
+        "test_run_store.py",
+        "test_run_comparison.py",
+        "test_run_labels.py"
+      ]
+    },
+    {
+      "prefix": "PLAN",
+      "title": "研究方案版本与复用",
+      "route": "/app/research/plans",
+      "tests": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "prefix": "AUD",
+      "title": "可信度审计",
+      "route": "/app/audits/:runId",
+      "tests": [
+        "test_audit_report_page.py",
+        "test_credibility.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "prefix": "EXT",
+      "title": "外部成交材料核查",
+      "route": "/app/audits/external",
+      "tests": [
+        "test_forensics.py"
+      ]
+    },
+    {
+      "prefix": "OPS",
+      "title": "数据与运行入口",
+      "route": "/app/operations",
+      "tests": [
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "prefix": "DATA",
+      "title": "日常行情与数据导出",
+      "route": "/app/data/update",
+      "tests": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "prefix": "JOB",
+      "title": "全市场回填与任务记录",
+      "route": "/app/data/backfill；/app/operations/jobs",
+      "tests": [
+        "test_data_jobs.py",
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "prefix": "LOOP",
+      "title": "全市场数据闭环状态",
+      "route": "/app/data/backfill",
+      "tests": [
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "prefix": "UNI",
+      "title": "股票池维护",
+      "route": "/app/data/universe",
+      "tests": [
+        "test_universe_service.py"
+      ]
+    },
+    {
+      "prefix": "RISK",
+      "title": "风险规则与记录",
+      "route": "/app/risk",
+      "tests": [
+        "test_daily_portfolio_risk.py",
+        "test_risk_engine.py"
+      ]
+    },
+    {
+      "prefix": "ASSET",
+      "title": "数据资产与来源对比",
+      "route": "/app/data/sources",
+      "tests": [
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "prefix": "XT",
+      "title": "XTick动态接口",
+      "route": "/app/data/xtick",
+      "tests": [
+        "test_security_names.py",
+        "test_web_exports.py"
+      ]
+    },
+    {
+      "prefix": "SET",
+      "title": "模型、数据源与系统设置",
+      "route": "/app/settings",
+      "tests": [
+        "test_llm_settings.py",
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "prefix": "AUTH",
+      "title": "账号与登录（后期迁移）",
+      "route": "/login；/register；/app/account",
+      "tests": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "prefix": "ACC",
+      "title": "个人中心与占位功能",
+      "route": "/app/account",
+      "tests": [
+        "test_user_center.py"
+      ]
+    }
+  ],
+  "features": [
+    {
+      "id": "NAV-01",
+      "group": "全局导航与工作区",
+      "name": "五个工作区",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "首页、策略研究、我的研究、数据与运行、设置",
+      "outputs_and_state": "各入口可达；当前工作区明确",
+      "acceptance": "逐一打开五区，子页可返回所属工作区",
+      "source": {
+        "path": "src/quant_platform/web/navigation.py",
+        "line": 17
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "NAV-02",
+      "group": "全局导航与工作区",
+      "name": "全部工具与搜索",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "按标题/描述搜索；从全部工具进入任一工具",
+      "outputs_and_state": "完整的23个工具及所属工作区",
+      "acceptance": "23个工具逐项进入；查询无结果有提示",
+      "source": {
+        "path": "src/quant_platform/web/navigation.py",
+        "line": 227
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "NAV-03",
+      "group": "全局导航与工作区",
+      "name": "模式与上下文跳转",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "同一页面按模式打开；从结果进入审计或验证",
+      "outputs_and_state": "携带运行ID、基准ID和模式；不串到其他运行",
+      "acceptance": "分别打开不同结果验证上下文ID一致",
+      "source": {
+        "path": "src/quant_platform/web/navigation.py",
+        "line": 206
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "NAV-04",
+      "group": "全局导航与工作区",
+      "name": "旧入口兼容",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "7个旧源页面入口及已有书签",
+      "outputs_and_state": "映射到等价功能；旧模式仍可访问",
+      "acceptance": "记录实际旧URL后逐个验证重定向和参数传递",
+      "source": {
+        "path": "src/quant_platform/web/navigation.py",
+        "line": 188
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "APP-01",
+      "group": "应用外壳",
+      "name": "工作台访问门槛",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "未登录进入；已登录进入",
+      "outputs_and_state": "未登录仅使用指南；已登录显示工作区",
+      "acceptance": "开发阶段可先做工作台，最终切换前恢复访问门槛",
+      "source": {
+        "path": "src/quant_platform/web/app.py",
+        "line": 29
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "APP-02",
+      "group": "应用外壳",
+      "name": "品牌与支持入口",
+      "proposed_route": "/app/*",
+      "inputs_and_actions": "Logo回首页、GitHub Issue、Star、打开个人中心",
+      "outputs_and_state": "正确目标；个人中心保留返回来源页",
+      "acceptance": "点击Logo和支持链接，个人中心返回原页",
+      "source": {
+        "path": "src/quant_platform/web/app.py",
+        "line": 14
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "HOME-01",
+      "group": "工作台首页",
+      "name": "三类开始入口",
+      "proposed_route": "/app",
+      "inputs_and_actions": "验证策略想法、检查外部策略、查看研究结果",
+      "outputs_and_state": "进入对应工作区或外部材料模式",
+      "acceptance": "每个入口目标和审计模式正确",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/15_workspace_home.py",
+        "line": 13
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "HOME-02",
+      "group": "工作台首页",
+      "name": "最近研究与继续",
+      "proposed_route": "/app",
+      "inputs_and_actions": "最近3条成功回测；继续上次研究；查看结果",
+      "outputs_and_state": "策略中文标签与正确运行报告",
+      "acceptance": "成功记录排序一致；空记录/读取失败有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/15_workspace_home.py",
+        "line": 30
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_home.py"
+      ]
+    },
+    {
+      "id": "LAND-01",
+      "group": "公开欢迎页与使用指南",
+      "name": "欢迎展示与锚点",
+      "proposed_route": "/",
+      "inputs_and_actions": "启动屏向下浏览、品牌介绍、粒子背景",
+      "outputs_and_state": "欢迎页与内容锚点正常；视觉效果不遮挡操作",
+      "acceptance": "桌面和窄屏均能进入正文及账号操作",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 1911
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "LAND-02",
+      "group": "公开欢迎页与使用指南",
+      "name": "中英文切换",
+      "proposed_route": "/",
+      "inputs_and_actions": "Language / 语言选择",
+      "outputs_and_state": "欢迎文案与账号相关文案切换；会话保留选择",
+      "acceptance": "切换后欢迎页各区文案一致；不承诺全工作台翻译",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 1777
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "LAND-03",
+      "group": "公开欢迎页与使用指南",
+      "name": "五类功能轮播",
+      "proposed_route": "/",
+      "inputs_and_actions": "数据、策略、回测、智能分析、优化的标签/轮播",
+      "outputs_and_state": "展示对应预览；预览是示意内容",
+      "acceptance": "逐个标签可切换；不将示意收益当真实账户数据",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 1941
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "LAND-04",
+      "group": "公开欢迎页与使用指南",
+      "name": "五步研究介绍",
+      "proposed_route": "/",
+      "inputs_and_actions": "研究流程卡片；读取就绪度、策略和回测存在状态",
+      "outputs_and_state": "当前版本展示说明卡片，不是五个可点击执行按钮",
+      "acceptance": "保留内容和读取失败降级；避免制造已有按钮的错觉",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 2034
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "LAND-05",
+      "group": "公开欢迎页与使用指南",
+      "name": "页尾账号入口",
+      "proposed_route": "/",
+      "inputs_and_actions": "登录、注册、已登录后进入工作台或退出",
+      "outputs_and_state": "HTML操作桥接到账号流程",
+      "acceptance": "页头和页尾入口都能操作；不只保留原生隐藏按钮",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 2325
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "LAND-06",
+      "group": "公开欢迎页与使用指南",
+      "name": "扩展欢迎区块",
+      "proposed_route": "/",
+      "inputs_and_actions": "模块直达、数据状态、最近记录、排障明细",
+      "outputs_and_state": "源码保留，但_LOAD_EXTENDED_WELCOME_SECTIONS=False",
+      "acceptance": "标记休眠代码；若启用需另行验收，不冒充当前展示功能",
+      "source": {
+        "path": "src/quant_platform/web/welcome.py",
+        "line": 2469
+      },
+      "current_state": "休眠代码",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guide_steps.py",
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "HUB-01",
+      "group": "策略工作室总入口",
+      "name": "四种创建方式",
+      "proposed_route": "/app/strategies",
+      "inputs_and_actions": "选股想法、策略搭建、自然语言、Python策略切换",
+      "outputs_and_state": "各嵌入工具及独立旧入口均可达；旧模式名映射",
+      "acceptance": "四模式逐个打开；模板与积木旧模式映射到策略搭建",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/0_strategy_hub.py",
+        "line": 17
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "IDEA-01",
+      "group": "选股想法与运行前检查",
+      "name": "想法与研究范围",
+      "proposed_route": "/app/strategies/ideas",
+      "inputs_and_actions": "想法、当前池选股、起止日期、持股数1～100、频率、资金",
+      "outputs_and_state": "推荐因子与实际执行规则、股票中文名",
+      "acceptance": "同输入对应同策略；日期和空池校验；切页草稿可继续",
+      "source": {
+        "path": "src/quant_platform/web/guided_research.py",
+        "line": 19
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "IDEA-02",
+      "group": "选股想法与运行前检查",
+      "name": "规则确认与风险约束",
+      "proposed_route": "/app/strategies/ideas",
+      "inputs_and_actions": "人工确认规则；校验等权和风险限制兼容性",
+      "outputs_and_state": "不兼容警告；未确认/未通过检查不能运行",
+      "acceptance": "未确认、持股过少或仓位限制不兼容时阻止运行",
+      "source": {
+        "path": "src/quant_platform/web/guided_research.py",
+        "line": 134
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "IDEA-03",
+      "group": "选股想法与运行前检查",
+      "name": "数据检查与补齐",
+      "proposed_route": "/app/strategies/ideas",
+      "inputs_and_actions": "检查数据；补齐所选股票和基准；自动复查",
+      "outputs_and_state": "检查表、缺口、更新失败原因；输入保留",
+      "acceptance": "缺口阻止运行；补齐含回看期；失败后可重试",
+      "source": {
+        "path": "src/quant_platform/web/guided_research.py",
+        "line": 142
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "IDEA-04",
+      "group": "选股想法与运行前检查",
+      "name": "确认运行与结果",
+      "proposed_route": "/app/strategies/ideas",
+      "inputs_and_actions": "确认并运行；保存方案版本和运行关联；打开完整报告",
+      "outputs_and_state": "结果ID、执行版本、完成/失败说明",
+      "acceptance": "运行前再次检查；改参数使旧检查/旧结果失效；结果ID对应本次",
+      "source": {
+        "path": "src/quant_platform/web/guided_research.py",
+        "line": 179
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "IDEA-05",
+      "group": "选股想法与运行前检查",
+      "name": "专业回测的待运行方案",
+      "proposed_route": "/app/strategies/ideas",
+      "inputs_and_actions": "查看待运行参数、重新检查、补齐、运行已检查方案",
+      "outputs_and_state": "执行最后一次提交的参数，保存研究版本",
+      "acceptance": "表单未再提交时不偷换执行参数；后端重查数据",
+      "source": {
+        "path": "src/quant_platform/web/guided_research.py",
+        "line": 204
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "VIS-01",
+      "group": "模板与可视化策略",
+      "name": "回测范围",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "起止日期、初始资金≥10000",
+      "outputs_and_state": "模板、自定义和已保存策略共用回测范围",
+      "acceptance": "选择的区间和资金带入实际执行请求",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 261
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-02",
+      "group": "模板与可视化策略",
+      "name": "模板与风格",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "模板、风格、持股数、频率、观察周期和条件值",
+      "outputs_and_state": "规则解释、参数默认值与高级设置",
+      "acceptance": "逐模板按当前注册表验收；折叠高级设置不改值",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 288
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-03",
+      "group": "模板与可视化策略",
+      "name": "模板运行和另存",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "开始模板回测、另存为我的策略",
+      "outputs_and_state": "摘要、策略包、完整结果跳转",
+      "acceptance": "另存可在我的策略找到；回测摘要对应同一运行",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 326
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-04",
+      "group": "模板与可视化策略",
+      "name": "自定义规则搭建",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "名称、AND/OR、1～6条件、指标、周期、比较符/对象/值",
+      "outputs_and_state": "结构化策略定义、可读规则、校验结果",
+      "acceptance": "每类指标和比较对象可组合；非法规则给出原因",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 370
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-05",
+      "group": "模板与可视化策略",
+      "name": "排序与策略生成",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "排序指标/周期/方向、持股数、频率；生成并检查",
+      "outputs_and_state": "策略预览与合法策略包",
+      "acceptance": "编辑后旧预览不能作为当前已验证定义运行",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 442
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-06",
+      "group": "模板与可视化策略",
+      "name": "保存、版本与复制",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "保存策略/新版本、选已有策略、载入积木编辑、复制为新策略",
+      "outputs_and_state": "版本或复制策略，不覆盖旧版本结果",
+      "acceptance": "保存后可重载；修改版本与复制的ID语义正确",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 522
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "VIS-07",
+      "group": "模板与可视化策略",
+      "name": "运行自定义或已保存策略",
+      "proposed_route": "/app/strategies/visual",
+      "inputs_and_actions": "使用该策略回测/回测已保存策略；打开完整结果",
+      "outputs_and_state": "当前定义签名对应的运行摘要和结果ID",
+      "acceptance": "旧结果与当前编辑定义不一致时不误展示为本次结果",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/7_strategy_studio.py",
+        "line": 533
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_strategy_studio_ui.py",
+        "test_strategy_studio_service.py",
+        "test_rule_schema.py"
+      ]
+    },
+    {
+      "id": "NL-01",
+      "group": "自然语言创建策略",
+      "name": "描述转规则",
+      "proposed_route": "/app/strategies/natural-language",
+      "inputs_and_actions": "描述、示例、持股数1～50、频率；默认AI模型",
+      "outputs_and_state": "结构化规则和中文解释；未配置模型指向设置",
+      "acceptance": "模型失败和不支持规则清楚提示；不直接执行未经确认的规则",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/10_nl_strategy.py",
+        "line": 78
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_nl_builder.py",
+        "test_strategy_studio_service.py"
+      ]
+    },
+    {
+      "id": "NL-02",
+      "group": "自然语言创建策略",
+      "name": "人工确认与保存",
+      "proposed_route": "/app/strategies/natural-language",
+      "inputs_and_actions": "核对JSON及可读规则；确认并保存",
+      "outputs_and_state": "策略工作室可检索的策略包",
+      "acceptance": "只有确认后保存；结构化规则校验与原实现一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/10_nl_strategy.py",
+        "line": 121
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_nl_builder.py",
+        "test_strategy_studio_service.py"
+      ]
+    },
+    {
+      "id": "NL-03",
+      "group": "自然语言创建策略",
+      "name": "放弃与后续回测",
+      "proposed_route": "/app/strategies/natural-language",
+      "inputs_and_actions": "放弃重新描述；进入策略创作中心查看并回测",
+      "outputs_and_state": "清除生成结果或进入已保存策略流程",
+      "acceptance": "放弃不注册；跳转后能选择刚保存的策略",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/10_nl_strategy.py",
+        "line": 138
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_nl_builder.py",
+        "test_strategy_studio_service.py"
+      ]
+    },
+    {
+      "id": "PY-01",
+      "group": "Python自定义策略",
+      "name": "在线编写并注册",
+      "proposed_route": "/app/strategies/python",
+      "inputs_and_actions": "Python代码、显示名、说明；BaseStrategy约定",
+      "outputs_and_state": "注册校验、安全检查与保存反馈",
+      "acceptance": "阻断项不可绕过；警告需明确勾选；加载失败原因可见",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_custom_strategy.py",
+        "line": 202
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_strategies.py",
+        "test_strategy_safety.py"
+      ]
+    },
+    {
+      "id": "PY-02",
+      "group": "Python自定义策略",
+      "name": "上传.py文件",
+      "proposed_route": "/app/strategies/python",
+      "inputs_and_actions": "上传.py、显示名、说明、风险确认",
+      "outputs_and_state": "与在线编写一致的注册和安全检查",
+      "acceptance": "合法上传可保存；错误编码/代码/风险项不静默接收",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_custom_strategy.py",
+        "line": 234
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_strategies.py",
+        "test_strategy_safety.py"
+      ]
+    },
+    {
+      "id": "PY-03",
+      "group": "Python自定义策略",
+      "name": "已保存策略及回测",
+      "proposed_route": "/app/strategies/python",
+      "inputs_and_actions": "策略选择、源码、类型化参数、起止日、资金、持股数、频率",
+      "outputs_and_state": "运行摘要、完整回测结果跳转、已保存策略加载失败明细",
+      "acceptance": "参数类型/边界/默认值一致；策略与运行结果ID匹配",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_custom_strategy.py",
+        "line": 247
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_strategies.py",
+        "test_strategy_safety.py"
+      ]
+    },
+    {
+      "id": "PY-04",
+      "group": "Python自定义策略",
+      "name": "删除自定义策略",
+      "proposed_route": "/app/strategies/python",
+      "inputs_and_actions": "删除所选策略",
+      "outputs_and_state": "策略列表刷新；存储删除反馈",
+      "acceptance": "仅处理选中策略；历史回测结果仍可读取",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_custom_strategy.py",
+        "line": 331
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_strategies.py",
+        "test_strategy_safety.py"
+      ]
+    },
+    {
+      "id": "BT-01",
+      "group": "单次回测与结果",
+      "name": "四种研究阶段",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "单次回测、参数优化与稳健性验证、风险规则、方案复用",
+      "outputs_and_state": "相应工具嵌入及独立入口可达",
+      "acceptance": "切换阶段不把研究对象/当前运行误改成其他对象",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 684
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-02",
+      "group": "单次回测与结果",
+      "name": "策略与基础输入",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "动态发现策略、起止日、初始资金≥1000",
+      "outputs_and_state": "策略中文说明和默认参数",
+      "acceptance": "注册策略全部出现；同输入传给现有回测引擎",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 744
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-03",
+      "group": "单次回测与结果",
+      "name": "完整高级参数",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "策略编号、各策略枚举/整数/浮点/布尔/文本参数、持股数、频率",
+      "outputs_and_state": "按策略元数据生成的控件/默认值/上下限",
+      "acceptance": "动态字段不得按一个示例写死；高级区折叠不改默认值",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 771
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-04",
+      "group": "单次回测与结果",
+      "name": "组合与股票池口径",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "等权、波动倒数、风险平价、均值方差；固定/历史股票池",
+      "outputs_and_state": "参数进入请求并保留选择偏差和历史成分要求提示",
+      "acceptance": "四种分配与两种股票池模式均可选择，缺数据不静默降级",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 805
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-05",
+      "group": "单次回测与结果",
+      "name": "提交与检查",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "检查数据并准备回测；待运行方案复查、补齐和确认运行",
+      "outputs_and_state": "已提交请求和检查表；与当前未提交表单区分",
+      "acceptance": "沿用IDEA-05的二次检查；无数据不得生成成功结果",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 825
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-06",
+      "group": "单次回测与结果",
+      "name": "因子组合带入",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "从因子组合页面带入验证过的权重/清洗规则",
+      "outputs_and_state": "factor_composite策略参数预填",
+      "acceptance": "权重、方向、清洗和版本保持；不拿过期组合直接回测",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 730
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-07",
+      "group": "单次回测与结果",
+      "name": "运行选择与通俗摘要",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "选择成功回测；查看结论、收益、回撤、可信度",
+      "outputs_and_state": "有效/警告/无效及缺字段提示；审计评级和报告",
+      "acceptance": "旧结果可读；无效指标不伪造；缺summary有提示",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 575
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-08",
+      "group": "单次回测与结果",
+      "name": "策略和基准曲线",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "查看归一化净值、权益/回撤及月度收益",
+      "outputs_and_state": "各自在同一起始日归一；最大回撤起点/谷底/恢复日和持续时间；无基准时明确显示缺失",
+      "acceptance": "图表底层数据逐日比对；不能用不同起点或补零基准；月度缺失显示缺失而非零收益",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 635
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-09",
+      "group": "单次回测与结果",
+      "name": "收益与风险指标",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "展开专业区和收益风险标签",
+      "outputs_and_state": "全部指标键、单位和缺失值；详见指标附录",
+      "acceptance": "与原summary逐字段比对；小数/百分比/年化口径一致",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 438
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-10",
+      "group": "单次回测与结果",
+      "name": "交易与成本明细",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "展开订单、成交、完整FIFO交易及成本",
+      "outputs_and_state": "订单/成交尾200行；完整交易表；佣金税费滑点等指标",
+      "acceptance": "拒单、参考价/成交价、费用、净毛盈亏和排序不丢",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 462
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-11",
+      "group": "单次回测与结果",
+      "name": "持仓与诊断",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "每日仓位、最新持仓、集中度；通俗诊断和完整有效性问题",
+      "outputs_and_state": "仓位图、持仓表、诊断段落、问题代码与级别；最大日历缺口、未知状态行/证券/订单数",
+      "acceptance": "空仓/旧版无完整交易均有提示；数据和风险记录对应当前运行；有效性明细字段逐项比对",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 505
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "BT-12",
+      "group": "单次回测与结果",
+      "name": "继续验证/审计/记录",
+      "proposed_route": "/app/backtests/new；/app/backtests/:runId",
+      "inputs_and_actions": "用本次结果创建验证实验、完整审计、样本外验证、记录库",
+      "outputs_and_state": "携带当前运行ID、基准ID及审计对象",
+      "acceptance": "每个结果入口打开同一运行；不回到默认记录",
+      "source": {
+        "path": "src/quant_platform/web/home.py",
+        "line": 870
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_backtest_service.py",
+        "test_backtest_validity.py",
+        "test_backtest_diagnosis.py",
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "OPT-01",
+      "group": "参数优化与DSR",
+      "name": "基准继承",
+      "proposed_route": "/app/experiments/optimization",
+      "inputs_and_actions": "选择成功基准回测，读取保存配置与策略参数",
+      "outputs_and_state": "显示基准摘要；继承资金、持仓、频率等",
+      "acceptance": "无基准/配置损坏/策略不可用阻止启动；不改用当前全局配置",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 91
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_optimization_service.py",
+        "test_multiple_testing.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "OPT-02",
+      "group": "参数优化与DSR",
+      "name": "参数网格与约束",
+      "proposed_route": "/app/experiments/optimization",
+      "inputs_and_actions": "各参数候选值、日期、目标指标、最大回撤、1/2/4进程",
+      "outputs_and_state": "最多100组合；类型化候选值及独立子运行",
+      "acceptance": "超100组、非法值和日期被拒绝；组合总数与基准关联一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 140
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_optimization_service.py",
+        "test_multiple_testing.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "OPT-03",
+      "group": "参数优化与DSR",
+      "name": "优化结果和下载",
+      "proposed_route": "/app/experiments/optimization",
+      "inputs_and_actions": "排名表、成功组合详情、打开子回测、CSV下载",
+      "outputs_and_state": "原目标排名、约束状态、失败行和完整CSV",
+      "acceptance": "未满足约束的有效试验仍入审计；子运行ID可追溯",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 276
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_optimization_service.py",
+        "test_multiple_testing.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "OPT-04",
+      "group": "参数优化与DSR",
+      "name": "参数搜索偏差",
+      "proposed_route": "/app/experiments/optimization",
+      "inputs_and_actions": "查看首行/选中组合DSR及独立试验、PSR、相关性等依据",
+      "outputs_and_state": "无法评估/不适用/警告状态，试验清单",
+      "acceptance": "记录缺失清空旧概率；排序指标不偷偷替换成DSR",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 229
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_optimization_service.py",
+        "test_multiple_testing.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "WF-01",
+      "group": "滚动样本外验证",
+      "name": "窗口与搜索配置",
+      "proposed_route": "/app/experiments/walk-forward",
+      "inputs_and_actions": "基准、候选参数、总区间、训练月数≥3、测试/步长≥1、最多1～24窗、目标指标",
+      "outputs_and_state": "训练窗口与随后测试窗口构建及执行",
+      "acceptance": "日期不合法/窗口不足有错误；选参只读训练数据",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 283
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_walk_forward_service.py",
+        "test_research_reliability.py"
+      ]
+    },
+    {
+      "id": "WF-02",
+      "group": "滚动样本外验证",
+      "name": "样本外结果",
+      "proposed_route": "/app/experiments/walk-forward",
+      "inputs_and_actions": "成功窗口、样本外收益、正收益比例、最差回撤、警告和窗口表",
+      "outputs_and_state": "全部窗口状态和测试运行ID",
+      "acceptance": "测试结果与原服务一致；训练失败/空窗口不伪装成功",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 392
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_walk_forward_service.py",
+        "test_research_reliability.py"
+      ]
+    },
+    {
+      "id": "WF-03",
+      "group": "滚动样本外验证",
+      "name": "窗口详情与导出",
+      "proposed_route": "/app/experiments/walk-forward",
+      "inputs_and_actions": "查看测试子回测、打开报告、CSV下载",
+      "outputs_and_state": "完整窗口结果与可追溯的测试运行",
+      "acceptance": "对应测试ID正确；CSV包含全部结果而非仅预览",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/2_research.py",
+        "line": 428
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_walk_forward_service.py",
+        "test_research_reliability.py"
+      ]
+    },
+    {
+      "id": "FAC-01",
+      "group": "因子实验室",
+      "name": "四个功能分区",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "因子库、因子评估、因子组合、自定义因子",
+      "outputs_and_state": "内置/Alpha101/自定义注册项及无行情提示",
+      "acceptance": "各分区可用；无数据可浏览，不误声称可评估",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 142
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-02",
+      "group": "因子实验室",
+      "name": "单因子输入",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "因子、持有期1/5/10/20日、5/10组、起止日、中性化none/industry/size/both",
+      "outputs_and_state": "计算请求和历史暴露校验",
+      "acceptance": "缺当时暴露数据明确报错；不静默跳过中性化",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 178
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-03",
+      "group": "因子实验室",
+      "name": "完整因子报告",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "IC、Rank IC、IR、多空差、更替率、前后半段、显著性、年度、持有期衰减",
+      "outputs_and_state": "分组柱图、Rank IC图、年度/显著性/衰减表和备注",
+      "acceptance": "t+1收盘及t+N+1收盘口径保留；覆盖率与样本不足提示一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 64
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-04",
+      "group": "因子实验室",
+      "name": "组合输入与清洗",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "≥2因子；等权/手动/训练期IC权重；MAD、缺失处理；训练/测试日、持有期和分组",
+      "outputs_and_state": "归一化权重、方向和共同样本的验证请求",
+      "acceptance": "训练/测试隔离；零权重和无效权重处理一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 203
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-05",
+      "group": "因子实验室",
+      "name": "组合结果和方案对比",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "权重公式、训练相关性、组合/基准比较、方案详情",
+      "outputs_and_state": "相关≥0.7提示；配置指纹对应的有效报告",
+      "acceptance": "改变任一配置/因子版本使旧验证失效，禁止旧组合带入回测",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 285
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-06",
+      "group": "因子实验室",
+      "name": "组合记录下载与回测",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "下载factor_research.json；保存组合并去回测",
+      "outputs_and_state": "配置/因子/比较表/报告导出；已验证spec预填",
+      "acceptance": "JSON可解析且内容完整；仅当前指纹有效结果可带入",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 341
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-07",
+      "group": "因子实验室",
+      "name": "新增自定义因子",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "英文标识、字段、中文名、算子、N/N2、方向和说明",
+      "outputs_and_state": "窗口/命名/重复校验、写入注册库",
+      "acceptance": "单窗和双窗规则完整；持久化后刷新可选",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 399
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "FAC-08",
+      "group": "因子实验室",
+      "name": "删除自定义因子",
+      "proposed_route": "/app/factors/*",
+      "inputs_and_actions": "逐条删除自定义因子",
+      "outputs_and_state": "本地因子定义与注册库刷新",
+      "acceptance": "仅删所选自定义项；关联组合重新验证",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/9_factor_lab.py",
+        "line": 459
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_evaluation.py",
+        "test_factor_research_service.py",
+        "test_factor_combine.py"
+      ]
+    },
+    {
+      "id": "LIB-01",
+      "group": "因子库浏览与跨区选择",
+      "name": "筛选与检索",
+      "proposed_route": "/app/factors/library",
+      "inputs_and_actions": "研究意图多选、关键词、类别、来源；多意图OR，其余条件AND",
+      "outputs_and_state": "匹配列表、来源数量、空结果提示",
+      "acceptance": "组合筛选语义和中文/编号检索一致",
+      "source": {
+        "path": "src/quant_platform/web/factor_library.py",
+        "line": 45
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_taxonomy.py"
+      ]
+    },
+    {
+      "id": "LIB-02",
+      "group": "因子库浏览与跨区选择",
+      "name": "行选择与详情",
+      "proposed_route": "/app/factors/library",
+      "inputs_and_actions": "单行选择、收起；公式、版本、窗口、字段说明、来源链接",
+      "outputs_and_state": "动态选择保持；筛选变化清理过期选中项",
+      "acceptance": "选择正确因子；字段含义与来源可查；无数据仍能浏览",
+      "source": {
+        "path": "src/quant_platform/web/factor_library.py",
+        "line": 115
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_taxonomy.py"
+      ]
+    },
+    {
+      "id": "LIB-03",
+      "group": "因子库浏览与跨区选择",
+      "name": "带入评估或组合",
+      "proposed_route": "/app/factors/library",
+      "inputs_and_actions": "用于因子评估、加入因子组合",
+      "outputs_and_state": "对应控件预选；加入组合去重",
+      "acceptance": "切换标签后因子正确；重复加入不产生重复项",
+      "source": {
+        "path": "src/quant_platform/web/factor_library.py",
+        "line": 167
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_factor_lab_ui.py",
+        "test_factor_taxonomy.py"
+      ]
+    },
+    {
+      "id": "KN-01",
+      "group": "先验知识库",
+      "name": "统计与筛选",
+      "proposed_route": "/app/knowledge",
+      "inputs_and_actions": "浏览知识、内容/来源搜索、来源过滤",
+      "outputs_and_state": "数量、来源数、最近更新与匹配条目",
+      "acceptance": "筛选只影响显示，AI仍接收全部知识及来源",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/12_prior_knowledge.py",
+        "line": 64
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_prior_knowledge.py"
+      ]
+    },
+    {
+      "id": "KN-02",
+      "group": "先验知识库",
+      "name": "添加知识",
+      "proposed_route": "/app/knowledge",
+      "inputs_and_actions": "内容、来源；保存知识",
+      "outputs_and_state": "本地条目和统计更新，空内容错误提示",
+      "acceptance": "刷新可读取；后续AI分析上下文包含新知识",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/12_prior_knowledge.py",
+        "line": 47
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_prior_knowledge.py"
+      ]
+    },
+    {
+      "id": "KN-03",
+      "group": "先验知识库",
+      "name": "删除知识",
+      "proposed_route": "/app/knowledge",
+      "inputs_and_actions": "逐条删除",
+      "outputs_and_state": "条目移除、统计更新",
+      "acceptance": "仅删除所选ID；后续AI上下文不再包含该条",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/12_prior_knowledge.py",
+        "line": 94
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_prior_knowledge.py"
+      ]
+    },
+    {
+      "id": "AI-01",
+      "group": "AI研究员与对话",
+      "name": "模型与研究对象",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "股票代码/名称识别、默认模型和配置状态、设置及知识库跳转",
+      "outputs_and_state": "标准化代码；必要凭证/本地行情缺失提示",
+      "acceptance": "非法/空代码及缺凭证不启动；可按原样处理非A股代码",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 175
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-02",
+      "group": "AI研究员与对话",
+      "name": "行情与新闻选择",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "STOCK_SOURCES动态选项；新闻多选/全选；读取代理设置",
+      "outputs_and_state": "所选源进入AgentRunner；多源耗时说明",
+      "acceptance": "新闻失败可降级；代理仅按当前配置作用于适用来源",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 158
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-03",
+      "group": "AI研究员与对话",
+      "name": "分析参数与缓存",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "分析日、回看20～250日、辩论0～4轮、缓存、人为介入",
+      "outputs_and_state": "缓存最终决策或完整新分析；本地行情截至分析日",
+      "acceptance": "缓存命中不编造中间报告；重新分析清空上一轮对话",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 198
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-04",
+      "group": "AI研究员与对话",
+      "name": "实时过程与回放",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "不使用缓存时查看步骤、报告卡片、辩论、耗时及终态回放",
+      "outputs_and_state": "EventBus/LiveTrace过程与trace_log重绘",
+      "acceptance": "切页/重绘不重复调用分析；过程与最终状态一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 297
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-05",
+      "group": "AI研究员与对话",
+      "name": "完整决策与证据",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "经理审批/动作/仓位、拒绝和条件、理由链、分析报告、多空辩论、Trader、风控",
+      "outputs_and_state": "所有已有字段及非致命错误提示",
+      "acceptance": "每个中间产物分区保留；缓存与完整模式的缺项语义正确",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 301
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-06",
+      "group": "AI研究员与对话",
+      "name": "模拟成交展示",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "动作、数量、参考价/成交价、费用、交收日",
+      "outputs_and_state": "存在state.fill时显示；T+1核对说明",
+      "acceptance": "字段与state.fill一致；止损/目标价仍只是研究参考",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 389
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "AI-07",
+      "group": "AI研究员与对话",
+      "name": "人为介入对话",
+      "proposed_route": "/app/research/ai",
+      "inputs_and_actions": "启用介入后聊天、质疑、历史消息",
+      "outputs_and_state": "带研究上下文的回答，失败降级和会话历史",
+      "acceptance": "多轮顺序一致；消息只关联本次研究，错误不丢用户消息",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/8_agent_lab.py",
+        "line": 3
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_agents_bridge.py",
+        "test_agent_sources.py",
+        "test_llm_settings.py"
+      ]
+    },
+    {
+      "id": "REC-01",
+      "group": "研究记录与回测对比",
+      "name": "筛选与完整记录",
+      "proposed_route": "/app/research/records",
+      "inputs_and_actions": "策略、运行类型、状态、名称/编号搜索",
+      "outputs_and_state": "成功/失败/无效/旧版标识及父实验/基准ID、错误原因",
+      "acceptance": "默认成功状态；组合筛选与原记录一致；空结果有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/6_run_library.py",
+        "line": 80
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_run_store.py",
+        "test_run_comparison.py",
+        "test_run_labels.py"
+      ]
+    },
+    {
+      "id": "REC-02",
+      "group": "研究记录与回测对比",
+      "name": "记录CSV与报告",
+      "proposed_route": "/app/research/records",
+      "inputs_and_actions": "下载回测记录；选择记录进入单次复盘",
+      "outputs_and_state": "完整筛选记录CSV及正确运行报告",
+      "acceptance": "CSV不只含屏幕列；中文证券名和编码保留",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/6_run_library.py",
+        "line": 136
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_run_store.py",
+        "test_run_comparison.py",
+        "test_run_labels.py"
+      ]
+    },
+    {
+      "id": "REC-03",
+      "group": "研究记录与回测对比",
+      "name": "从结果保存方案",
+      "proposed_route": "/app/research/records",
+      "inputs_and_actions": "输入新方案名，保存为新方案",
+      "outputs_and_state": "从历史执行快照保存并关联历史运行",
+      "acceptance": "使用该结果配置而非全局当前配置；缺快照明确失败",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/6_run_library.py",
+        "line": 161
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_run_store.py",
+        "test_run_comparison.py",
+        "test_run_labels.py"
+      ]
+    },
+    {
+      "id": "REC-04",
+      "group": "研究记录与回测对比",
+      "name": "2～5次结果对比",
+      "proposed_route": "/app/research/records",
+      "inputs_and_actions": "选择2～5条成功回测；指标、参数和归一净值；CSV",
+      "outputs_and_state": "策略/参数中文化，起点1的曲线和完整对比数据",
+      "acceptance": "不足2条提示；最多5条；数据及文件对应所选ID",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/6_run_library.py",
+        "line": 179
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_run_store.py",
+        "test_run_comparison.py",
+        "test_run_labels.py"
+      ]
+    },
+    {
+      "id": "PLAN-01",
+      "group": "研究方案版本与复用",
+      "name": "方案保存和自动关联",
+      "proposed_route": "/app/research/plans",
+      "inputs_and_actions": "名称、保存当前版本；运行时自动保存及关联结果",
+      "outputs_and_state": "股票池/规则/区间/费用/风控执行快照、版本号",
+      "acceptance": "新增版本而非覆盖旧版；保存不复制行情数据",
+      "source": {
+        "path": "src/quant_platform/web/research_plans.py",
+        "line": 49
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "PLAN-02",
+      "group": "研究方案版本与复用",
+      "name": "版本列表和恢复",
+      "proposed_route": "/app/research/plans",
+      "inputs_and_actions": "按账号列版本、恢复修改、打开关联报告",
+      "outputs_and_state": "引导式方案回想法页，专业方案回复用页",
+      "acceptance": "同名按ID区分；账号方案隔离；运行记录仍为现有本地共享库",
+      "source": {
+        "path": "src/quant_platform/web/research_plans.py",
+        "line": 97
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "PLAN-03",
+      "group": "研究方案版本与复用",
+      "name": "2～4版本比较",
+      "proposed_route": "/app/research/plans",
+      "inputs_and_actions": "选版本比较配置差异和最近关联结果",
+      "outputs_and_state": "未运行/不可读提示；不同区间/费用等不可直接排名警告",
+      "acceptance": "不为未运行版本填收益；可比性字段完整",
+      "source": {
+        "path": "src/quant_platform/web/research_plans.py",
+        "line": 123
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "PLAN-04",
+      "group": "研究方案版本与复用",
+      "name": "复用修改与重跑",
+      "proposed_route": "/app/research/plans",
+      "inputs_and_actions": "保存快照基础上改日期、资金、持仓、频率、策略参数JSON",
+      "outputs_and_state": "校验、运行前检查、保存版本和新单次回测",
+      "acceptance": "JSON非法清除待运行请求；保留旧股票池/费用/风控而非换成全局配置",
+      "source": {
+        "path": "src/quant_platform/web/research_plans.py",
+        "line": 195
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_guided_research.py"
+      ]
+    },
+    {
+      "id": "AUD-01",
+      "group": "可信度审计",
+      "name": "对象与运行选择",
+      "proposed_route": "/app/audits/:runId",
+      "inputs_and_actions": "平台回测/外部材料切换，选择成功回测",
+      "outputs_and_state": "当前报告；空记录/读取失败提示",
+      "acceptance": "结果页带入指定ID；切外部材料进入EXT流程",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/audit_report.py",
+        "line": 27
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_audit_report_page.py",
+        "test_credibility.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "AUD-02",
+      "group": "可信度审计",
+      "name": "评级与六维审计",
+      "proposed_route": "/app/audits/:runId",
+      "inputs_and_actions": "A/B/C/D、通过数、绩效可用性、观测数、成本比例；维度总览/明细",
+      "outputs_and_state": "数据、未来函数、样本偏差、成本、容量、参数搜索六维",
+      "acceptance": "通过/警告/失败/无法评估/不适用语义和评级一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/audit_report.py",
+        "line": 96
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_audit_report_page.py",
+        "test_credibility.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "AUD-03",
+      "group": "可信度审计",
+      "name": "DSR依据和证据链",
+      "proposed_route": "/app/audits/:runId",
+      "inputs_and_actions": "参数搜索面板、原始问题代码/级别/说明",
+      "outputs_and_state": "当前记录的原始证据，不丢失无法评估原因",
+      "acceptance": "与OPT-04同字段；不能用缺记录的旧概率代替",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/audit_report.py",
+        "line": 1
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_audit_report_page.py",
+        "test_credibility.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "AUD-04",
+      "group": "可信度审计",
+      "name": "执行假设",
+      "proposed_route": "/app/audits/:runId",
+      "inputs_and_actions": "历史分期费率、参与率上限、滑点、未知状态处理",
+      "outputs_and_state": "取自执行快照，缺失标未记录",
+      "acceptance": "不从当前配置推算历史假设；比例和单位一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/audit_report.py",
+        "line": 150
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_audit_report_page.py",
+        "test_credibility.py",
+        "test_selection_bias_ui.py"
+      ]
+    },
+    {
+      "id": "EXT-01",
+      "group": "外部成交材料核查",
+      "name": "导入和模板",
+      "proposed_route": "/app/audits/external",
+      "inputs_and_actions": "粘贴表格/上传CSV；下载模板",
+      "outputs_and_state": "前10条预览、总条数、5字段自动识别/人工映射",
+      "acceptance": "日期/代码/方向/数量/价格均映射；净值截图报告暂不支持",
+      "source": {
+        "path": "src/quant_platform/web/external_audit.py",
+        "line": 31
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_forensics.py"
+      ]
+    },
+    {
+      "id": "EXT-02",
+      "group": "外部成交材料核查",
+      "name": "单位、价格与错误行",
+      "proposed_route": "/app/audits/external",
+      "inputs_and_actions": "股/手、未复权/复权或不确定；重复成交确认",
+      "outputs_and_state": "转换结果；错误行表；复权价证据不足",
+      "acceptance": "不静默丢错行；未确认重复行不核查；映射变化使旧报告失效",
+      "source": {
+        "path": "src/quant_platform/web/external_audit.py",
+        "line": 75
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_forensics.py"
+      ]
+    },
+    {
+      "id": "EXT-03",
+      "group": "外部成交材料核查",
+      "name": "核查与结论过滤",
+      "proposed_route": "/app/audits/external",
+      "inputs_and_actions": "核对上市、停牌、价格、成交占比；过滤结论",
+      "outputs_and_state": "各结论计数、证据覆盖率、行号和详细发现",
+      "acceptance": "无本地证据标证据不足；行号含表头且对应原行",
+      "source": {
+        "path": "src/quant_platform/web/external_audit.py",
+        "line": 124
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_forensics.py"
+      ]
+    },
+    {
+      "id": "EXT-04",
+      "group": "外部成交材料核查",
+      "name": "Markdown报告下载",
+      "proposed_route": "/app/audits/external",
+      "inputs_and_actions": "下载检查报告",
+      "outputs_and_state": "外部成交检查.md，包含完整核查发现",
+      "acceptance": "报告可读且反映全部发现，而不只筛选显示的结论",
+      "source": {
+        "path": "src/quant_platform/web/external_audit.py",
+        "line": 128
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_forensics.py"
+      ]
+    },
+    {
+      "id": "OPS-01",
+      "group": "数据与运行入口",
+      "name": "工具入口和按需概览",
+      "proposed_route": "/app/operations",
+      "inputs_and_actions": "行情更新、股票池、任务记录、全部工具；展开概览",
+      "outputs_and_state": "配置股票数/历史充足数/知识条目数；失败降级",
+      "acceptance": "概览按需读取，数据更新后可刷新，入口目标正确",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/19_data_operations.py",
+        "line": 35
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_workspace_navigation.py"
+      ]
+    },
+    {
+      "id": "DATA-01",
+      "group": "日常行情与数据导出",
+      "name": "配置与数据源状态",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "就绪度、仓库摘要、来源和可用状态",
+      "outputs_and_state": "证券数、配置股票数、行情覆盖、记录数、未知状态行、最近成功来源；当前配置状态与实际更新成功来源区分",
+      "acceptance": "六项概览逐项比对；未配置/读取失败提示；不以已配置声称下载成功",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 133
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-02",
+      "group": "日常行情与数据导出",
+      "name": "选择数据和来源更新",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "日期；主表、股票日线、分红送配、多个基准；本次首选源和回退开关",
+      "outputs_and_state": "更新结果、成功/失败及实际来源版本",
+      "acceptance": "至少一个数据集、合法日期；回填运行时禁日常更新；本次选源不改默认",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 192
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-03",
+      "group": "日常行情与数据导出",
+      "name": "更新反馈与导出",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "结果表、失败对象和脱敏原因；下载更新结果",
+      "outputs_and_state": "data_update_results.csv，成功与失败都可追溯",
+      "acceptance": "部分失败仍保留成功项；原因不暴露凭证",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 262
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-04",
+      "group": "日常行情与数据导出",
+      "name": "股票池覆盖率",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "覆盖表、范围、缺失估算、重复数、覆盖率CSV",
+      "outputs_and_state": "configured_stock_coverage.csv",
+      "acceptance": "覆盖率数值和股票范围与原计算一致；空数据有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 283
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-05",
+      "group": "日常行情与数据导出",
+      "name": "股票行情筛选下载",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "多股票与起止日期；预览最后500行；完整下载",
+      "outputs_and_state": "daily_bars_selected.csv按代码/日期排序",
+      "acceptance": "下载包含全部筛选行，不能只下载500行；空筛选不给误导文件",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 344
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-06",
+      "group": "日常行情与数据导出",
+      "name": "基准行情",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "选择指数、收盘图、最后100行、全量CSV",
+      "outputs_and_state": "benchmark_代码.csv",
+      "acceptance": "切换指数图/表/文件一致；下载不是100行预览",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 366
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-07",
+      "group": "日常行情与数据导出",
+      "name": "证券主表",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "前2000行预览、完整主表CSV",
+      "outputs_and_state": "security_master.csv",
+      "acceptance": "完整主表不截断；中文证券名称和证券代码一致",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 379
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "DATA-08",
+      "group": "日常行情与数据导出",
+      "name": "数据版本",
+      "proposed_route": "/app/data/update",
+      "inputs_and_actions": "版本、数据集、实际/请求路由、回退、状态、时间、记录/证券数、区间、错误",
+      "outputs_and_state": "data_versions.csv和版本表",
+      "acceptance": "源、回退路径与时间可追溯；错误脱敏；空版本有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 416
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_center_service.py",
+        "test_data_source_fallback.py",
+        "test_web_exports.py",
+        "test_safe_data_errors.py"
+      ]
+    },
+    {
+      "id": "JOB-01",
+      "group": "全市场回填与任务记录",
+      "name": "启动与互斥",
+      "proposed_route": "/app/data/backfill；/app/operations/jobs",
+      "inputs_and_actions": "回填日期和bars/actions/derived；证券主表始终更新",
+      "outputs_and_state": "后台任务ID；同区间跳过已完成；改变区间重新抓取",
+      "acceptance": "已有活动任务禁重复启动；日期/数据集校验一致",
+      "source": {
+        "path": "src/quant_platform/web/data_job_panel.py",
+        "line": 70
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_jobs.py",
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "id": "JOB-02",
+      "group": "全市场回填与任务记录",
+      "name": "进度与停止",
+      "proposed_route": "/app/data/backfill；/app/operations/jobs",
+      "inputs_and_actions": "约5秒刷新阶段、完成/总数、失败、重试数；停止",
+      "outputs_and_state": "停止请求与安全结束状态；关闭页不影响后台执行",
+      "acceptance": "重新打开能找回任务；不能把已请求停止当作立即完成",
+      "source": {
+        "path": "src/quant_platform/web/data_job_panel.py",
+        "line": 49
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_jobs.py",
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "id": "JOB-03",
+      "group": "全市场回填与任务记录",
+      "name": "历史与继续回填",
+      "proposed_route": "/app/data/backfill；/app/operations/jobs",
+      "inputs_and_actions": "选择历史任务；失败/部分/停止/中断后继续",
+      "outputs_and_state": "沿原日期/数据集重启，最多自动重试20次",
+      "acceptance": "全部8种状态正确；继续沿用原范围且不并行写同仓库",
+      "source": {
+        "path": "src/quant_platform/web/data_job_panel.py",
+        "line": 110
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_jobs.py",
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "id": "JOB-04",
+      "group": "全市场回填与任务记录",
+      "name": "日志查看",
+      "proposed_route": "/app/data/backfill；/app/operations/jobs",
+      "inputs_and_actions": "最近最多32KB日志",
+      "outputs_and_state": "空日志/脱敏日志",
+      "acceptance": "日志长度限制与脱敏有效；不把凭证写入页面",
+      "source": {
+        "path": "src/quant_platform/web/data_job_panel.py",
+        "line": 121
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_jobs.py",
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "id": "LOOP-01",
+      "group": "全市场数据闭环状态",
+      "name": "闭环指标与检查点",
+      "proposed_route": "/app/data/backfill",
+      "inputs_and_actions": "展开全市场数据闭环",
+      "outputs_and_state": "主表/退市/行情覆盖/成分/退市结算/公司行动，检查点表",
+      "acceptance": "保留上市退市规则近似与推导值说明；数量取自仓库",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/1_data_management.py",
+        "line": 98
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_full_market_backfill.py"
+      ]
+    },
+    {
+      "id": "UNI-01",
+      "group": "股票池维护",
+      "name": "批量代码与名称搜索添加",
+      "proposed_route": "/app/data/universe",
+      "inputs_and_actions": "多代码、证券名称/代码检索、多选添加",
+      "outputs_and_state": "规范化后的池、搜索结果与添加反馈",
+      "acceptance": "市场后缀与重复处理一致；主表缺失提示先更新",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/5_universe_management.py",
+        "line": 61
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_universe_service.py"
+      ]
+    },
+    {
+      "id": "UNI-02",
+      "group": "股票池维护",
+      "name": "确认移除",
+      "proposed_route": "/app/data/universe",
+      "inputs_and_actions": "多选股票并明确确认移除",
+      "outputs_and_state": "股票池更新，保留本地历史行情",
+      "acceptance": "不确认不得移除；只移除所选代码",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/5_universe_management.py",
+        "line": 115
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_universe_service.py"
+      ]
+    },
+    {
+      "id": "UNI-03",
+      "group": "股票池维护",
+      "name": "过滤规则",
+      "proposed_route": "/app/data/universe",
+      "inputs_and_actions": "排ST/停牌、最少上市天数、最少历史天数、20日最低成交额",
+      "outputs_and_state": "持久化过滤配置；前往数据更新入口",
+      "acceptance": "保存刷新仍一致；非法值提示；改池后补数据引导保留",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/5_universe_management.py",
+        "line": 152
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_universe_service.py"
+      ]
+    },
+    {
+      "id": "RISK-01",
+      "group": "风险规则与记录",
+      "name": "仓位与风险参数",
+      "proposed_route": "/app/risk",
+      "inputs_and_actions": "启用、总仓位、单股权重、持股数、每日纠偏、现金、回撤、行业、单日亏损、调仓换手",
+      "outputs_and_state": "完整RiskLimits及保存校验",
+      "acceptance": "所有字段/边界与YAML一致；新运行应用配置，旧结果保留原快照",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/3_risk_management.py",
+        "line": 38
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_daily_portfolio_risk.py",
+        "test_risk_engine.py"
+      ]
+    },
+    {
+      "id": "RISK-02",
+      "group": "风险规则与记录",
+      "name": "回撤处理方式",
+      "proposed_route": "/app/risk",
+      "inputs_and_actions": "停止新开仓/降低仓位/清仓；降仓目标仅reduce可编辑",
+      "outputs_and_state": "收盘检查、下一交易日开盘纠偏说明",
+      "acceptance": "三种动作与依赖字段对应；不能改成当日成交",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/3_risk_management.py",
+        "line": 69
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_daily_portfolio_risk.py",
+        "test_risk_engine.py"
+      ]
+    },
+    {
+      "id": "RISK-03",
+      "group": "风险规则与记录",
+      "name": "最近风控记录",
+      "proposed_route": "/app/risk",
+      "inputs_and_actions": "最近10个成功运行的事件；次数/调整/拒绝指标",
+      "outputs_and_state": "合并排序后的前500条事件及运行ID",
+      "acceptance": "计数基于完整合并事件，不只500条预览；旧版无事件有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/3_risk_management.py",
+        "line": 122
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_daily_portfolio_risk.py",
+        "test_risk_engine.py"
+      ]
+    },
+    {
+      "id": "ASSET-01",
+      "group": "数据资产与来源对比",
+      "name": "来源对比和状态",
+      "proposed_route": "/app/data/sources",
+      "inputs_and_actions": "来源对比/XTick接口切换；XTick、BaoStock、AkShare、iFinD、Tushare说明",
+      "outputs_and_state": "凭证/安装状态、建议、专项接口入口",
+      "acceptance": "来源列表状态读取一致；安装或凭证状态不冒充服务连通性",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/13_data_assets.py",
+        "line": 22
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "id": "XT-01",
+      "group": "XTick动态接口",
+      "name": "完整动态目录",
+      "proposed_route": "/app/data/xtick",
+      "inputs_and_actions": "6分类85接口；本地apidoc优先，缺文件再拉目录；凭证设置跳转",
+      "outputs_and_state": "按docApis动态生成分类、接口说明和表单",
+      "acceptance": "85个接口ID/URL均覆盖，不只迁移少数示例",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/11_xtick_data.py",
+        "line": 107
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_security_names.py",
+        "test_web_exports.py"
+      ]
+    },
+    {
+      "id": "XT-02",
+      "group": "XTick动态接口",
+      "name": "参数类型与请求",
+      "proposed_route": "/app/data/xtick",
+      "inputs_and_actions": "枚举、整数、小数、日期、文本、示例默认值和参数名修正",
+      "outputs_and_state": "日期格式化、枚举真实值；Token由服务端使用",
+      "acceptance": "逐接口元数据一致；ZIP/JSON成功和错误均能处理；前端不收原始凭证",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/11_xtick_data.py",
+        "line": 164
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_security_names.py",
+        "test_web_exports.py"
+      ]
+    },
+    {
+      "id": "XT-03",
+      "group": "XTick动态接口",
+      "name": "结果与下载",
+      "proposed_route": "/app/data/xtick",
+      "inputs_and_actions": "表格/原始JSON、证券中文名、接口独立列名、CSV",
+      "outputs_and_state": "xtick_分类_接口.csv；非表格显示JSON；按接口保存结果",
+      "acceptance": "同名字段在不同接口按各自outputParas解释；错误清空旧结果",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/11_xtick_data.py",
+        "line": 144
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_security_names.py",
+        "test_web_exports.py"
+      ]
+    },
+    {
+      "id": "SET-01",
+      "group": "模型、数据源与系统设置",
+      "name": "AI模型配置",
+      "proposed_route": "/app/settings",
+      "inputs_and_actions": "动态提供方、Base URL、Key、模型；仅保存/保存设默认",
+      "outputs_and_state": "各提供方配置、凭证状态与全局默认；空Key环境变量回退",
+      "acceptance": "两保存动作区别保留；业务页读取同一默认模型；凭证由后端保存",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/14_settings.py",
+        "line": 96
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_llm_settings.py",
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "id": "SET-02",
+      "group": "模型、数据源与系统设置",
+      "name": "数据源凭证",
+      "proposed_route": "/app/settings",
+      "inputs_and_actions": "XTick Token/Base URL、iFinD账号密码、Tushare Token",
+      "outputs_and_state": "本地凭证及状态，BaoStock/AkShare无需凭证提示",
+      "acceptance": "保存后相关服务读取；已有凭证延用，不传整个凭证文件到浏览器",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/14_settings.py",
+        "line": 177
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_llm_settings.py",
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "id": "SET-03",
+      "group": "模型、数据源与系统设置",
+      "name": "系统与存储信息",
+      "proposed_route": "/app/settings",
+      "inputs_and_actions": "版本、Python、磁盘、系统、数据/运行/设置路径和代理是否设置",
+      "outputs_and_state": "只读诊断；Streamlit版本在新系统改为实际组件版本",
+      "acceptance": "路径显示与后端实际一致；环境信息不包含密钥值",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/14_settings.py",
+        "line": 201
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_llm_settings.py",
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "id": "SET-04",
+      "group": "模型、数据源与系统设置",
+      "name": "个人中心和指南入口",
+      "proposed_route": "/app/settings",
+      "inputs_and_actions": "设置页跳个人中心或使用指南",
+      "outputs_and_state": "账号区/公开介绍页可达",
+      "acceptance": "返回工作台时导航状态正确",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/14_settings.py",
+        "line": 31
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_llm_settings.py",
+        "test_data_credentials.py"
+      ]
+    },
+    {
+      "id": "AUTH-01",
+      "group": "账号与登录（后期迁移）",
+      "name": "注册校验",
+      "proposed_route": "/login；/register；/app/account",
+      "inputs_and_actions": "用户名3～32位、邮箱、至少8位密码、确认密码",
+      "outputs_and_state": "重复账号/邮箱错误、注册成功；不自动宣称已登录",
+      "acceptance": "旧校验和不区分大小写约束保持；测试在隔离数据库执行",
+      "source": {
+        "path": "src/quant_platform/web/auth.py",
+        "line": 113
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "AUTH-02",
+      "group": "账号与登录（后期迁移）",
+      "name": "用户名或邮箱登录",
+      "proposed_route": "/login；/register；/app/account",
+      "inputs_and_actions": "用户名/邮箱与密码；旧用户库自动兼容",
+      "outputs_and_state": "已登录身份；错误提示；保留原PBKDF2账号兼容",
+      "acceptance": "备份账号可登录；旧库兼容；最终使用服务端会话而非前端布尔值",
+      "source": {
+        "path": "src/quant_platform/web/auth.py",
+        "line": 137
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "AUTH-03",
+      "group": "账号与登录（后期迁移）",
+      "name": "资料读取",
+      "proposed_route": "/login；/register；/app/account",
+      "inputs_and_actions": "读取当前用户资料",
+      "outputs_and_state": "ID/用户名/邮箱/UTC注册时间，不暴露密码哈希",
+      "acceptance": "保持账号字段和归属ID；非法访问有明确门槛",
+      "source": {
+        "path": "src/quant_platform/web/auth.py",
+        "line": 156
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "ACC-01",
+      "group": "个人中心与占位功能",
+      "name": "资料、返回来源页和设置跳转",
+      "proposed_route": "/app/account",
+      "inputs_and_actions": "只读资料、个人中心分类、返回上一页、前往设置",
+      "outputs_and_state": "当前身份/账号资料及返回目标",
+      "acceptance": "直接进入或来源页失效均有安全默认页；资料缺失有提示",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/16_user_center.py",
+        "line": 29
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "ACC-02",
+      "group": "个人中心与占位功能",
+      "name": "退出登录",
+      "proposed_route": "/app/account",
+      "inputs_and_actions": "账号安全中退出；页头/页尾退出入口",
+      "outputs_and_state": "身份与未保存会话输入清除；返回未登录入口",
+      "acceptance": "新旧实现退出后均不能继续用旧会话访问工作台",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/16_user_center.py",
+        "line": 71
+      },
+      "current_state": "源码可达",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "ACC-03",
+      "group": "个人中心与占位功能",
+      "name": "资料编辑、改密码、保存偏好",
+      "proposed_route": "/app/account",
+      "inputs_and_actions": "当前禁用按钮及默认页/语言禁用选项",
+      "outputs_and_state": "即将开放提示，当前不产生持久化修改",
+      "acceptance": "按占位项保留或另立新增需求；不伪称现成功能",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/16_user_center.py",
+        "line": 61
+      },
+      "current_state": "禁用占位",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    },
+    {
+      "id": "ACC-04",
+      "group": "个人中心与占位功能",
+      "name": "个人策略/回测/收藏空间",
+      "proposed_route": "/app/account",
+      "inputs_and_actions": "我的研究中的说明卡片",
+      "outputs_and_state": "即将开放；并非已实现的账号隔离成果库",
+      "acceptance": "不得把共享回测库描述成已按账号隔离",
+      "source": {
+        "path": "src/quant_platform/web/app_pages/16_user_center.py",
+        "line": 89
+      },
+      "current_state": "禁用占位",
+      "migration_status": "待迁移",
+      "acceptance_status": "待验收",
+      "existing_test_candidates": [
+        "test_user_center.py"
+      ]
+    }
+  ],
+  "tool_routes": {
+    "ai": "/app/research/ai",
+    "ideas": "/app/strategies/ideas",
+    "visual": "/app/strategies/visual",
+    "natural": "/app/strategies/natural-language",
+    "python": "/app/strategies/python",
+    "backtest": "/app/backtests/new",
+    "validation": "/app/experiments/optimization",
+    "factor": "/app/factors/library",
+    "knowledge": "/app/knowledge",
+    "records": "/app/research/records",
+    "audit": "/app/audits/:runId",
+    "external": "/app/audits/external",
+    "plans": "/app/research/plans",
+    "data": "/app/data/update",
+    "backfill": "/app/data/backfill",
+    "jobs": "/app/operations/jobs",
+    "assets": "/app/data/sources",
+    "xtick": "/app/data/xtick",
+    "universe": "/app/data/universe",
+    "risk": "/app/risk",
+    "settings": "/app/settings",
+    "account": "/app/account",
+    "welcome": "/"
+  },
+  "legacy_source_routes": {
+    "app_pages/2_research.py": "/app/experiments/optimization（含walk-forward）",
+    "app_pages/3_risk_management.py": "/app/risk",
+    "app_pages/7_strategy_studio.py": "/app/strategies/visual",
+    "app_pages/8_custom_strategy.py": "/app/strategies/python",
+    "app_pages/10_nl_strategy.py": "/app/strategies/natural-language",
+    "app_pages/11_xtick_data.py": "/app/data/xtick",
+    "app_pages/strategy_forensics.py": "/app/audits/external"
+  }
+}

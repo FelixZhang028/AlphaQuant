@@ -25,8 +25,25 @@ class ResearchPlanStore:
                 inputs TEXT NOT NULL, PRIMARY KEY(owner, plan_id, revision));
             CREATE TABLE IF NOT EXISTS plan_runs (
                 owner TEXT NOT NULL, plan_id TEXT NOT NULL, revision INTEGER NOT NULL,
-                run_id TEXT NOT NULL, PRIMARY KEY(owner, run_id));
+                run_id TEXT NOT NULL, PRIMARY KEY(owner, plan_id, revision, run_id));
             """)
+            # A run may be reused by several immutable plans. Preserve old links
+            # while upgrading the original one-plan-per-run schema atomically.
+            primary = [
+                row["name"]
+                for row in sorted(db.execute("PRAGMA table_info(plan_runs)"), key=lambda r: r["pk"])
+                if row["pk"]
+            ]
+            if primary == ["owner", "run_id"]:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("ALTER TABLE plan_runs RENAME TO plan_runs_legacy")
+                db.execute(
+                    "CREATE TABLE plan_runs (owner TEXT NOT NULL, plan_id TEXT NOT NULL, "
+                    "revision INTEGER NOT NULL, run_id TEXT NOT NULL, "
+                    "PRIMARY KEY(owner, plan_id, revision, run_id))"
+                )
+                db.execute("INSERT INTO plan_runs SELECT * FROM plan_runs_legacy")
+                db.execute("DROP TABLE plan_runs_legacy")
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=20)

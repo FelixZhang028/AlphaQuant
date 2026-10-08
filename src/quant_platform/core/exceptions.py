@@ -5,6 +5,10 @@ class QuantPlatformError(Exception):
     """Base class for errors raised by the platform."""
 
 
+class OperationCancelled(QuantPlatformError):
+    """A background operation reached a safe cancellation boundary."""
+
+
 class ConfigurationError(QuantPlatformError):
     """Raised when application configuration is invalid."""
 

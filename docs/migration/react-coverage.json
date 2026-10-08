@@ -1,0 +1,1400 @@
+{
+  "baseline_commit": "49e3143d9955c37742221d47dac1c2a4d3c0d9a1",
+  "step": 5,
+  "feature_count": 125,
+  "scope": "实现索引；不等同于完整功能验收",
+  "features": [
+    {
+      "id": "NAV-01",
+      "name": "五个工作区",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx",
+        "frontend/src/navigation.ts"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NAV-02",
+      "name": "全部工具与搜索",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx",
+        "frontend/src/navigation.ts"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NAV-03",
+      "name": "模式与上下文跳转",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx",
+        "frontend/src/navigation.ts"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NAV-04",
+      "name": "旧入口兼容",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx",
+        "frontend/src/navigation.ts"
+      ],
+      "implementation_status": "正式切换时处理",
+      "acceptance_status": "待第六步验收",
+      "note": "新旧入口并存；旧 URL 跳转兼容留到第七步"
+    },
+    {
+      "id": "APP-01",
+      "name": "工作台访问门槛",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "APP-02",
+      "name": "品牌与支持入口",
+      "route": "/app/*",
+      "implementation_files": [
+        "frontend/src/main.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "HOME-01",
+      "name": "三类开始入口",
+      "route": "/app",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "HOME-02",
+      "name": "最近研究与继续",
+      "route": "/app",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LAND-01",
+      "name": "欢迎展示与锚点",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LAND-02",
+      "name": "中英文切换",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LAND-03",
+      "name": "五类功能轮播",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LAND-04",
+      "name": "五步研究介绍",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LAND-05",
+      "name": "页尾账号入口",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "LAND-06",
+      "name": "扩展欢迎区块",
+      "route": "/",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "原休眠代码保留",
+      "acceptance_status": "待第六步验收",
+      "note": "不将旧版休眠内容声称为已开放功能"
+    },
+    {
+      "id": "HUB-01",
+      "name": "四种创建方式",
+      "route": "/app/strategies",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "IDEA-01",
+      "name": "想法与研究范围",
+      "route": "/app/strategies/ideas",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx",
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "IDEA-02",
+      "name": "规则确认与风险约束",
+      "route": "/app/strategies/ideas",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx",
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "IDEA-03",
+      "name": "数据检查与补齐",
+      "route": "/app/strategies/ideas",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx",
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "IDEA-04",
+      "name": "确认运行与结果",
+      "route": "/app/strategies/ideas",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx",
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "IDEA-05",
+      "name": "专业回测的待运行方案",
+      "route": "/app/strategies/ideas",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx",
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-01",
+      "name": "回测范围",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-02",
+      "name": "模板与风格",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-03",
+      "name": "模板运行和另存",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-04",
+      "name": "自定义规则搭建",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-05",
+      "name": "排序与策略生成",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-06",
+      "name": "保存、版本与复制",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "VIS-07",
+      "name": "运行自定义或已保存策略",
+      "route": "/app/strategies/visual",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NL-01",
+      "name": "描述转规则",
+      "route": "/app/strategies/natural-language",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NL-02",
+      "name": "人工确认与保存",
+      "route": "/app/strategies/natural-language",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "NL-03",
+      "name": "放弃与后续回测",
+      "route": "/app/strategies/natural-language",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PY-01",
+      "name": "在线编写并注册",
+      "route": "/app/strategies/python",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PY-02",
+      "name": "上传.py文件",
+      "route": "/app/strategies/python",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PY-03",
+      "name": "已保存策略及回测",
+      "route": "/app/strategies/python",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PY-04",
+      "name": "删除自定义策略",
+      "route": "/app/strategies/python",
+      "implementation_files": [
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-01",
+      "name": "四种研究阶段",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-02",
+      "name": "策略与基础输入",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-03",
+      "name": "完整高级参数",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-04",
+      "name": "组合与股票池口径",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-05",
+      "name": "提交与检查",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-06",
+      "name": "因子组合带入",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-07",
+      "name": "运行选择与通俗摘要",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-08",
+      "name": "策略和基准曲线",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-09",
+      "name": "收益与风险指标",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-10",
+      "name": "交易与成本明细",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-11",
+      "name": "持仓与诊断",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "BT-12",
+      "name": "继续验证/审计/记录",
+      "route": "/app/backtests/new；/app/backtests/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Backtests.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "OPT-01",
+      "name": "基准继承",
+      "route": "/app/experiments/optimization",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "OPT-02",
+      "name": "参数网格与约束",
+      "route": "/app/experiments/optimization",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "OPT-03",
+      "name": "优化结果和下载",
+      "route": "/app/experiments/optimization",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "OPT-04",
+      "name": "参数搜索偏差",
+      "route": "/app/experiments/optimization",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "WF-01",
+      "name": "窗口与搜索配置",
+      "route": "/app/experiments/walk-forward",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "WF-02",
+      "name": "样本外结果",
+      "route": "/app/experiments/walk-forward",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "WF-03",
+      "name": "窗口详情与导出",
+      "route": "/app/experiments/walk-forward",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-01",
+      "name": "四个功能分区",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-02",
+      "name": "单因子输入",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-03",
+      "name": "完整因子报告",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-04",
+      "name": "组合输入与清洗",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-05",
+      "name": "组合结果和方案对比",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-06",
+      "name": "组合记录下载与回测",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-07",
+      "name": "新增自定义因子",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "FAC-08",
+      "name": "删除自定义因子",
+      "route": "/app/factors/*",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LIB-01",
+      "name": "筛选与检索",
+      "route": "/app/factors/library",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LIB-02",
+      "name": "行选择与详情",
+      "route": "/app/factors/library",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LIB-03",
+      "name": "带入评估或组合",
+      "route": "/app/factors/library",
+      "implementation_files": [
+        "frontend/src/pages/Factors.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "KN-01",
+      "name": "统计与筛选",
+      "route": "/app/knowledge",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "KN-02",
+      "name": "添加知识",
+      "route": "/app/knowledge",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "KN-03",
+      "name": "删除知识",
+      "route": "/app/knowledge",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-01",
+      "name": "模型与研究对象",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-02",
+      "name": "行情与新闻选择",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-03",
+      "name": "分析参数与缓存",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-04",
+      "name": "实时过程与回放",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-05",
+      "name": "完整决策与证据",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-06",
+      "name": "模拟成交展示",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AI-07",
+      "name": "人为介入对话",
+      "route": "/app/research/ai",
+      "implementation_files": [
+        "frontend/src/pages/AI.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "REC-01",
+      "name": "筛选与完整记录",
+      "route": "/app/research/records",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "REC-02",
+      "name": "记录CSV与报告",
+      "route": "/app/research/records",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "REC-03",
+      "name": "从结果保存方案",
+      "route": "/app/research/records",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "REC-04",
+      "name": "2～5次结果对比",
+      "route": "/app/research/records",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PLAN-01",
+      "name": "方案保存和自动关联",
+      "route": "/app/research/plans",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx",
+        "frontend/src/pages/Backtests.tsx",
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PLAN-02",
+      "name": "版本列表和恢复",
+      "route": "/app/research/plans",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx",
+        "frontend/src/pages/Backtests.tsx",
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "本机模式已接入",
+      "acceptance_status": "待第六步验收",
+      "note": "导航与本机方案可用；账号资料和私有方案列表随登录接入"
+    },
+    {
+      "id": "PLAN-03",
+      "name": "2～4版本比较",
+      "route": "/app/research/plans",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx",
+        "frontend/src/pages/Backtests.tsx",
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "PLAN-04",
+      "name": "复用修改与重跑",
+      "route": "/app/research/plans",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx",
+        "frontend/src/pages/Backtests.tsx",
+        "frontend/src/pages/Strategies.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AUD-01",
+      "name": "对象与运行选择",
+      "route": "/app/audits/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AUD-02",
+      "name": "评级与六维审计",
+      "route": "/app/audits/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AUD-03",
+      "name": "DSR依据和证据链",
+      "route": "/app/audits/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AUD-04",
+      "name": "执行假设",
+      "route": "/app/audits/:runId",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "EXT-01",
+      "name": "导入和模板",
+      "route": "/app/audits/external",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "EXT-02",
+      "name": "单位、价格与错误行",
+      "route": "/app/audits/external",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "EXT-03",
+      "name": "核查与结论过滤",
+      "route": "/app/audits/external",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "EXT-04",
+      "name": "Markdown报告下载",
+      "route": "/app/audits/external",
+      "implementation_files": [
+        "frontend/src/pages/Research.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "OPS-01",
+      "name": "工具入口和按需概览",
+      "route": "/app/operations",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-01",
+      "name": "配置与数据源状态",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-02",
+      "name": "选择数据和来源更新",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-03",
+      "name": "更新反馈与导出",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-04",
+      "name": "股票池覆盖率",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-05",
+      "name": "股票行情筛选下载",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-06",
+      "name": "基准行情",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-07",
+      "name": "证券主表",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "DATA-08",
+      "name": "数据版本",
+      "route": "/app/data/update",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "JOB-01",
+      "name": "启动与互斥",
+      "route": "/app/data/backfill；/app/operations/jobs",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "JOB-02",
+      "name": "进度与停止",
+      "route": "/app/data/backfill；/app/operations/jobs",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "JOB-03",
+      "name": "历史与继续回填",
+      "route": "/app/data/backfill；/app/operations/jobs",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "JOB-04",
+      "name": "日志查看",
+      "route": "/app/data/backfill；/app/operations/jobs",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "LOOP-01",
+      "name": "闭环指标与检查点",
+      "route": "/app/data/backfill",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "UNI-01",
+      "name": "批量代码与名称搜索添加",
+      "route": "/app/data/universe",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "UNI-02",
+      "name": "确认移除",
+      "route": "/app/data/universe",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "UNI-03",
+      "name": "过滤规则",
+      "route": "/app/data/universe",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "RISK-01",
+      "name": "仓位与风险参数",
+      "route": "/app/risk",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "RISK-02",
+      "name": "回撤处理方式",
+      "route": "/app/risk",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "RISK-03",
+      "name": "最近风控记录",
+      "route": "/app/risk",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "ASSET-01",
+      "name": "来源对比和状态",
+      "route": "/app/data/sources",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "XT-01",
+      "name": "完整动态目录",
+      "route": "/app/data/xtick",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "XT-02",
+      "name": "参数类型与请求",
+      "route": "/app/data/xtick",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "XT-03",
+      "name": "结果与下载",
+      "route": "/app/data/xtick",
+      "implementation_files": [
+        "frontend/src/pages/Data.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "SET-01",
+      "name": "AI模型配置",
+      "route": "/app/settings",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "SET-02",
+      "name": "数据源凭证",
+      "route": "/app/settings",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "SET-03",
+      "name": "系统与存储信息",
+      "route": "/app/settings",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "SET-04",
+      "name": "个人中心和指南入口",
+      "route": "/app/settings",
+      "implementation_files": [
+        "frontend/src/pages/Settings.tsx"
+      ],
+      "implementation_status": "已接入，待逐项验收",
+      "acceptance_status": "待第六步验收",
+      "note": "功能对照与边界测试属于第六步"
+    },
+    {
+      "id": "AUTH-01",
+      "name": "注册校验",
+      "route": "/login；/register；/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "AUTH-02",
+      "name": "用户名或邮箱登录",
+      "route": "/login；/register；/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "AUTH-03",
+      "name": "资料读取",
+      "route": "/login；/register；/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "ACC-01",
+      "name": "资料、返回来源页和设置跳转",
+      "route": "/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "本机模式已接入",
+      "acceptance_status": "待第六步验收",
+      "note": "导航与本机方案可用；账号资料和私有方案列表随登录接入"
+    },
+    {
+      "id": "ACC-02",
+      "name": "退出登录",
+      "route": "/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "随登录后接入",
+      "acceptance_status": "待第六步验收",
+      "note": "用户已明确暂不考虑登录；旧账号库保持原归属"
+    },
+    {
+      "id": "ACC-03",
+      "name": "资料编辑、改密码、保存偏好",
+      "route": "/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "保留未开放说明",
+      "acceptance_status": "待第六步验收",
+      "note": "原版禁用占位，没有新增持久化账号功能"
+    },
+    {
+      "id": "ACC-04",
+      "name": "个人策略/回测/收藏空间",
+      "route": "/app/account",
+      "implementation_files": [
+        "frontend/src/pages/Home.tsx"
+      ],
+      "implementation_status": "保留未开放说明",
+      "acceptance_status": "待第六步验收",
+      "note": "原版禁用占位，没有新增持久化账号功能"
+    }
+  ]
+}

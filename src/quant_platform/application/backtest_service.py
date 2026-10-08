@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
@@ -73,8 +74,10 @@ class BacktestService:
         self,
         app_config_path: str | Path = "configs/app.yaml",
         strategy_catalog: StrategyCatalog | None = None,
+        progress: Callable[[str, int, int], None] | None = None,
     ) -> None:
         self.app_config_path = Path(app_config_path).resolve()
+        self.progress = progress
         self.configs = self._load_component_configs()
         self.user_strategy_errors: tuple[tuple[str, str], ...] = ()
         if strategy_catalog is not None:
@@ -287,13 +290,18 @@ class BacktestService:
         store.start(run_id, snapshot)
         try:
             store.mark_running(run_id)
+            if self.progress:
+                self.progress(f"run_created:{run_id}", 0, 1)
             engine, _ = self.build_engine(effective)
             result = engine.run(
                 effective.start_date,
                 effective.end_date,
                 effective.initial_cash,
                 run_id=run_id,
+                **({"progress": self.progress} if self.progress else {}),
             )
+            if self.progress:
+                self.progress("persist_result", 0, 1)
             output = result.save(self.runs_root, snapshot)
             store.complete(run_id)
             return BacktestRun(result=result, output_dir=output, config_snapshot=snapshot)

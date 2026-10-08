@@ -17,6 +17,17 @@
 
 ## 当前阶段
 
+React 迁移已新增独立 FastAPI 后端。接口范围、启动命令、验证记录及待接入功能见
+[后端迁移说明](docs/migration/api-backend.md)。可双击 `start_api.bat` 启动本机接口文档。
+后台任务已支持独立进程、持久状态、进度日志、取消和重试，见
+[第四步后台任务说明](docs/migration/background-tasks.md)。
+
+第五步已接入 React 网页：双击 `start_react.bat`，打开 `http://127.0.0.1:8000/app`。
+首次安装或重新构建可运行 `install_react.bat`（需要 Node.js）。
+原 `start.bat` 仍启动 Streamlit，登录暂缓；正式入口切换属于第七步。
+页面范围、开发命令和测试记录见 [第五步 React 说明](docs/migration/react-frontend.md)。
+第六步已执行三轮回归与修复，125项的通过、部分通过和延后状态见 [第六步验收记录](docs/migration/step6-acceptance.md)；尚不声明全量功能签收。
+
 已经支持：
 
 - 使用 iFinD（优先）或 AkShare（自动回退）更新股票池日线，证券主表与基准指数由 AkShare 更新；
