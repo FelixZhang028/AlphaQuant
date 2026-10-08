@@ -1,0 +1,12 @@
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+pydantic>=2.6,<3.0
+pandas>=2.0
+numpy
+pyarrow
+PyYAML
+akshare
+baostock>=0.9.3
+requests
+
+python-dotenv>=1.0,<2.0
