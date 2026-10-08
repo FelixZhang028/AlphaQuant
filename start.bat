@@ -27,7 +27,7 @@ if not exist "dashboard\backend\quant_platform\__init__.py" (
   pause
   exit /b 1
 )
-python -c "import fastapi, uvicorn, pandas, pyarrow, requests, yaml, dotenv" >nul 2>nul
+python -c "import fastapi, uvicorn, pandas, pyarrow, requests, yaml, dotenv, scipy, rich, akshare, baostock" >nul 2>nul
 if errorlevel 1 (
   echo [提示] 首次运行：安装后端依赖...
   python -m pip install -r dashboard\backend\requirements.txt

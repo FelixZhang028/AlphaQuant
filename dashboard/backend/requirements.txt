@@ -3,6 +3,8 @@ uvicorn[standard]>=0.29,<1.0
 pydantic>=2.6,<3.0
 pandas>=2.0
 numpy
+scipy>=1.11
+rich>=13
 pyarrow
 PyYAML
 akshare
