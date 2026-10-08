@@ -54,5 +54,9 @@ echo [启动] 前端页面  http://localhost:5273
 echo 服务在后台运行，按任意键停止全部服务。
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
-
-exit /b %errorlevel%
+set "startupExitCode=%errorlevel%"
+if not "%startupExitCode%"=="0" (
+  echo [错误] 启动失败，请查看以上提示。
+  pause
+)
+exit /b %startupExitCode%
