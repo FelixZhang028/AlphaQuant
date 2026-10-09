@@ -15,6 +15,7 @@ from uuid import uuid4
 import pandas as pd
 
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
+from quant_platform.backtest.multiple_testing import analyze_search, annotate_search
 
 OBJECTIVES = {
     "sharpe": "夏普比率",
@@ -148,6 +149,11 @@ class OptimizationService:
                 rows = list(executor.map(_run_isolated, jobs))
 
         experiments = self._rank(pd.DataFrame(rows), request)
+        selection = analyze_search(
+            experiments, self.backtests.runs_root, optimization_id=optimization_id,
+            objective=request.objective, expected_trials=count,
+        )
+        experiments = annotate_search(experiments, selection)
         output = self.root / optimization_id
         output.mkdir(parents=True, exist_ok=False)
         experiments.to_csv(output / "results.csv", index=False, encoding="utf-8-sig")

@@ -27,6 +27,9 @@ from pydantic import BaseModel, Field
 
 from ..database import _now, get_conn
 from ..quant.result_adapter import backtest_run_to_result, factor_report_to_dict
+from ..quant.result_adapter import _round
+from ..quant.run_evidence import with_run_evidence, run_directory
+from ..quant.run_comparison import compare_persisted_runs
 from ..quant.runtime import (
     BACKEND_ROOT,
     CONFIG_PATH,
@@ -713,7 +716,13 @@ def _clamped_range(start_str: str, end_str: str) -> tuple[date, date]:
 
 
 def _factor_symbols(user: dict) -> list[str] | None:
-    return user_universe_symbols(user["id"]) or None
+    symbols = user_universe_symbols(user["id"])
+    if not symbols:
+        service = build_backtest_service(user)
+        symbols = service.configs.get("universe", {}).get("universe", {}).get("symbols") or []
+    if not symbols:
+        raise HTTPException(status_code=422, detail="请先配置研究股票池")
+    return list(symbols)
 
 
 # 引擎英文报错 -> 中文提示（避免把 "No daily bars available for backtest" 直接抛给用户）
@@ -778,8 +787,10 @@ class FactorCompositeIn(BaseModel):
     corr_threshold: float = 0.7
     start_date: str = ""
     end_date: str = ""
-    horizon: int = 5
-    n_groups: int = 5
+    train_end: str = ""
+    test_start: str = ""
+    horizon: int = Field(5, ge=1, le=20)
+    n_groups: int = Field(5, ge=5, le=10)
 
 
 class FactorResearchIn(BaseModel):
@@ -855,78 +866,43 @@ def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
 
 @router.post("/factors/composite", summary="多因子合成并评估")
 def factor_composite(body: FactorCompositeIn, user: dict = Depends(get_current_user)):
-    if len(body.factor_names) < 2:
-        raise HTTPException(status_code=400, detail="请至少选择两个因子进行合成")
+    if len(body.factor_names) < 2 or len(set(body.factor_names)) != len(body.factor_names):
+        raise HTTPException(status_code=400, detail="请至少选择两个不同因子")
+    if body.weight_mode not in {"equal", "custom", "ic"}:
+        raise HTTPException(status_code=422, detail="未知权重方式")
     registry = build_factor_registry(user)
-    components = []
-    for name in body.factor_names:
-        try:
-            components.append(registry.get(name))
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"因子不存在：{name}")
-    start, end = _clamped_range(body.start_date, body.end_date)
-    evaluator = build_factor_evaluator()
-    symbols = _factor_symbols(user)
-
-    # 权重：custom 用前端给的；equal 等权；ic 用各因子 |Rank IC| 加权。
-    weights = body.weights or {name: 1.0 for name in body.factor_names}
-    if body.weight_mode == "ic":
-        weights = {}
-        for item in components:
-            report = evaluator.evaluate(
-                item, start, end, symbols=symbols,
-                horizon=body.horizon, n_groups=body.n_groups,
-            )
-            weights[item.name] = abs(report.rank_ic_mean) if report.rank_ic_mean == report.rank_ic_mean else 0.0
-        if sum(weights.values()) <= 0:
-            weights = {name: 1.0 for name in body.factor_names}
-
-    # 相关性矩阵与高相关剔除（保留用户选择顺序中靠前的因子）。
-    bars = evaluator.repository.get_daily_bars(symbols=symbols, end_date=end)
-    frames = {item.name: item.compute(bars) for item in components}
-    corr_frame = correlation_matrix(frames)
-    corr: dict[str, dict[str, float]] = {}
-    if not corr_frame.empty:
-        for name in body.factor_names:
-            corr[name] = {
-                other: round(float(corr_frame.loc[name, other]), 3)
-                for other in body.factor_names
-            }
-    dropped = drop_highly_correlated(
-        corr_frame, threshold=body.corr_threshold, priority=body.factor_names
-    )
-    kept_components = [item for item in components if item.name not in dropped]
-    if len(kept_components) < 2:
-        raise HTTPException(
-            status_code=422,
-            detail="剔除高相关因子后成分不足两个，请更换因子组合或调高相关性阈值。",
-        )
-    kept_weights = {name: float(weights.get(name, 1.0)) for name in (i.name for i in kept_components)}
-    composite = CompositeFactor(
-        name="composite",
-        display_name="合成因子",
-        description="因子研究室多因子合成",
-        components=tuple(kept_components),
-        weights=kept_weights,
-    )
     try:
-        report = evaluator.evaluate(
-            composite, start, end, symbols=symbols,
+        components = tuple(registry.get(name) for name in body.factor_names)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="因子不存在") from exc
+    start, end = _clamped_range(body.start_date, body.end_date)
+    split = start + timedelta(days=int((end-start).days*0.7))
+    symbols = _factor_symbols(user)
+    try:
+        train_end = date.fromisoformat(body.train_end) if body.train_end else split
+        test_start = date.fromisoformat(body.test_start) if body.test_start else train_end + timedelta(days=1)
+        if not 0 < body.corr_threshold <= 1:
+            raise ValueError("相关性阈值需在 (0, 1] 内")
+        result = research_combination(
+            market_repository(), components, train_start=start, train_end=train_end,
+            test_start=test_start, test_end=end,
+            mode="manual" if body.weight_mode == "custom" else body.weight_mode,
+            custom_weights=body.weights, clip=body.winsorize, missing=body.fill_method,
             horizon=body.horizon, n_groups=body.n_groups,
+            symbols=symbols, corr_threshold=body.corr_threshold,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
-    total_weight = sum(abs(v) for v in kept_weights.values()) or 1.0
-    composite_spec = [
-        {"name": item.name, "weight": round(kept_weights.get(item.name, 0.0) / total_weight, 4)}
-        for item in kept_components
-    ]
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+    corr = result.correlation.astype(object).where(pd.notna(result.correlation), None).to_dict()
     return {
-        "correlation_matrix": corr,
-        "dropped_factors": dropped,
-        "weights": weights,
-        "composite_spec": composite_spec,
-        "report": factor_report_to_dict(report),
+        "correlation_matrix": corr, "dropped_factors": result.dropped,
+        "weights": result.weights, "composite_spec": result.spec,
+        "report": factor_report_to_dict(result.reports["我的组合"]),
+        "evaluation_mode": "out_of_sample", "train_start": start.isoformat(),
+        "train_end": train_end.isoformat(), "test_start": test_start.isoformat(), "test_end": end.isoformat(),
+        "train_signal_end": result.train_signal_end.isoformat(), "purged_sessions": result.purged_sessions,
+        "universe_symbols": symbols,
+        "note": "使用当前固定股票池，仍可能有事后选股偏差。权重、方向及相关性剔除在训练期冻结；报告只评价测试期。负 IC 不取绝对值。合成前固定按日标准化。",
     }
 
 
@@ -978,6 +954,7 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
             missing=body.missing,
             horizon=body.horizon,
             n_groups=body.n_groups,
+            symbols=_factor_symbols(user),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
@@ -986,11 +963,11 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
     if not result.correlation.empty:
         for name in body.factor_names:
             corr[name] = {
-                other: round(float(result.correlation.loc[name, other]), 3)
+                other: _round(result.correlation.loc[name, other], 3)
                 for other in body.factor_names
                 if other in result.correlation.columns
             }
-    comparison = result.comparison.fillna(0.0).to_dict(orient="records")
+    comparison = result.comparison.astype(object).where(pd.notna(result.comparison), None).to_dict(orient="records")
     for row in comparison:
         for key, value in list(row.items()):
             if isinstance(value, float):
@@ -998,6 +975,8 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
     return {
         "train_start": train_start.isoformat(),
         "train_end": train_end.isoformat(),
+        "train_signal_end": result.train_signal_end.isoformat(),
+        "purged_sessions": result.purged_sessions,
         "test_start": test_start.isoformat(),
         "test_end": test_end.isoformat(),
         "weights": {k: round(float(v), 4) for k, v in result.weights.items()},
@@ -1156,44 +1135,37 @@ def run_library(user: dict = Depends(get_current_user), strategy: str = "", run_
         ).fetchall()
     items = []
     for r in rows:
-        res = json.loads(r["result"]) if r["result"] else {}
+        res = with_run_evidence(json.loads(r["result"]) if r["result"] else {})
         label = f"{r['strategy']}｜{r['from_date']}~{r['to_date']}｜{r['created_at'][:10]}"
         if keyword and keyword.lower() not in label.lower():
             continue
-        items.append({"run_id": f"run-{r['id']}", "run_label": label, "run_kind": "single", "status": "SUCCESS" if r["status"] == "完成" else r["status"],
-                      "validity_status": "VALID", "metrics_reliable": True, "legacy_unverified": False,
+        kind = res.get("run_kind", "unknown")
+        state = "SUCCESS" if r["status"] == "完成" else r["status"]
+        if (strategy and strategy != r["strategy"]) or (run_kind and run_kind != kind) or (status and status != state):
+            continue
+        items.append({"run_id": f"run-{r['id']}", "run_label": label, "run_kind": kind, "status": state,
+                      **{k: res[k] for k in ("validity_status", "metrics_reliable", "legacy_unverified", "validity_issues")},
+                      "grade": _cached_grade(int(r["id"]), res),
                       "strategy": r["strategy"], "start_date": r["from_date"], "end_date": r["to_date"],
                       "updated_at": r["created_at"], "cumulative_return": res.get("total_return"), "max_drawdown": res.get("max_drawdown"),
                       "sharpe": res.get("sharpe"), "sortino": res.get("sortino"), "calmar": res.get("calmar")})
     total = len(items)
     return {"items": items, "total": total,
-            "stats": {"all": total, "success": total, "failed": 0, "legacy_unverified": 0, "experiment": 0}}
+            "stats": {"all": total, "success": sum(i["status"] == "SUCCESS" for i in items),
+                      "failed": sum(i["status"] in {"FAILED", "失败"} for i in items),
+                      "legacy_unverified": sum(i["legacy_unverified"] for i in items),
+                      "experiment": sum(i["run_kind"] not in {"single", "unknown"} for i in items)}}
 
 
 @router.post("/runs/compare", summary="对比 2~5 次回测")
 def run_compare(body: dict[str, Any], user: dict = Depends(get_current_user)):
     run_ids = body.get("run_ids", [])
-    if not 2 <= len(run_ids) <= 5:
+    if not isinstance(run_ids, list) or not 2 <= len(run_ids) <= 5 or any(not isinstance(r, str) for r in run_ids):
         raise HTTPException(status_code=400, detail="请选择 2~5 次回测进行对比")
-    comparison = []
-    normalized_nav: dict[str, list[float]] = {}
-    for rid in run_ids:
-        seed = abs(hash((user["id"], rid)))
-        equity = _sim_equity(seed)
-        metrics = _sim_metrics(equity)
-        base = equity[0]
-        normalized_nav[rid] = [round(v / base, 4) for v in equity]
-        comparison.append({"run_id": rid, "strategy": "策略", "cumulative_return": metrics["total_return"],
-                           "max_drawdown": metrics["max_drawdown"], "sharpe": metrics["sharpe"],
-                           "sortino": metrics["sortino"], "calmar": metrics["calmar"], "metrics_reliable": True})
-    n = len(normalized_nav[run_ids[0]])
-    nav_points = []
-    for i in range(n):
-        point = {"trade_date": f"2024-01-{i % 28 + 1:02d}"}
-        for rid in run_ids:
-            point[rid] = normalized_nav[rid][i]
-        nav_points.append(point)
-    return {"comparison": comparison, "normalized_nav": nav_points}
+    if len(set(run_ids)) != len(run_ids):
+        raise HTTPException(status_code=400, detail="不能重复选择同一回测")
+    records = [(rid, *_audit_run_row(rid, user)) for rid in run_ids]
+    return compare_persisted_runs(records)
 
 
 # --------------------------------------------------------------------------- #
@@ -1214,7 +1186,7 @@ def _audit_run_row(run_ref: str, user: dict):
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="回测记录不存在")
-    result = json.loads(row["result"]) if row["result"] else {}
+    result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
     return row, result
 
 
@@ -1227,27 +1199,58 @@ def audit_run_list(user: dict = Depends(get_current_user)):
         ).fetchall()
     items = []
     for r in rows:
-        result = json.loads(r["result"]) if r["result"] else {}
+        result = with_run_evidence(json.loads(r["result"]) if r["result"] else {})
         if not result.get("output_dir"):
             continue
         items.append({
             "run_id": f"run-{r['id']}",
             "run_label": f"{r['strategy']}｜{r['from_date']}~{r['to_date']}｜{r['created_at'][:10]}",
             "status": r["status"],
-            "metrics_reliable": bool(result.get("metrics_reliable", True)),
+            "metrics_reliable": result["metrics_reliable"],
+            "validity_status": result["validity_status"],
+            "legacy_unverified": result["legacy_unverified"],
+            "grade": _cached_grade(int(r["id"]), result),
         })
     return {"items": items}
 
 
-@router.get("/runs/{run_ref}/audit", summary="回测可信度审计：五维评级与证据链")
+# 运行一旦完成即不可变，评级按记录编号缓存；失败返回 None 由前端显示"待检查"。
+_GRADE_CACHE: dict[int, str | None] = {}
+
+
+def _cached_grade(db_id: int, result: dict) -> str | None:
+    if result.get("legacy_unverified") or not result.get("metrics_reliable"):
+        return "D"
+    if db_id in _GRADE_CACHE:
+        cached = _GRADE_CACHE[db_id]
+        return "B" if cached == "A" and result.get("validity_status") == "WARNING" else cached
+    output_dir = run_directory(result)
+    if output_dir is None:
+        raise HTTPException(status_code=404, detail="该记录没有可验证的运行明细")
+    grade = None
+    if (output_dir / "summary.json").exists():
+        try:
+            from quant_platform.backtest.credibility import audit_persisted_run
+
+            grade = audit_persisted_run(output_dir).grade
+        except Exception:  # noqa: BLE001 - 单条失败不拖垮整个列表
+            grade = None
+    if result.get("validity_status") == "WARNING" and grade == "A":
+        grade = "B"
+    _GRADE_CACHE[db_id] = grade
+    return grade
+
+
+@router.get("/runs/{run_ref}/audit", summary="回测可信度审计：六维评级与证据链")
 def run_audit(run_ref: str, user: dict = Depends(get_current_user)):
     from quant_platform.backtest.credibility import audit_persisted_run
+    from quant_platform.backtest.multiple_testing import SCOPE_NOTE
     from quant_platform.backtest.validity import load_persisted_validity
 
     row, result = _audit_run_row(run_ref, user)
-    output_dir = Path(str(result.get("output_dir") or ""))
-    if not output_dir.is_absolute():
-        output_dir = Path(__file__).resolve().parents[2] / output_dir
+    output_dir = run_directory(result)
+    if output_dir is None:
+        raise HTTPException(status_code=404, detail="该记录没有可验证的运行明细")
     if not (output_dir / "summary.json").exists():
         raise HTTPException(status_code=404, detail="该记录的运行明细已不存在，无法审计")
     try:
@@ -1283,20 +1286,41 @@ def run_audit(run_ref: str, user: dict = Depends(get_current_user)):
             }
     except Exception:  # noqa: BLE001 - 快照缺失不影响评级本身
         pass
+    selection = report.selection_bias
+    selection_bias = {
+        "status": selection.status,
+        "message": selection.message,
+        "optimization_id": selection.optimization_id,
+        "objective": selection.objective,
+        "trial_count": selection.trial_count,
+        "valid_trials": selection.valid_trials,
+        "effective_trials": selection.effective_trials,
+        "average_correlation": selection.average_correlation,
+        "best_median_gap": selection.best_median_gap,
+        "dsr": selection.dsr,
+        "psr": selection.psr,
+        "benchmark_sharpe": selection.benchmark_sharpe,
+        "observed_sharpe": selection.observed_sharpe,
+        "observations": selection.observations,
+        "evidence": [dict(row) for row in selection.evidence],
+        "scope_note": SCOPE_NOTE,
+    }
     return {
         "run_id": f"run-{row['id']}",
         "run_label": f"{row['strategy']}｜{row['from_date']}~{row['to_date']}｜{row['created_at'][:10]}",
-        "grade": report.grade,
-        "headline": report.headline,
+        "grade": "D" if not result["metrics_reliable"] else ("B" if result["validity_status"] == "WARNING" and report.grade == "A" else report.grade),
+        "headline": ("存在需要复核的有效性警告。" if result["validity_status"] == "WARNING" and report.grade == "A" else report.headline) if result["metrics_reliable"] else "有效性证据不足或存在错误，绩效指标不可用于策略评价。",
         "dimensions": dimensions,
-        "validity_status": report.validity_status,
-        "metrics_reliable": report.metrics_reliable,
+        "validity_status": result["validity_status"],
+        "metrics_reliable": result["metrics_reliable"],
+        "legacy_unverified": result["legacy_unverified"],
         "observations": report.observations,
         "maximum_calendar_gap_days": report.maximum_calendar_gap_days,
         "total_transaction_cost": report.total_transaction_cost,
         "transaction_cost_ratio": report.transaction_cost_ratio,
         "issues": [i for i in validity.get("issues", []) if isinstance(i, dict)],
         "assumptions": assumptions,
+        "selection_bias": selection_bias,
     }
 
 

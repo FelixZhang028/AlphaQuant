@@ -99,15 +99,7 @@ def local_market_ready() -> bool:
 def local_data_bounds() -> tuple[date, date] | None:
     """本地 daily_bars 的 (最早, 最晚) 交易日；无数据时返回 None。"""
 
-    bars = market_repository().read_table("daily_bars")
-    if bars.empty:
-        return None
-    import pandas as pd
-
-    dates = pd.to_datetime(bars["trade_date"], errors="coerce").dropna()
-    if dates.empty:
-        return None
-    return dates.min().date(), dates.max().date()
+    return market_repository().daily_bar_bounds()
 
 
 # --------------------------------------------------------------------------- #

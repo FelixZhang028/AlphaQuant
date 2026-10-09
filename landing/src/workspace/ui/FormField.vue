@@ -27,7 +27,6 @@ const emit = defineEmits(['update:modelValue'])
     >
       <option v-for="o in options" :key="o.value" :value="o.value" class="bg-ink">{{ o.label }}</option>
     </select>
-    <p v-if="type === 'select' && hint" class="mt-1 text-xs text-slate-500">{{ hint }}</p>
     <textarea
       v-else-if="type === 'textarea'"
       :value="modelValue"
@@ -59,5 +58,6 @@ const emit = defineEmits(['update:modelValue'])
       class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40 disabled:opacity-50"
       @input="emit('update:modelValue', $event.target.value)"
     />
+    <p v-if="type !== 'checkbox' && hint" class="mt-1 text-xs text-slate-500">{{ hint }}</p>
   </label>
 </template>

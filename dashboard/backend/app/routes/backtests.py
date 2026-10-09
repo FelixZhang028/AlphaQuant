@@ -17,10 +17,12 @@ from datetime import date
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Literal
 
 from ..database import _now, get_conn
 from ..quant.result_adapter import backtest_run_to_result
+from ..quant.run_evidence import with_run_evidence
 from ..quant.runtime import (
     build_backtest_service,
     local_data_bounds,
@@ -33,19 +35,23 @@ router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
 
 class BacktestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     strategy: str = Field(..., max_length=60)
     market: str = Field(..., max_length=40)
     from_date: str = Field(..., description="开始日期 YYYY-MM-DD")
     to_date: str = Field(..., description="结束日期 YYYY-MM-DD")
+    initial_capital: float = Field(1_000_000, gt=0, allow_inf_nan=False)
+    max_positions: int = Field(10, ge=1, le=500)
+    rebalance: Literal["daily", "weekly", "monthly"] = "weekly"
 
 
 def _resolve_plugin(service, strategy_name: str) -> str:
-    """按显示名或插件名匹配策略；匹配不到时回退到配置默认策略。"""
+    """Unknown strategies must never silently execute another strategy."""
 
     for metadata in service.available_strategies():
         if strategy_name in (metadata.display_name, metadata.plugin_name):
             return metadata.plugin_name
-    return service.default_request().strategy_plugin
+    raise HTTPException(status_code=422, detail="策略不存在或加载失败，请选择已注册策略。")
 
 
 # 引擎英文报错 -> 中文提示（避免把 "No daily bars available for backtest" 直接抛给用户）
@@ -65,6 +71,13 @@ def _friendly_error(exc: Exception) -> str:
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="提交回测任务")
 def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
+    if body.market != "当前股票池":
+        raise HTTPException(status_code=422, detail="目前仅支持当前 A 股股票池；指数成分及海外市场尚未接入。")
+    try:
+        date.fromisoformat(body.from_date)
+        date.fromisoformat(body.to_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期格式需为 YYYY-MM-DD")
     if body.from_date >= body.to_date:
         raise HTTPException(status_code=400, detail="开始日期需早于结束日期")
     bounds = local_data_bounds()
@@ -83,13 +96,21 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
 
     service = build_backtest_service(user)
     plugin = _resolve_plugin(service, body.strategy.strip())
+    defaults = service.default_request()
+    metadata = next(m for m in service.available_strategies() if m.plugin_name == plugin)
+    parameters = defaults.strategy_parameters if plugin == defaults.strategy_plugin else metadata.defaults()
+    effective_risk = dc_replace(user_risk_limits(user["id"]), max_positions=body.max_positions)
     request = dc_replace(
-        service.default_request(),
+        defaults,
         strategy_plugin=plugin,
         strategy_id=f"{plugin}_{uuid4().hex[:8]}",
         start_date=date.fromisoformat(start),
         end_date=date.fromisoformat(end),
-        risk_limits=user_risk_limits(user["id"]),
+        initial_cash=body.initial_capital,
+        top_n=body.max_positions,
+        rebalance=body.rebalance,
+        strategy_parameters=parameters,
+        risk_limits=effective_risk,
     )
     try:
         run = service.run(request)
@@ -99,6 +120,16 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=422, detail=_friendly_error(exc))
 
     result = backtest_run_to_result(run, names=security_names())
+    result["effective_config"] = {
+        "strategy_plugin": request.strategy_plugin,
+        "strategy_parameters": request.strategy_parameters,
+        "market": "当前股票池",
+        "initial_capital": request.initial_cash,
+        "max_positions": request.top_n,
+        "rebalance": request.rebalance,
+        "from_date": start, "to_date": end,
+    }
+    result = with_run_evidence(result)
     payload = json.dumps(result, ensure_ascii=False)
     with get_conn() as conn:
         cur = conn.execute(
@@ -109,6 +140,15 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
     return {"id": bid, "status": "完成", "result": result, "created_at": _now()}
 
 
+@router.get("/catalog", summary="可执行策略目录")
+def backtest_catalog(user: dict = Depends(get_current_user)):
+    service = build_backtest_service(user)
+    return {"items": [{"value": m.plugin_name, "label": m.display_name}
+                      for m in service.available_strategies()],
+            "default": service.default_request().strategy_plugin,
+            "market": "当前股票池"}
+
+
 @router.get("/{bid}", summary="单次回测详情")
 def get_backtest(bid: int, user: dict = Depends(get_current_user)):
     with get_conn() as conn:
@@ -117,7 +157,7 @@ def get_backtest(bid: int, user: dict = Depends(get_current_user)):
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="回测不存在")
-    result = json.loads(row["result"]) if row["result"] else {}
+    result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
     return {
         "id": row["id"],
         "strategy": row["strategy"],
@@ -149,7 +189,7 @@ def list_backtests(user: dict = Depends(get_current_user)):
                 "from_date": r["from_date"],
                 "to_date": r["to_date"],
                 "status": r["status"],
-                "result": json.loads(r["result"]) if r["result"] else None,
+                "result": with_run_evidence(json.loads(r["result"]) if r["result"] else {}),
                 "created_at": r["created_at"],
             }
         )

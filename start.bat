@@ -1,7 +1,16 @@
 @echo off
+setlocal
 chcp 65001 >nul
 title 智投引擎 - 一键启动
 cd /d "%~dp0"
+
+rem Resolve Windows PowerShell directly; its directory may be absent from PATH.
+set "startupPowerShell=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%startupPowerShell%" (
+  echo [错误] 未找到 Windows PowerShell，请检查系统组件。
+  pause
+  exit /b 1
+)
 
 echo ============================================
 echo   智投引擎 FellowQuant - 一键启动
@@ -53,7 +62,7 @@ echo [启动] 后端服务  http://127.0.0.1:8000  （API 文档 /docs）
 echo [启动] 前端页面  http://localhost:5273
 echo 服务在后台运行，按任意键停止全部服务。
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
+"%startupPowerShell%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
 set "startupExitCode=%errorlevel%"
 if not "%startupExitCode%"=="0" (
   echo [错误] 启动失败，请查看以上提示。

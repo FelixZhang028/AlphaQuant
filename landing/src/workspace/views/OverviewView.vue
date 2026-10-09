@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   createStrategy,
+  getBacktestCatalog,
   deleteStrategy,
   fetchSnapshot,
   listStrategies,
@@ -85,7 +86,8 @@ async function onSubmitStrategy() {
 }
 
 // ---------- 回测 ----------
-const bt = reactive({ strategy: 'AlphaSeeker', market: '沪深300', from: '2025-01-01', to: '2026-01-01', running: false })
+const bt = reactive({ strategy: '', market: '当前股票池', from: '2025-01-01', to: '2026-01-01', running: false })
+const btStrategies = ref([])
 const btResult = ref(null)
 const btError = ref('')
 
@@ -130,6 +132,8 @@ const kpis = computed(() => {
 })
 
 onMounted(async () => {
+  try { const c = await getBacktestCatalog(); btStrategies.value = c.items; bt.strategy = c.default }
+  catch (e) { props.notify(e.message || '加载策略目录失败') }
   loadStrategies()
   try {
     snapshot.value = await fetchSnapshot()
@@ -163,16 +167,16 @@ onMounted(async () => {
 
     <!-- 回测 -->
     <section class="glass rounded-2xl p-5">
-      <h2 class="text-sm font-semibold text-white">快速回测</h2>
+      <h2 class="text-sm font-semibold text-white">快速回测</h2><p class="mt-2 text-xs text-slate-400">初始资金 100 万，最多 10 只，每周调仓；更多配置请进入回测与验证。</p>
       <div class="mt-4 grid gap-4 md:grid-cols-5">
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">策略</span>
-          <input v-model="bt.strategy" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
+          <select v-model="bt.strategy" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white"><option v-for="s in btStrategies" :key="s.value" :value="s.value" class="bg-ink">{{ s.label }}</option></select>
         </label>
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">市场</span>
           <select v-model="bt.market" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
-            <option v-for="m in stratMarkets" :key="m">{{ m }}</option>
+            <option value="当前股票池" class="bg-ink">当前 A 股股票池</option>
           </select>
         </label>
         <label class="block">

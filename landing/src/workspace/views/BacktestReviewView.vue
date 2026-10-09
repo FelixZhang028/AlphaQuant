@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { getBacktest, listBacktests, submitBacktest } from '../../api.js'
+import { getBacktestCatalog, getBacktest, getRunAudit, listBacktests, submitBacktest } from '../../api.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import LineChart from '../ui/LineChart.vue'
@@ -8,6 +8,7 @@ import EmptyState from '../ui/EmptyState.vue'
 import FormField from '../ui/FormField.vue'
 import DataTable from '../ui/DataTable.vue'
 import StatusPill from '../ui/StatusPill.vue'
+import { pendingAuditRun } from '../auditLink.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -15,11 +16,8 @@ const props = defineProps({
 })
 
 // ---------- 新建回测表单 ----------
-const markets = [
-  { value: '沪深300', label: '沪深300' },
-  { value: '中证500', label: '中证500' },
-  { value: '纳指100', label: '纳指100' },
-]
+const markets = [{ value: '当前股票池', label: '当前 A 股股票池' }]
+const strategyOptions = ref([])
 const rebalances = [
   { value: 'daily', label: '每日' },
   { value: 'weekly', label: '每周' },
@@ -27,8 +25,8 @@ const rebalances = [
 ]
 
 const form = reactive({
-  strategy: 'AlphaSeeker',
-  market: '沪深300',
+  strategy: '',
+  market: '当前股票池',
   from_date: '2025-01-01',
   to_date: '2025-12-31',
   initial_capital: 1000000,
@@ -47,6 +45,22 @@ const current = ref(null)
 const detailLoading = ref(false)
 
 const result = computed(() => current.value?.result || {})
+
+// ---------- 可信度审计（结果的属性，随详情一起加载） ----------
+const audit = ref(null)
+// 评级视觉语言与审计页一致：A 绿 / B 蓝 / C 黄 / D 红
+const GRADE_TONE = { A: 'text-emerald-300', B: 'text-sky-300', C: 'text-amber-300', D: 'text-rose-300' }
+const gradeTone = computed(() => GRADE_TONE[audit.value?.grade] || 'text-slate-300')
+const gradeValue = computed(() => audit.value?.grade || '待检查')
+const gradeSub = computed(() =>
+  audit.value?.headline ? '点击下方按钮查看证据链' : '含数据、成本与参数搜索偏差等审计维度，不代表未来盈利概率'
+)
+
+function openAudit() {
+  if (selectedId.value === null || selectedId.value === '') return
+  pendingAuditRun.value = `run-${selectedId.value}`
+  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: 'audit-report' }))
+}
 
 const tabs = ['概览', '收益与风险', '交易与成本', '持仓分析']
 const activeTab = ref('概览')
@@ -137,6 +151,13 @@ async function loadDetail() {
   detailLoading.value = true
   try {
     current.value = await getBacktest(selectedId.value)
+    audit.value = null
+    // 评级随详情加载；明细缺失或审计失败时显示"待检查"，不阻塞结果展示。
+    try {
+      audit.value = await getRunAudit(`run-${selectedId.value}`)
+    } catch {
+      audit.value = null
+    }
   } catch (e) {
     props.notify(e.message || '加载回测详情失败')
   } finally {
@@ -155,6 +176,9 @@ async function onSubmit() {
       market: form.market,
       from_date: form.from_date,
       to_date: form.to_date,
+      initial_capital: Number(form.initial_capital),
+      max_positions: Number(form.max_positions),
+      rebalance: form.rebalance,
     })
     props.notify('回测已完成')
     await loadBacktests()
@@ -170,6 +194,11 @@ async function onSubmit() {
 }
 
 onMounted(async () => {
+  try {
+    const catalog = await getBacktestCatalog()
+    strategyOptions.value = catalog.items
+    form.strategy = catalog.default
+  } catch (e) { props.notify(e.message || '加载策略目录失败') }
   await loadBacktests()
   if (backtests.value.length) {
     selectedId.value = backtests.value[0].id
@@ -189,7 +218,7 @@ onMounted(async () => {
     <!-- 新建回测 -->
     <SectionCard title="新建回测" hint="配置策略与市场区间，运行一次确定性回测">
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FormField label="策略" v-model="form.strategy" placeholder="如 AlphaSeeker" />
+        <FormField label="策略" type="select" v-model="form.strategy" :options="strategyOptions" />
         <FormField label="市场" type="select" v-model="form.market" :options="markets" />
         <FormField label="开始日期" type="date" v-model="form.from_date" />
         <FormField label="结束日期" type="date" v-model="form.to_date" />
@@ -257,8 +286,29 @@ onMounted(async () => {
 
         <div v-if="detailLoading" class="text-sm text-slate-400">加载中…</div>
 
+        <div v-if="current" class="rounded-xl border border-amber-400/20 bg-white/5 p-4 text-xs text-slate-300">
+          <p>数据状态：{{ result.legacy_unverified ? '旧版未验证' : result.validity_status }}；{{ result.metrics_reliable ? '指标可计算，请结合警告审阅' : '指标不可作为可信结论' }}</p>
+          <p v-if="result.effective_config" class="mt-2">实际配置：{{ result.effective_config.strategy_plugin }} · ¥{{ Number(result.effective_config.initial_capital).toLocaleString() }} · 最多 {{ result.effective_config.max_positions }} 只 · {{ rebalances.find(r => r.value === result.effective_config.rebalance)?.label }}调仓 · {{ result.effective_config.from_date }} 至 {{ result.effective_config.to_date }}</p>
+          <p v-for="(issue, index) in result.validity_issues || []" :key="index" class="mt-1 text-amber-300">{{ issue.code }}：{{ issue.message }}</p>
+        </div>
         <!-- 概览 -->
-        <div v-else-if="activeTab === '概览'" class="space-y-4">
+        <div v-if="!detailLoading && activeTab === '概览'" class="space-y-4">
+          <!-- 结论先行：收益 / 回撤 / 可信度评级 -->
+          <section class="grid gap-5 sm:grid-cols-3">
+            <MetricCard
+              label="累计收益"
+              :value="fmtPct(result.total_return)"
+              :tone="num(result.total_return) === null ? '' : num(result.total_return) >= 0 ? 'text-emerald-300' : 'text-rose-300'"
+            />
+            <MetricCard label="最大回撤" :value="fmtPct(result.max_drawdown)" tone="text-rose-300" />
+            <MetricCard label="可信度评级" :value="gradeValue" :sub="gradeSub" :tone="gradeTone" />
+          </section>
+          <button
+            @click="openAudit"
+            class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20"
+          >
+            查看完整可信度审计 →
+          </button>
           <div class="rounded-xl border border-white/10 bg-white/5 p-4">
             <div class="flex items-center justify-between text-xs text-slate-400">
               <span>资金曲线</span>

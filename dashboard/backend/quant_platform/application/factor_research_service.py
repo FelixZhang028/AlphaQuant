@@ -9,7 +9,7 @@ from math import isfinite
 import pandas as pd
 
 from quant_platform.factors.base import FactorDefinition
-from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames
+from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames, drop_highly_correlated
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
 
 
@@ -25,12 +25,12 @@ class FrameFactor(FactorDefinition):
 class BoundedRepository:
     """Cap both factor history and forward-return prices at the phase boundary."""
 
-    def __init__(self, repository, end: date):
-        self.repository, self.end = repository, end
+    def __init__(self, repository, end: date, symbols=None):
+        self.repository, self.end, self.symbols = repository, end, symbols
 
     def get_daily_bars(self, symbols=None, end_date=None):
         cutoff = min(pd.Timestamp(end_date or self.end), pd.Timestamp(self.end)).date()
-        return self.repository.get_daily_bars(symbols=symbols, end_date=cutoff)
+        return self.repository.get_daily_bars(symbols=symbols if symbols is not None else self.symbols, end_date=cutoff)
 
 
 @dataclass
@@ -40,6 +40,9 @@ class CombinationResult:
     comparison: pd.DataFrame
     reports: dict[str, FactorReport]
     spec: list[dict]
+    dropped: list[str] = field(default_factory=list)
+    train_signal_end: date | None = None
+    purged_sessions: int = 0
 
 
 def research_combination(
@@ -56,6 +59,8 @@ def research_combination(
     missing: str = "drop",
     horizon: int = 5,
     n_groups: int = 5,
+    symbols: list[str] | None = None,
+    corr_threshold: float | None = None,
 ) -> CombinationResult:
     if not train_start <= train_end < test_start <= test_end:
         raise ValueError("日期需满足：训练开始 ≤ 训练结束 < 测试开始 ≤ 测试结束。")
@@ -63,11 +68,13 @@ def research_combination(
         raise ValueError("请选择至少两个不同因子。")
     if mode not in {"equal", "manual", "ic"}:
         raise ValueError("未知权重方式")
+    if mode == "manual" and set(custom_weights or {}).difference(f.name for f in components):
+        raise ValueError("权重包含未选择的因子。")
     if missing not in {"drop", "median"}:
         raise ValueError("研究组合请选择剔除缺失或中位数填充。")
 
     def frames_until(end):
-        bars = repository.get_daily_bars(end_date=end)
+        bars = repository.get_daily_bars(symbols=symbols, end_date=end)
         if bars.empty:
             raise ValueError("所选区间没有本地行情，请先更新数据。")
         universe = bars[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})
@@ -77,16 +84,28 @@ def research_combination(
             values = factor.compute(bars)
             values["date"] = pd.to_datetime(values["date"]).dt.normalize()
             frames[factor.name] = universe.merge(values, on=["date", "symbol"], how="left")
-        return prepare_frames(frames, clip=clip, missing=missing)
+        sessions = pd.DatetimeIndex(pd.to_datetime(bars.trade_date).unique()).sort_values()
+        return prepare_frames(frames, clip=clip, missing=missing), sessions
 
-    train_frames = frames_until(train_end)
+    train_frames, sessions = frames_until(train_end)
+    sessions = sessions[sessions >= pd.Timestamp(train_start)]
+    # Labels enter on t+1 and exit on t+horizon+1. Purge all signals whose
+    # labels would cross train_end, including correlation-based selection.
+    purge = horizon + 1
+    if len(sessions) <= purge:
+        raise ValueError("训练期交易日不足，无法隔离跨边界收益标签。")
+    signal_end = sessions[-(purge + 1)].date()
     train_slice = {
-        name: frame[frame.date.between(pd.Timestamp(train_start), pd.Timestamp(train_end))]
+        name: frame[frame.date.between(pd.Timestamp(train_start), pd.Timestamp(signal_end))]
         for name, frame in train_frames.items()
     }
     if any(frame.empty for frame in train_slice.values()):
         raise ValueError("训练期清洗后没有共同样本，请扩大日期范围或补齐行情。")
     correlation = correlation_matrix(train_slice)
+    dropped = drop_highly_correlated(correlation, threshold=corr_threshold, priority=[f.name for f in components]) if corr_threshold is not None else []
+    components = tuple(f for f in components if f.name not in dropped)
+    if len(components) < 2:
+        raise ValueError("训练期剔除高相关因子后不足两个，请更换组合或调高阈值。")
     weights = {}
     for factor in components:
         if mode == "equal":
@@ -98,9 +117,9 @@ def research_combination(
                 name=factor.name,
                 display_name=factor.display_name,
                 direction=factor.direction,
-                values=train_frames[factor.name],
+                values=train_slice[factor.name],
             )
-            report = FactorEvaluator(BoundedRepository(repository, train_end)).evaluate(
+            report = FactorEvaluator(BoundedRepository(repository, train_end, symbols)).evaluate(
                 proxy, train_start, train_end, horizon=horizon, n_groups=n_groups
             )
             weight = report.rank_ic_mean
@@ -114,7 +133,8 @@ def research_combination(
     weights = {name: value / total for name, value in weights.items()}
 
     # The test set is accessed only after all weights are fixed.
-    frames = frames_until(test_end)
+    frames, _ = frames_until(test_end)
+    frames = {f.name: frames[f.name] for f in components}
     directions = {factor.name: factor.direction for factor in components}
     candidates = {
         f"单因子 · {factor.display_name} ({factor.name})": FrameFactor(
@@ -136,7 +156,7 @@ def research_combination(
         )
     reports = {}
     rows = []
-    evaluator = FactorEvaluator(BoundedRepository(repository, test_end))
+    evaluator = FactorEvaluator(BoundedRepository(repository, test_end, symbols))
     for label, factor in candidates.items():
         report = evaluator.evaluate(
             factor, test_start, test_end, horizon=horizon, n_groups=n_groups
@@ -156,7 +176,7 @@ def research_combination(
     if not any(row["有效 IC 天数"] for row in rows):
         raise ValueError("测试期没有有效 IC 样本，请检查日期、股票数量和因子是否为常数。")
     spec = [
-        {"name": f.name, "weight": weights[f.name], "clip": clip, "missing": missing}
+        {"name": f.name, "version": f.version, "weight": weights[f.name], "direction": f.direction, "clip": clip, "missing": missing}
         for f in components
     ]
-    return CombinationResult(weights, correlation, pd.DataFrame(rows), reports, spec)
+    return CombinationResult(weights, correlation, pd.DataFrame(rows), reports, spec, dropped, signal_end, purge)

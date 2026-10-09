@@ -31,6 +31,11 @@ def _round(value: Any, digits: int = 2) -> float | None:
     return None if number is None else round(number, digits)
 
 
+def _percent(value: Any, absolute: bool = False) -> float | None:
+    number = _finite(value)
+    return None if number is None else _round((abs(number) if absolute else number) * 100)
+
+
 def backtest_run_to_result(run: BacktestRun, names: dict[str, str] | None = None) -> dict[str, Any]:
     """BacktestRun -> 前端 backtests.result JSON（含 trades / positions）。"""
 
@@ -47,13 +52,13 @@ def backtest_run_to_result(run: BacktestRun, names: dict[str, str] | None = None
     return {
         "equity": equity,
         "nav_dates": nav_dates,
-        "total_return": _round((summary.get("cumulative_return") or 0.0) * 100),
-        "annual_return": _round((summary.get("annual_return") or 0.0) * 100),
-        "max_drawdown": _round(abs(summary.get("max_drawdown") or 0.0) * 100),
+        "total_return": _percent(summary.get("cumulative_return")),
+        "annual_return": _percent(summary.get("annual_return")),
+        "max_drawdown": _percent(summary.get("max_drawdown"), True),
         "sharpe": _round(summary.get("sharpe")),
         "sortino": _round(summary.get("sortino")),
         "calmar": _round(summary.get("calmar")),
-        "win_rate": _round((summary.get("positive_day_ratio") or 0.0) * 100),
+        "win_rate": _percent(summary.get("positive_day_ratio")),
         "final_equity": _round(summary.get("final_equity")),
         "total_cost": _round(summary.get("total_transaction_cost")),
         "commission": _round(summary.get("commission")),
@@ -62,11 +67,12 @@ def backtest_run_to_result(run: BacktestRun, names: dict[str, str] | None = None
         "fills": int(summary.get("fills") or 0),
         "orders": int(summary.get("orders") or 0),
         "closed_trades": int(summary.get("closed_trades") or 0),
-        "trade_win_rate": _round((summary.get("trade_win_rate") or 0.0) * 100),
+        "trade_win_rate": _percent(summary.get("trade_win_rate")),
         "average_holding_days": _round(summary.get("average_holding_days")),
         "validity_status": summary.get("validity_status"),
-        "metrics_reliable": bool(summary.get("metrics_reliable", True)),
+        "metrics_reliable": bool(summary.get("metrics_reliable", False)),
         "run_id": run.result.run_id,
+        "run_kind": getattr(run, "config_snapshot", {}).get("app", {}).get("backtest", {}).get("run_kind", "single"),
         "output_dir": str(run.output_dir),
         "trades": fills_to_trades(run.result.fills),
         "positions": final_positions(run.result.positions, names=names),
@@ -153,7 +159,8 @@ def factor_report_to_dict(report: FactorReport) -> dict[str, Any]:
     group_mean_returns: dict[str, float] = {}
     if not report.group_mean_returns.empty:
         for group, value in report.group_mean_returns.items():
-            key = f"G{int(group)}" if str(group).isdigit() else str(group)
+            number = _finite(group)
+            key = f"G{int(number)}" if number is not None and number.is_integer() else str(group)
             rounded = _round(value, 6)
             if rounded is not None:
                 group_mean_returns[key] = rounded

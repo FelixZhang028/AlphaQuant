@@ -38,11 +38,14 @@ const runKindLabel = {
   walk_forward: '滚动验证',
   experiment: '实验',
   manual: '手动',
+  unknown: '未记录',
 }
 
 function trustInfo(r) {
   if (r.legacy_unverified) return { text: '旧版未验证', cls: 'text-amber-300 bg-amber-400/10 border-amber-400/30' }
-  if (r.metrics_reliable) return { text: '可靠', cls: 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30' }
+  if (r.validity_status === 'INVALID' || r.metrics_reliable === false) return { text: '不可用', cls: 'text-rose-300 bg-rose-400/10 border-rose-400/30' }
+  if (r.validity_status === 'WARNING') return { text: '需复核', cls: 'text-amber-300 bg-amber-400/10 border-amber-400/30' }
+  if (r.metrics_reliable) return { text: '审计通过', cls: 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30' }
   return { text: '待验证', cls: 'text-rose-300 bg-rose-400/10 border-rose-400/30' }
 }
 
@@ -101,6 +104,8 @@ function onReset() {
 const selectedIds = ref([])
 const comparing = ref(false)
 const comparison = ref(null)
+const comparisonNote = ref('')
+const comparisonScope = ref(null)
 const navPoints = ref([])
 const compareRunIds = ref([])
 const palette = ['#818cf8', '#34d399', '#fbbf24', '#f472b6', '#22d3ee']
@@ -122,9 +127,13 @@ async function onCompare() {
   const ids = [...selectedIds.value]
   if (ids.length < 2) return props.notify('请至少选择 2 次回测进行对比')
   comparing.value = true
+  comparison.value = null
+  navPoints.value = []
   try {
     const data = await compareRuns(ids)
     comparison.value = data?.comparison || []
+    comparisonNote.value = data.note
+    comparisonScope.value = data.chart_scope
     navPoints.value = data?.normalized_nav || []
     compareRunIds.value = ids
   } catch (e) {
@@ -147,7 +156,7 @@ const comparisonRows = computed(() => {
   if (!comparison.value) return []
   return comparison.value.map((c) => ({
     ...c,
-    strategy: runMap.value[c.run_id]?.strategy || c.strategy || '—',
+    strategy: c.strategy || '—',
   }))
 })
 
@@ -156,7 +165,8 @@ const runColumns = [
   { key: 'run_id', label: '运行' },
   { key: 'run_kind', label: '类型' },
   { key: 'status', label: '状态' },
-  { key: 'trust', label: '可信度' },
+  { key: 'trust', label: '指标' },
+  { key: 'grade', label: '可信度评级' },
   { key: 'strategy', label: '策略' },
   { key: 'start_date', label: '开始' },
   { key: 'end_date', label: '结束' },
@@ -228,7 +238,7 @@ onMounted(() => loadRuns(''))
     </SectionCard>
 
     <!-- 历史记录 -->
-    <SectionCard title="历史记录" :hint="`共 ${total} 条回测记录，来源于 listRuns。`">
+    <SectionCard title="历史记录" :hint="`共 ${total} 条真实回测记录。`">
       <div v-if="loading" class="text-sm text-slate-400">加载中…</div>
       <EmptyState v-else-if="!runs.length" text="暂无回测记录" />
       <DataTable v-else :columns="runColumns" :rows="runs" empty="暂无回测记录">
@@ -245,6 +255,9 @@ onMounted(() => loadRuns(''))
           <span class="inline-flex rounded-full border px-2.5 py-0.5 text-xs whitespace-nowrap" :class="trustInfo(row).cls">
             {{ trustInfo(row).text }}
           </span>
+        </template>
+        <template #cell-grade="{ row }">
+          <StatusPill :value="row.grade || '待检查'" :text="row.grade ? `评级 ${row.grade}` : '待检查'" />
         </template>
         <template #cell-strategy="{ row }">
           <span class="font-medium text-white">{{ row.strategy || '—' }}</span>
@@ -310,7 +323,7 @@ onMounted(() => loadRuns(''))
       <div v-if="comparison && comparison.length" class="mt-6 space-y-6">
         <div>
           <div class="flex items-center justify-between text-xs text-slate-400">
-            <span>净值对比</span>
+            <span>净值对比 · {{ comparisonScope?.start_date }} 至 {{ comparisonScope?.end_date }}</span>
             <span class="text-slate-500">{{ comparison.length }} 次回测</span>
           </div>
           <div class="mt-2">
@@ -325,6 +338,7 @@ onMounted(() => loadRuns(''))
           </div>
         </div>
 
+        <p class="text-xs text-slate-400">{{ comparisonNote }}</p>
         <DataTable :columns="compareColumns" :rows="comparisonRows" empty="暂无对比结果">
           <template #cell-run_id="{ row }">
             <span class="font-mono text-xs text-indigo-300">{{ row.run_id }}</span>
@@ -348,9 +362,7 @@ onMounted(() => loadRuns(''))
             <span class="text-slate-300">{{ fmtRatio(row.calmar) }}</span>
           </template>
           <template #cell-metrics_reliable="{ row }">
-            <span class="inline-flex rounded-full border px-2.5 py-0.5 text-xs whitespace-nowrap" :class="row.metrics_reliable ? 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30' : 'text-rose-300 bg-rose-400/10 border-rose-400/30'">
-              {{ row.metrics_reliable ? '可靠' : '待验证' }}
-            </span>
+            <span class="inline-flex rounded-full border px-2.5 py-0.5 text-xs" :class="trustInfo(row).cls">{{ trustInfo(row).text }}</span>
           </template>
         </DataTable>
       </div>
