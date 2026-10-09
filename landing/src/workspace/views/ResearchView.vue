@@ -269,6 +269,9 @@ onMounted(loadBaselines)
       <p v-if="optError" class="mt-4 text-sm text-rose-300">{{ optError }}</p>
 
       <div v-if="optResult" class="mt-6 space-y-5">
+        <p class="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-200">
+          演示数据：以下结果由随机数生成，仅用于界面预览，不是真实回测。接入真实优化引擎前，请勿据此评估策略。
+        </p>
         <div class="grid gap-5 sm:grid-cols-2">
           <MetricCard label="组合数" :value="optResult.combination_count" sub="参数网格候选组合" />
           <MetricCard label="合格数" :value="optEligibleCount" sub="满足回撤约束" up :tone="optEligibleCount ? 'text-emerald-300' : 'text-slate-300'" />
@@ -326,6 +329,9 @@ onMounted(loadBaselines)
       <p v-if="wfError" class="mt-4 text-sm text-rose-300">{{ wfError }}</p>
 
       <div v-if="wfResult" class="mt-6 space-y-5">
+        <p class="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-200">
+          演示数据：以下窗口结果由随机数生成，仅用于界面预览，不是真实回测。接入真实验证引擎前，请勿据此评估策略。
+        </p>
         <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="成功窗口" :value="wfResult.summary.successful_windows" sub="共 {{ wfResult.window_count }} 个窗口" />
           <MetricCard

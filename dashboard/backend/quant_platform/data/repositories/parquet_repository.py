@@ -63,7 +63,7 @@ class ParquetMarketDataRepository(MarketDataRepository):
         start_date: date | None = None,
         end_date: date | None = None,
     ) -> pd.DataFrame:
-        frame = self._read_daily_bars(start_date=start_date, end_date=end_date)
+        frame = self._read_daily_bars(symbols=symbols, start_date=start_date, end_date=end_date)
         if frame.empty:
             # 表缺失时返回带标准列的空表，避免下游 KeyError: 'trade_date'。
             return frame.reindex(columns=CANONICAL_BAR_COLUMNS)
@@ -143,12 +143,19 @@ class ParquetMarketDataRepository(MarketDataRepository):
         return self._drop_partition_column(frame)
 
     def _read_daily_bars(
-        self, start_date: date | None = None, end_date: date | None = None
+        self, start_date: date | None = None, end_date: date | None = None,
+        symbols: list[str] | None = None,
     ) -> pd.DataFrame:
         directory = self._partition_path("daily_bars")
         legacy = self._flat_path("daily_bars")
+        filters = []
+        if symbols:
+            filters.append(("symbol", "in", symbols))
+        if start_date:
+            filters.append(("trade_date", ">=", pd.Timestamp(start_date)))
+        if end_date:
+            filters.append(("trade_date", "<", pd.Timestamp(end_date) + pd.Timedelta(days=1)))
         if self._has_partitions(directory):
-            filters: list[tuple[str, str, int]] = []
             if start_date:
                 filters.append((_PARTITION_COLUMN, ">=", start_date.year))
             if end_date:
@@ -160,8 +167,18 @@ class ParquetMarketDataRepository(MarketDataRepository):
             )
             return self._drop_partition_column(frame)
         if legacy.exists():
-            return self._drop_partition_column(pd.read_parquet(legacy))
+            return self._drop_partition_column(pd.read_parquet(legacy, filters=filters or None))
         return pd.DataFrame()
+
+    def daily_bar_bounds(self) -> tuple[date, date] | None:
+        """Read only the date column; never load prices just to bound a request."""
+        directory, legacy = self._partition_path("daily_bars"), self._flat_path("daily_bars")
+        source = directory if self._has_partitions(directory) else legacy
+        if not source.exists():
+            return None
+        frame = pd.read_parquet(source, columns=["trade_date"])
+        dates = pd.to_datetime(frame["trade_date"], errors="coerce").dropna()
+        return (dates.min().date(), dates.max().date()) if not dates.empty else None
 
     @staticmethod
     def _has_partitions(directory: Path) -> bool:

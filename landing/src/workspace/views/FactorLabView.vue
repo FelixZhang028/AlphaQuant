@@ -1,4 +1,5 @@
 <script setup>
+import FormField from '../ui/FormField.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   compositeFactors,
@@ -248,6 +249,8 @@ const compForm = reactive({
   n_groups: 5,
   start_date: defaultStart,
   end_date: defaultEnd,
+  train_end: '',
+  test_start: '',
 })
 const compWeights = reactive({})
 const compLoading = ref(false)
@@ -277,13 +280,15 @@ async function runComposite() {
       factor_names: [...compForm.factor_names],
       weight_mode: compForm.weight_mode,
       winsorize: compForm.winsorize,
-      zscore: false,
+      zscore: true,
       fill_method: 'drop',
       corr_threshold: Number(compForm.corr_threshold),
       horizon: Number(compForm.horizon),
       n_groups: Number(compForm.n_groups),
       start_date: compForm.start_date,
       end_date: compForm.end_date,
+      train_end: compForm.train_end,
+      test_start: compForm.test_start,
     }
     if (compForm.weight_mode === 'custom') {
       payload.weights = {}
@@ -513,7 +518,7 @@ function buildReportView(report) {
     align: 'right',
   }))
   const g = report.group_mean_returns || {}
-  const groupRows = [Object.fromEntries(Object.entries(g).map(([k, v]) => [k, fmtPct(v, 2)]))]
+  const groupRows = [Object.fromEntries(groupCols.map(({ key }) => [key, g[key] == null ? '—' : fmtPct(g[key], 2)]))]
   return { metrics, stability, series, groupCols, groupRows, notes: report.notes }
 }
 
@@ -753,6 +758,11 @@ onBeforeUnmount(() => {
           </label>
         </div>
 
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <FormField label="训练结束（留空按区间前 70%）" type="date" v-model="compForm.train_end" />
+          <FormField label="测试开始（留空为训练结束次日）" type="date" v-model="compForm.test_start" />
+        </div>
+        <p class="mt-2 text-xs text-slate-400">训练期确定权重和相关性筛选，独立测试期报告 IC；各因子固定按日标准化。</p>
         <div class="mt-5 flex items-center gap-3">
           <button
             @click="runComposite"
@@ -766,7 +776,9 @@ onBeforeUnmount(() => {
       </SectionCard>
 
       <template v-if="compResult">
-        <SectionCard title="因子相关性矩阵" hint="两两因子的相关系数">
+        <p class="text-sm text-amber-300">样本外评估：训练 {{ compResult.train_start }} 至 {{ compResult.train_end }}；测试 {{ compResult.test_start }} 至 {{ compResult.test_end }}。训练信号截至 {{ compResult.train_signal_end }}，隔离末尾 {{ compResult.purged_sessions }} 个交易日。</p>
+        <p class="text-xs text-slate-400">{{ compResult.note }}</p>
+        <SectionCard title="因子相关性矩阵" hint="仅使用训练期信号样本计算相关系数">
           <DataTable :columns="corrCols" :rows="corrRows" empty="暂无数据" />
         </SectionCard>
 

@@ -124,3 +124,91 @@ def test_api_validation_demo_and_upstream_failure(api):
         assert result.status_code == 502 and 'private detail' not in result.text
     app.dependency_overrides.clear()
     assert client.get('/api/v1/jev/settings').status_code == 401
+
+
+def test_audit_route_six_dimensions_and_grade_cache(api, tmp_path, monkeypatch):
+    """六维审计与选择偏差字段完整透传；评级按记录编号缓存。"""
+    import quant_platform.backtest.credibility as credibility_mod
+    import quant_platform.backtest.validity as validity_mod
+    from quant_platform.backtest.credibility import (
+        CredibilityDimension,
+        CredibilityReport,
+    )
+    from quant_platform.backtest.multiple_testing import SelectionBiasResult
+
+    from app.quant import run_evidence
+    monkeypatch.setattr(run_evidence, "RUNTIME_ROOT", tmp_path)
+    run_dir = tmp_path / "runs" / "r-7"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.json").write_text("{}", encoding="utf-8")
+    (run_dir / "validity_report.json").write_text(json.dumps({
+        "audit_version": validity_mod.CURRENT_AUDIT_VERSION, "status": "VALID",
+        "metrics_reliable": True, "issues": []}), encoding="utf-8")
+
+    dims = tuple(
+        CredibilityDimension(key=key, title=key, status="pass", findings=())
+        for key in (
+            "data_integrity", "lookahead_guard", "sample_bias",
+            "cost_realism", "capacity", "selection_bias",
+        )
+    )
+    selection = SelectionBiasResult(
+        status="warn", message="本批 10 次尝试，DSR 显著性 62.0%。",
+        optimization_id="opt-1", objective="sharpe", trial_count=10, valid_trials=10,
+        effective_trials=4, average_correlation=0.7, best_median_gap=0.5,
+        dsr=0.62, psr=0.9, benchmark_sharpe=1.2, observed_sharpe=1.5, observations=250,
+        evidence=(
+            {"运行编号": "r-1", "试验状态": "成功", "可计算": True, "年化 Sharpe": 1.5, "说明": "纳入计算。"},
+        ),
+    )
+    report = CredibilityReport(
+        grade="B", headline="整体可信。", dimensions=dims, validity_status="VALID",
+        metrics_reliable=True, observations=250, maximum_calendar_gap_days=3,
+        total_transaction_cost=100.0, transaction_cost_ratio=0.001, selection_bias=selection,
+    )
+    row = {
+        "id": 7, "strategy": "动量", "from_date": "2024-01-01", "to_date": "2024-12-31",
+        "status": "完成", "result": json.dumps({"output_dir": str(run_dir)}),
+        "created_at": "2024-01-01T00:00:00",
+    }
+
+    class FakeResult:
+        def __init__(self, r):
+            self.r = r
+
+        def fetchone(self):
+            return self.r
+
+        def fetchall(self):
+            return [self.r]
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, *args, **kwargs):
+            return FakeResult(row)
+
+    monkeypatch.setattr(workspace, "get_conn", lambda: FakeConn())
+    monkeypatch.setattr(credibility_mod, "audit_persisted_run", lambda d: report)
+    monkeypatch.setattr(validity_mod, "load_persisted_validity", lambda d: {"issues": []})
+    workspace._GRADE_CACHE.clear()
+
+    client, _ = api
+    data = client.get("/api/v1/runs/run-7/audit").json()
+    assert data["grade"] == "B"
+    assert len(data["dimensions"]) == 6
+    assert data["dimensions"][-1]["key"] == "selection_bias"
+    bias = data["selection_bias"]
+    assert bias["trial_count"] == 10 and abs(bias["dsr"] - 0.62) < 1e-9
+    assert bias["scope_note"] and bias["evidence"][0]["运行编号"] == "r-1"
+
+    items = client.get("/api/v1/runs/audit").json()["items"]
+    assert items[0]["run_id"] == "run-7" and items[0]["grade"] == "B"
+    # 运行不可变：评级缓存后不重算。
+    monkeypatch.setattr(credibility_mod, "audit_persisted_run", lambda d: pytest.fail("不应重算"))
+    items = client.get("/api/v1/runs/audit").json()["items"]
+    assert items[0]["grade"] == "B"

@@ -360,3 +360,7 @@ export function weknoraQuery(payload) {
 
 export function jevSettings() { return request('/api/v1/jev/settings', { auth: true }) }
 export function jevSaveSettings(payload) { return request('/api/v1/jev/settings', { method: 'POST', body: payload, auth: true }) }
+
+export function getBacktestCatalog() {
+  return request('/api/v1/backtests/catalog', { auth: true })
+}

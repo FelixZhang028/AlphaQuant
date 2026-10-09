@@ -69,7 +69,16 @@ def _rsi_14(bars: pd.DataFrame) -> pd.DataFrame:
 
 def _high_distance_20(bars: pd.DataFrame) -> pd.DataFrame:
     close = _close(bars)
-    high = pivot_field(bars, "raw_high") if "raw_high" in bars.columns else close
+    if "raw_high" in bars.columns:
+        adjusted = bars.copy()
+        if "adjusted_close" in bars.columns and bars["adjusted_close"].notna().any():
+            scale = pd.to_numeric(bars["adjusted_close"], errors="coerce").div(
+                pd.to_numeric(bars["raw_close"], errors="coerce").replace(0, np.nan)
+            )
+            adjusted["raw_high"] = pd.to_numeric(bars["raw_high"], errors="coerce") * scale
+        high = pivot_field(adjusted, "raw_high")
+    else:
+        high = close
     rolling_high = high.rolling(20, min_periods=20).max()
     return melt_wide(close / rolling_high - 1.0)
 
@@ -191,8 +200,9 @@ def builtin_factors() -> list[FactorDefinition]:
             name="high_distance_20",
             display_name="20日新高距离",
             description="收盘价相对过去 20 日最高价的距离，越接近新高（值越接近 0）突破动能越强。",
-            formula="adjusted_close(t) / max(raw_high, 20) - 1",
-            required_fields=(_PRICE, "raw_high"),
+            formula="adjusted_close(t) / max(raw_high × adjusted_close / raw_close, 20) - 1",
+            required_fields=(_PRICE, "raw_high", "raw_close"),
+            version="1.1.0",
             min_history=20,
             direction=1,
             category="动量",
