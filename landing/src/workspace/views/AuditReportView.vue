@@ -9,6 +9,7 @@ import StrategyForensicsView from './StrategyForensicsView.vue'
 import { pendingAuditRun } from '../auditLink.js'
 
 const props = defineProps({
+  routeContext: { type: Object, default: () => ({}) },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
@@ -240,6 +241,7 @@ async function loadAudit(runId) {
 // 深链消费：结果页"查看完整可信度审计"写入待审计记录后跳转过来。
 // keep-alive 下 onActivated 在首次挂载与每次切回时都会触发。
 function consumePending() {
+  if (!pendingAuditRun.value && props.routeContext.run) pendingAuditRun.value = `run-${String(props.routeContext.run).replace(/^run-/, '')}`
   if (pendingAuditRun.value) {
     mode.value = '平台回测'
     const target = pendingAuditRun.value
@@ -253,6 +255,7 @@ function consumePending() {
 }
 
 watch(selectedRun, loadAudit)
+watch(() => props.routeContext.run, consumePending)
 onMounted(async () => {
   consumePending()
   await loadRuns()

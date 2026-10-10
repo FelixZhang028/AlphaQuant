@@ -20,6 +20,7 @@ from typing import Any
 
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.application.data_service import DataCenterService
+from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -125,6 +126,16 @@ def _user_universe(user_id: int) -> tuple[list[str], dict[str, Any]]:
     return symbols, filters
 
 
+def default_universe_settings() -> tuple[list[str], dict[str, Any]]:
+    """未保存股票池时，页面沿用回测与数据服务使用的配置默认值。"""
+
+    app = load_yaml(CONFIG_PATH)
+    config = load_yaml(_abs(require_mapping(app, "universe")["config"]))
+    universe = require_mapping(config, "universe")
+    symbols = [to_canonical(str(symbol)) for symbol in universe.get("symbols", [])]
+    return symbols, dict(universe.get("filters") or {})
+
+
 def user_universe_symbols(user_id: int) -> list[str]:
     symbols, _ = _user_universe(user_id)
     return symbols
@@ -150,12 +161,12 @@ def user_risk_limits(user_id: int) -> RiskLimits:
     )
 
 
-def _register_user_strategies(catalog: StrategyCatalog, user_id: int) -> list[str]:
+def _register_user_strategies(catalog: StrategyCatalog, user_id: int, plugin_map: dict | None = None) -> list[str]:
     """把该用户保存在 SQLite 的自定义策略注册进 catalog，返回错误信息列表。"""
 
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT plugin_name, code FROM user_strategies WHERE user_id = ?",
+            "SELECT plugin_name, display_name, code FROM user_strategies WHERE user_id = ?",
             (user_id,),
         ).fetchall()
     errors: list[str] = []
@@ -168,7 +179,17 @@ def _register_user_strategies(catalog: StrategyCatalog, user_id: int) -> list[st
             continue
         if result.strategies:
             try:
-                catalog.register_classes(result.strategies)
+                if len(result.strategies) != 1:
+                    errors.append(f"{row['plugin_name']}: 每个策略文件需且仅需注册一个策略")
+                    continue
+                # Saved assets have a stable identity independent of their decorator name.
+                # Two copies of the starter must not replace or shadow each other/builtins.
+                cls = next(iter(result.strategies.values()))
+                plugin = f"user_{row['plugin_name']}"
+                registered = type(cls.__name__, (cls,), {"plugin_name": plugin, "display_name": row["display_name"]})
+                catalog.register_classes({plugin: registered})
+                if plugin_map is not None:
+                    plugin_map[row["plugin_name"]] = plugin
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{row['plugin_name']}: {exc}")
         for _, message in result.errors:
@@ -203,9 +224,9 @@ def build_backtest_service(user: dict) -> BacktestService:
             merged.update(filters)
             universe_section["filters"] = merged
 
-    service.user_strategy_errors = tuple(
-        (message,) for message in _register_user_strategies(catalog, user["id"])
-    )
+    service.user_strategy_plugins = {}
+    service.user_strategy_errors = tuple(_register_user_strategies(
+        catalog, user["id"], service.user_strategy_plugins))
     return service
 
 

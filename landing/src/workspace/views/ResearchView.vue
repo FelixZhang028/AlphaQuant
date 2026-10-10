@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, reactive, ref, watch } from 'vue'
+import { openResearch } from '../researchNavigation.js'
 import { researchBaselines, runOptimization, runWalkForward } from '../../api.js'
 import DataTable from '../ui/DataTable.vue'
 import EmptyState from '../ui/EmptyState.vue'
@@ -8,9 +9,13 @@ import SectionCard from '../ui/SectionCard.vue'
 import StatusPill from '../ui/StatusPill.vue'
 
 const props = defineProps({
+  researchMode: { type: String, default: 'research' },
+  routeContext: { type: Object, default: () => ({}) },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
+
+const isWalkForward = computed(() => props.researchMode === 'walk-forward')
 
 const objectiveOptions = [
   { value: 'sharpe', label: '夏普比率' },
@@ -29,6 +34,9 @@ async function loadBaselines() {
   try {
     const data = await researchBaselines()
     baselines.value = data.items || []
+    if (props.routeContext.baseline) {
+      baselineRunId.value = baselines.value.some((b) => b.run_id === props.routeContext.baseline) ? props.routeContext.baseline : ''
+    }
     if (baselines.value.length && !baselineRunId.value) {
       baselineRunId.value = baselines.value[0].run_id
     }
@@ -199,21 +207,25 @@ function fmtParams(params) {
     .join(', ')
 }
 
-onMounted(loadBaselines)
+watch(() => props.routeContext.baseline, (value) => {
+  if (value) baselineRunId.value = baselines.value.some((b) => b.run_id === value) ? value : ''
+})
+onActivated(loadBaselines)
 </script>
 
 <template>
   <div class="space-y-6">
     <!-- 标题 -->
-    <div>
-      <h1 class="text-2xl font-bold text-white">参数优化与稳健性验证</h1>
-      <p class="mt-1 text-sm text-slate-400">对策略参数做有界网格搜索与滚动样本外验证，检测过拟合</p>
+    <div class="glass glass-sheen rounded-2xl p-6">
+      <h1 class="text-xl font-bold text-white">{{ isWalkForward ? '样本外验证' : '参数优化' }}</h1>
+      <p class="mt-2 text-sm text-slate-400">{{ isWalkForward ? '用训练期选择参数，再观察后续测试期表现。' : '选择基准回测，填写候选参数，再比较不同组合。' }}</p>
     </div>
+    <p class="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-200">当前{{ isWalkForward ? '滚动验证' : '参数优化' }}接口返回模拟结果，仅供操作预览，不能用于策略判断。</p>
 
     <!-- 基准回测 -->
     <SectionCard title="基准回测" hint="选择一条已完成回测作为参数优化的基线">
       <div v-if="baselineLoading" class="text-sm text-slate-400">加载中…</div>
-      <EmptyState v-else-if="!baselines.length" text="暂无成功回测，请先运行单次回测" />
+      <div v-else-if="!baselines.length"><EmptyState text="暂无成功回测，请先运行策略回测" /><button class="mt-3 text-sm text-indigo-300" @click="openResearch('backtest-review')">去配置回测 →</button></div>
       <label v-else class="block max-w-md">
         <span class="mb-1 block text-xs text-slate-400">基线</span>
         <select
@@ -227,7 +239,7 @@ onMounted(loadBaselines)
     </SectionCard>
 
     <!-- 参数优化 -->
-    <SectionCard title="参数优化" hint="对有界参数网格做批量回测，按目标指标排序并标记是否满足回撤约束">
+    <SectionCard title="候选参数" hint="填写所选策略支持的参数；两种验证方式共用此配置">
       <div class="grid gap-4 md:grid-cols-2">
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">参数名 1</span>
@@ -248,6 +260,9 @@ onMounted(loadBaselines)
       </div>
       <p class="mt-2 text-xs text-slate-500">候选值以英文或中文逗号分隔，例如 10,20,30 或 0.0，0.05。</p>
 
+    </SectionCard>
+
+    <SectionCard v-if="!isWalkForward" title="参数优化" hint="按目标指标比较候选组合，并检查回撤约束">
       <div class="mt-4 grid gap-4 md:grid-cols-3">
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">排序指标</span>
@@ -260,7 +275,7 @@ onMounted(loadBaselines)
           <input v-model="opt.maxDrawdownLimit" type="number" min="0" step="0.01" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
         </label>
         <div class="flex items-end">
-          <button @click="onOptimize" :disabled="opt.running" class="w-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70">
+          <button @click="onOptimize" :disabled="opt.running || !baselineRunId" class="w-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70">
             {{ opt.running ? '优化中…' : '开始参数优化' }}
           </button>
         </div>
@@ -295,11 +310,11 @@ onMounted(loadBaselines)
     </SectionCard>
 
     <!-- 滚动样本外验证 -->
-    <SectionCard title="滚动样本外验证" hint="在滚动时间窗上训练与测试，评估参数在样本外的稳定性">
+    <SectionCard v-else title="滚动样本外验证" hint="先训练、后测试；候选参数沿用上方配置">
       <div class="grid gap-4 md:grid-cols-5">
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">训练期（月）</span>
-          <input v-model="wf.trainingMonths" type="number" min="1" step="1" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
+          <input v-model="wf.trainingMonths" type="number" min="3" step="1" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
         </label>
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">测试期（月）</span>
@@ -321,7 +336,7 @@ onMounted(loadBaselines)
         </label>
       </div>
       <div class="mt-4">
-        <button @click="onWalkForward" :disabled="wf.running" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70">
+        <button @click="onWalkForward" :disabled="wf.running || !baselineRunId" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70">
           {{ wf.running ? '验证中…' : '开始滚动验证' }}
         </button>
       </div>
@@ -333,7 +348,7 @@ onMounted(loadBaselines)
           演示数据：以下窗口结果由随机数生成，仅用于界面预览，不是真实回测。接入真实验证引擎前，请勿据此评估策略。
         </p>
         <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="成功窗口" :value="wfResult.summary.successful_windows" sub="共 {{ wfResult.window_count }} 个窗口" />
+          <MetricCard label="成功窗口" :value="wfResult.summary.successful_windows" :sub="`共 ${wfResult.window_count} 个窗口`" />
           <MetricCard
             label="样本外累计收益"
             :value="fmtNum(wfResult.summary.out_of_sample_cumulative_return, true)"
