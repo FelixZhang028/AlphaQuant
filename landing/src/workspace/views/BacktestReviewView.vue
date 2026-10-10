@@ -1,6 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { getBacktestCatalog, getBacktest, getRunAudit, listBacktests, submitBacktest } from '../../api.js'
+import { computed, onActivated, reactive, ref, watch } from 'vue'
+import { getBacktestCatalog, getBacktest, getRunAudit, listBacktests, listPackages, submitBacktest } from '../../api.js'
+import { openResearch } from '../researchNavigation.js'
+import RiskManagementView from './RiskManagementView.vue'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import LineChart from '../ui/LineChart.vue'
@@ -11,6 +13,7 @@ import StatusPill from '../ui/StatusPill.vue'
 import { pendingAuditRun } from '../auditLink.js'
 
 const props = defineProps({
+  routeContext: { type: Object, default: () => ({}) },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
@@ -18,6 +21,19 @@ const props = defineProps({
 // ---------- 新建回测表单 ----------
 const markets = [{ value: '当前股票池', label: '当前 A 股股票池' }]
 const strategyOptions = ref([])
+const catalogLoading = ref(false)
+const catalogErrors = ref([])
+const strategyParameters = reactive({})
+const selectedStrategy = computed(() => strategyOptions.value.find((s) => s.value === form.strategy))
+const riskEditor = ref(null)
+const riskOpen = ref(false)
+function chooseStrategy() {
+  const strategy = selectedStrategy.value
+  for (const key of Object.keys(strategyParameters)) delete strategyParameters[key]
+  Object.assign(strategyParameters, strategy?.defaults || {})
+  if (strategy?.top_n) form.max_positions = strategy.top_n
+  if (strategy?.rebalance) form.rebalance = strategy.rebalance
+}
 const rebalances = [
   { value: 'daily', label: '每日' },
   { value: 'weekly', label: '每周' },
@@ -59,7 +75,7 @@ const gradeSub = computed(() =>
 function openAudit() {
   if (selectedId.value === null || selectedId.value === '') return
   pendingAuditRun.value = `run-${selectedId.value}`
-  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: 'audit-report' }))
+  openResearch('audit-report', { run: selectedId.value })
 }
 
 const tabs = ['概览', '收益与风险', '交易与成本', '持仓分析']
@@ -149,8 +165,22 @@ async function loadBacktests() {
 async function loadDetail() {
   if (selectedId.value === null || selectedId.value === '') return
   detailLoading.value = true
+  current.value = null
+  audit.value = null
   try {
     current.value = await getBacktest(selectedId.value)
+    if (props.routeContext.mode === 'reuse') {
+      const config = current.value.result?.effective_config
+      const reference = config?.strategy_reference || config?.strategy_plugin
+      if (reference && strategyOptions.value.some((s) => s.value === reference)) {
+        form.strategy = reference
+        chooseStrategy()
+        for (const key of ['from_date', 'to_date', 'initial_capital', 'max_positions', 'rebalance']) {
+          if (config[key] != null) form[key] = config[key]
+        }
+        if (!reference.startsWith('package:')) Object.assign(strategyParameters, config.strategy_parameters || {})
+      }
+    }
     audit.value = null
     // 评级随详情加载；明细缺失或审计失败时显示"待检查"，不阻塞结果展示。
     try {
@@ -166,7 +196,9 @@ async function loadDetail() {
 }
 
 async function onSubmit() {
-  if (!form.strategy.trim()) return props.notify('请输入策略名称')
+  if (!selectedStrategy.value) return props.notify('请选择可执行策略')
+  if (!riskEditor.value?.ready) return props.notify('风控配置尚未加载，请稍后或重试')
+  if (riskEditor.value?.dirty) { riskOpen.value = true; return props.notify('请先保存修改的风控配置') }
   if (form.from_date >= form.to_date) return props.notify('开始日期需早于结束日期')
   running.value = true
   runError.value = ''
@@ -179,6 +211,7 @@ async function onSubmit() {
       initial_capital: Number(form.initial_capital),
       max_positions: Number(form.max_positions),
       rebalance: form.rebalance,
+      strategy_parameters: { ...strategyParameters },
     })
     props.notify('回测已完成')
     await loadBacktests()
@@ -193,14 +226,46 @@ async function onSubmit() {
   }
 }
 
-onMounted(async () => {
+async function loadCatalog() {
+  catalogLoading.value = true
+  catalogErrors.value = []
   try {
-    const catalog = await getBacktestCatalog()
-    strategyOptions.value = catalog.items
-    form.strategy = catalog.default
-  } catch (e) { props.notify(e.message || '加载策略目录失败') }
+    const [catalog, packages] = await Promise.all([getBacktestCatalog(), listPackages()])
+    strategyOptions.value = [
+      ...(packages.items || []).map((p) => ({ value: `package:${p.package_id}`, label: `${p.name} · 规则策略`, top_n: p.top_n, rebalance: p.rebalance })),
+      ...catalog.items,
+    ]
+    catalogErrors.value = catalog.errors || []
+    const requested = props.routeContext.strategy
+    if (requested) {
+      form.strategy = strategyOptions.value.some((s) => s.value === requested) ? requested : ''
+      if (!form.strategy) catalogErrors.value.unshift('选中的策略已删除或无法加载，请重新选择。')
+      chooseStrategy()
+    } else if (!strategyOptions.value.some((s) => s.value === form.strategy)) {
+      form.strategy = catalog.default
+      chooseStrategy()
+    }
+  } catch (e) { catalogErrors.value = [e.message || '加载策略目录失败']; strategyOptions.value = []; form.strategy = '' }
+  finally { catalogLoading.value = false }
+}
+async function loadRouteRun() {
+  if (!props.routeContext.run) return
+  const id = Number(String(props.routeContext.run).replace(/^run-/, ''))
+  if (!Number.isInteger(id) || id < 1) return
+  selectedId.value = id
+  await loadDetail()
+}
+watch(() => props.routeContext.strategy, (value) => {
+  if (!value || catalogLoading.value) return
+  form.strategy = strategyOptions.value.some((s) => s.value === value) ? value : ''
+  chooseStrategy()
+})
+watch(() => props.routeContext.run, loadRouteRun)
+onActivated(async () => {
+  await loadCatalog()
   await loadBacktests()
-  if (backtests.value.length) {
+  if (props.routeContext.run) await loadRouteRun()
+  else if (backtests.value.length && !selectedId.value) {
     selectedId.value = backtests.value[0].id
     await loadDetail()
   }
@@ -210,27 +275,37 @@ onMounted(async () => {
 <template>
   <div class="space-y-6">
     <!-- 标题 -->
-    <div>
-      <h1 class="text-xl font-bold text-white">回测与验证</h1>
-      <p class="mt-1 text-sm text-slate-400">运行一组确定参数，深入检查收益、风险、交易成本、持仓与订单</p>
+    <div class="glass glass-sheen rounded-2xl p-6">
+      <h1 class="text-xl font-bold text-white">策略回测</h1>
+      <p class="mt-2 text-sm text-slate-400">统一配置规则策略与 Python 策略，确认后再运行。</p>
+      <button class="mt-3 text-sm text-indigo-300" @click="openResearch('strategy-hub')">← 返回我的策略</button>
     </div>
 
     <!-- 新建回测 -->
     <SectionCard title="新建回测" hint="配置策略与市场区间，运行一次确定性回测">
+      <p v-if="routeContext.mode === 'reuse'" class="mb-4 text-sm text-slate-400">已带入历史区间、资金与策略参数；股票池与风控使用当前设置。</p>
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <FormField label="策略" type="select" v-model="form.strategy" :options="strategyOptions" />
+        <FormField label="策略" type="select" v-model="form.strategy" :options="[{ value: '', label: catalogLoading ? '加载中…' : '请选择策略' }, ...strategyOptions]" :disabled="catalogLoading" @update:model-value="chooseStrategy" />
         <FormField label="市场" type="select" v-model="form.market" :options="markets" />
         <FormField label="开始日期" type="date" v-model="form.from_date" />
         <FormField label="结束日期" type="date" v-model="form.to_date" />
         <FormField label="初始资金" type="number" v-model="form.initial_capital" :min="0" :step="10000" />
-        <FormField label="最大持仓" type="number" v-model="form.max_positions" :min="1" :step="1" />
+        <FormField label="最大持仓" type="number" v-model="form.max_positions" :min="1" :max="form.strategy.startsWith('package:') ? 50 : 500" :step="1" />
         <FormField label="调仓频率" type="select" v-model="form.rebalance" :options="rebalances" />
       </div>
+      <p v-for="(error, i) in catalogErrors" :key="i" role="alert" class="mt-3 text-sm text-amber-300">{{ error }}</p>
+      <div v-if="selectedStrategy?.parameters?.length" class="mt-5 grid gap-4 border-t border-white/10 pt-5 md:grid-cols-2 xl:grid-cols-4">
+        <FormField v-for="p in selectedStrategy.parameters" :key="p.name" v-model="strategyParameters[p.name]" :label="p.label" :type="p.choices?.length ? 'select' : p.kind === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(p.kind) ? 'number' : 'text'" :options="(p.choices || []).map((v) => ({ value: v, label: v }))" :min="p.minimum" :max="p.maximum" :step="p.kind === 'integer' ? 1 : 'any'" :hint="p.description" />
+      </div>
+      <details :open="riskOpen" class="mt-5 rounded-xl border border-white/10 bg-white/5" @toggle="riskOpen = $event.target.open">
+        <summary class="cursor-pointer px-4 py-3 text-sm text-slate-300">风险设置 <span v-if="riskEditor?.dirty" class="text-amber-300">· 有未保存修改</span></summary>
+        <div class="p-3 pt-0"><RiskManagementView ref="riskEditor" embedded :user="user" :notify="notify" /></div>
+      </details>
       <p v-if="runError" class="mt-4 text-sm text-rose-300">{{ runError }}</p>
       <div class="mt-5 flex justify-end">
         <button
           @click="onSubmit"
-          :disabled="running"
+          :disabled="running || catalogLoading || !selectedStrategy || !riskEditor?.ready"
           class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
         >
           {{ running ? '回测中…' : '运行回测' }}
@@ -309,6 +384,11 @@ onMounted(async () => {
           >
             查看完整可信度审计 →
           </button>
+          <div class="flex flex-wrap gap-3 text-sm text-indigo-300">
+            <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数优化 →</button>
+            <button @click="openResearch('walk-forward', { baseline: `run-${selectedId}` })">样本外验证 →</button>
+            <button @click="openResearch('run-library')">查看研究记录 →</button>
+          </div>
           <div class="rounded-xl border border-white/10 bg-white/5 p-4">
             <div class="flex items-center justify-between text-xs text-slate-400">
               <span>资金曲线</span>
@@ -349,5 +429,12 @@ onMounted(async () => {
         </div>
       </div>
     </SectionCard>
+    <details class="glass rounded-2xl p-5">
+      <summary class="cursor-pointer text-sm font-semibold text-slate-300">高级工具</summary>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <button class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5" @click="openResearch('strategy-forensics', { run: selectedId || '' })">成交核查</button>
+        <button class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5" @click="openResearch('risk-management')">风控记录与默认配置</button>
+      </div>
+    </details>
   </div>
 </template>

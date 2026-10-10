@@ -33,9 +33,9 @@ async function saveSettings() {
 }
 const activeTab = ref('choice')
 const tabs = [
-  { key: 'choice', label: 'Choice 选项决策' },
-  { key: 'noul', label: 'Noul 条件判断' },
-  { key: 'score', label: 'Score 量表评分' },
+  { key: 'choice', label: '方案比较' },
+  { key: 'noul', label: '条件判断' },
+  { key: 'score', label: '等级评分' },
 ]
 
 const loading = ref(false)
@@ -145,16 +145,16 @@ function score0100(r) {
 
 <template>
   <div class="space-y-5">
-    <div>
-      <h1 class="text-2xl font-semibold text-white">AI 决策中心</h1>
+    <div v-if="!settingsOnly" class="glass glass-sheen rounded-2xl p-6">
+      <h2 class="text-xl font-bold text-white">决策辅助</h2>
       <p class="mt-1 text-sm text-slate-400">
-        基于 Jev 结构化决策模型，提供 Choice（选项决策）、Noul（条件判断）、Score（量表评分）三种决策原语。未配置 OpenRouter 时自动使用离线演示模式。
+        提供研究材料，比较候选方案、判断条件或评估等级。结果用于辅助研究，不会执行交易。
       </p>
     </div>
 
-    <div class="flex items-center justify-between rounded-xl border border-white/10 p-4 text-sm text-slate-300">
-      <span>{{ configured ? 'Jev 已配置，执行时调用真实服务' : '演示模式：尚未配置 OpenRouter API Key' }}</span>
-      <button @click="showConfig = !showConfig" class="rounded-lg border border-white/10 px-3 py-1">配置</button>
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 p-4 text-sm text-slate-300">
+      <span>{{ configured ? '决策服务已配置，运行时调用在线模型' : '演示模式：尚未连接决策服务，结果为示例输出' }}</span>
+      <button @click="showConfig = !showConfig" class="rounded-lg border border-white/10 px-3 py-1">{{ showConfig ? '收起配置' : '服务配置' }}</button>
     </div>
     <SectionCard v-if="showConfig || settingsOnly" title="Jev 服务配置">
       <form class="space-y-3" @submit.prevent="saveSettings">
@@ -184,7 +184,7 @@ function score0100(r) {
     </div>
 
     <!-- Choice -->
-    <SectionCard v-if="activeTab === 'choice'" title="Choice 选项决策" subtitle="在多个候选选项中选择最优项，并给出各选项概率分布">
+    <SectionCard v-if="activeTab === 'choice'" title="方案比较" subtitle="根据提供的材料比较候选方案，查看模型选择及各选项分布">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">决策问题</label>
@@ -227,7 +227,7 @@ function score0100(r) {
     </SectionCard>
 
     <!-- Noul -->
-    <SectionCard v-if="activeTab === 'noul'" title="Noul 条件判断" subtitle="判断某个条件成立的概率（0~1）">
+    <SectionCard v-if="activeTab === 'noul'" title="条件判断" subtitle="结合提供的材料，查看模型对条件成立的概率估计">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">待判断条件</label>
@@ -249,7 +249,7 @@ function score0100(r) {
     </SectionCard>
 
     <!-- Score -->
-    <SectionCard v-if="activeTab === 'score'" title="Score 量表评分" subtitle="在有序等级量表上给出评分，并映射到 0~100 分">
+    <SectionCard v-if="activeTab === 'score'" title="等级评分" subtitle="在有序等级量表上给出评分，并映射到 0~100 分">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">评分问题</label>
@@ -310,11 +310,11 @@ function score0100(r) {
         <!-- Choice result -->
         <div v-if="result.selected !== undefined" class="space-y-3">
           <div class="rounded-lg border border-indigo-400/20 bg-indigo-500/5 p-4">
-            <div class="text-xs text-slate-400">最优选择</div>
+            <div class="text-xs text-slate-400">模型选择</div>
             <div class="mt-1 text-xl font-semibold text-indigo-200">{{ result.selected }}</div>
           </div>
           <div>
-            <div class="mb-2 text-xs font-medium text-slate-400">各选项概率</div>
+            <div class="mb-2 text-xs font-medium text-slate-400">模型选项分布</div>
             <div class="space-y-2">
               <div v-for="(p, opt) in result.probabilities" :key="opt" class="flex items-center gap-3">
                 <span class="w-32 truncate text-sm text-slate-300">{{ opt }}</span>
@@ -333,7 +333,7 @@ function score0100(r) {
         <!-- Noul result -->
         <div v-else-if="result.probability !== undefined" class="space-y-3">
           <div class="rounded-lg border border-indigo-400/20 bg-indigo-500/5 p-4">
-            <div class="text-xs text-slate-400">条件成立概率</div>
+            <div class="text-xs text-slate-400">模型估计的条件成立概率</div>
             <div class="mt-1 text-3xl font-semibold text-indigo-200">{{ pct(result.probability) }}</div>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-white/5">

@@ -12,13 +12,13 @@
 - win_rate     胜率(%)
 """
 import json
-from dataclasses import replace as dc_replace
+from dataclasses import asdict, replace as dc_replace
 from datetime import date
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Literal
+from typing import Any, Literal
 
 from ..database import _now, get_conn
 from ..quant.result_adapter import backtest_run_to_result
@@ -36,13 +36,14 @@ router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
 class BacktestIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    strategy: str = Field(..., max_length=60)
+    strategy: str = Field(..., max_length=160)
     market: str = Field(..., max_length=40)
     from_date: str = Field(..., description="开始日期 YYYY-MM-DD")
     to_date: str = Field(..., description="结束日期 YYYY-MM-DD")
     initial_capital: float = Field(1_000_000, gt=0, allow_inf_nan=False)
     max_positions: int = Field(10, ge=1, le=500)
     rebalance: Literal["daily", "weekly", "monthly"] = "weekly"
+    strategy_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 def _resolve_plugin(service, strategy_name: str) -> str:
@@ -94,11 +95,34 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
             detail=f"所选区间与本地数据（{local_start} ~ {local_end}）无交集。",
         )
 
+    if body.strategy.startswith("package:"):
+        from .workspace import PackageBacktestIn, backtest_package
+        if body.max_positions > 50:
+            raise HTTPException(status_code=422, detail="规则策略最多支持持有 50 只股票。")
+        if body.strategy_parameters:
+            raise HTTPException(status_code=422, detail="规则策略请在创建页修改指标规则。")
+        return backtest_package(body.strategy.removeprefix("package:"), PackageBacktestIn(
+            from_date=start, to_date=end, initial_cash=body.initial_capital,
+            top_n=body.max_positions, rebalance=body.rebalance), user)
+
     service = build_backtest_service(user)
-    plugin = _resolve_plugin(service, body.strategy.strip())
+    reference = body.strategy.strip()
+    if reference.startswith("user:"):
+        plugin = getattr(service, "user_strategy_plugins", {}).get(reference.removeprefix("user:"))
+        if not plugin:
+            raise HTTPException(status_code=422, detail="该 Python 策略未能加载，请检查代码和注册标识；未执行其他策略。")
+    else:
+        plugin = _resolve_plugin(service, reference)
     defaults = service.default_request()
     metadata = next(m for m in service.available_strategies() if m.plugin_name == plugin)
     parameters = defaults.strategy_parameters if plugin == defaults.strategy_plugin else metadata.defaults()
+    if body.strategy_parameters:
+        try:
+            parameters = metadata.validate_parameters({**parameters, **body.strategy_parameters})
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"策略参数无效：{exc}")
     effective_risk = dc_replace(user_risk_limits(user["id"]), max_positions=body.max_positions)
     request = dc_replace(
         defaults,
@@ -121,6 +145,7 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
 
     result = backtest_run_to_result(run, names=security_names())
     result["effective_config"] = {
+        "strategy_reference": reference,
         "strategy_plugin": request.strategy_plugin,
         "strategy_parameters": request.strategy_parameters,
         "market": "当前股票池",
@@ -143,8 +168,19 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
 @router.get("/catalog", summary="可执行策略目录")
 def backtest_catalog(user: dict = Depends(get_current_user)):
     service = build_backtest_service(user)
-    return {"items": [{"value": m.plugin_name, "label": m.display_name}
-                      for m in service.available_strategies()],
+    user_plugins = getattr(service, "user_strategy_plugins", {})
+    metadata = {m.plugin_name: m for m in service.available_strategies()}
+    def item(m, value, label):
+        return {"value": value, "label": label,
+                "parameters": [asdict(p) for p in getattr(m, "parameters", ())],
+                "defaults": service.default_request().strategy_parameters
+                    if m.plugin_name == service.default_request().strategy_plugin else m.defaults()}
+    items = [item(m, m.plugin_name, m.display_name)
+             for m in metadata.values() if m.plugin_name not in user_plugins.values() and m.plugin_name != "rule_builder"]
+    items.extend(item(metadata[plugin], f"user:{saved}", f"{metadata[plugin].display_name} · Python")
+                 for saved, plugin in user_plugins.items())
+    return {"items": items,
+            "errors": list(getattr(service, "user_strategy_errors", ())),
             "default": service.default_request().strategy_plugin,
             "market": "当前股票池"}
 

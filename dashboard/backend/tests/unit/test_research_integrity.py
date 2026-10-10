@@ -155,7 +155,8 @@ def test_form_inputs_reach_execution_and_persist_in_result(api, monkeypatch):
     for change in [{"strategy": "does-not-exist"}, {"market": "纳指100"}, {"rebalance": "yearly"}, {"initial_capital": -1}, {"max_positions": 0}, {"unused": True}]:
         assert api[0].post("/api/v1/backtests", json={**payload, **change}).status_code == 422
     assert len(captured) == 1
-    assert api[0].get("/api/v1/backtests/catalog").json()["items"] == [{"value": "real", "label": "真实策略"}]
+    assert api[0].get("/api/v1/backtests/catalog").json()["items"] == [
+        {"value": "real", "label": "真实策略", "parameters": [], "defaults": {"lookback": 20}}]
 
 
 @pytest.mark.parametrize("adjustment", [0.5, 2.0, "split"])

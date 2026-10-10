@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createPackage, nlGenerate, nlProviders } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
+import StrategySaved from '../ui/StrategySaved.vue'
+import { openResearch } from '../researchNavigation.js'
 import FormField from '../ui/FormField.vue'
 
 const props = defineProps({
@@ -71,6 +73,7 @@ async function loadProviders() {
 // ---------- 生成策略规则 ----------
 const generating = ref(false)
 const saving = ref(false)
+const savedAsset = ref(null)
 const result = ref(null) // { definition, explanation, minimum_history_days }
 
 const definitionJson = computed(() => {
@@ -105,7 +108,7 @@ async function onSave() {
   if (!result.value?.definition) return
   saving.value = true
   try {
-    await createPackage({
+    savedAsset.value = await createPackage({
       definition: result.value.definition,
       top_n: Number(form.top_n),
       rebalance: form.rebalance,
@@ -127,9 +130,12 @@ onMounted(loadProviders)
     <!-- 标题 -->
     <div class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
+      <button class="mb-3 text-sm text-indigo-300" @click="openResearch('strategy-hub')">← 返回我的策略</button>
       <h1 class="text-xl font-bold text-white">自然语言建策略</h1>
       <p class="mt-2 max-w-xl text-sm text-slate-400">用一句话描述策略，大模型转成结构化规则</p>
     </div>
+
+    <StrategySaved v-if="savedAsset" :asset="savedAsset" />
 
     <!-- 模型配置 -->
     <SectionCard title="模型配置" hint="选择用于生成策略规则的大模型服务">

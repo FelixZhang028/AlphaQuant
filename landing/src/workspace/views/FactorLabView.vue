@@ -20,12 +20,35 @@ const props = defineProps({
 })
 
 const activeTab = ref('library')
+const combinationMode = ref('research')
+function changeCombinationMode(mode) {
+  if (mode === 'quick') {
+    compForm.factor_names = [...researchForm.factor_names]
+    compForm.weight_mode = researchForm.weight_mode === 'manual' ? 'custom' : researchForm.weight_mode
+    Object.assign(compWeights, researchWeights)
+    compForm.horizon = researchForm.horizon
+    compForm.n_groups = researchForm.n_groups
+    compForm.start_date = researchForm.train_start
+    compForm.end_date = researchForm.test_end
+    compForm.train_end = researchForm.train_end
+    compForm.test_start = researchForm.test_start
+  } else {
+    researchForm.factor_names = [...compForm.factor_names]
+    researchForm.weight_mode = compForm.weight_mode === 'custom' ? 'manual' : compForm.weight_mode
+    Object.assign(researchWeights, compWeights)
+    researchForm.horizon = compForm.horizon
+    researchForm.n_groups = compForm.n_groups
+    researchForm.train_start = compForm.start_date
+    researchForm.test_end = compForm.end_date
+    if (compForm.train_end) researchForm.train_end = compForm.train_end
+    if (compForm.test_start) researchForm.test_start = compForm.test_start
+  }
+  combinationMode.value = mode
+}
 const tabs = [
   { key: 'library', label: '因子库' },
-  { key: 'evaluate', label: '因子评估' },
-  { key: 'composite', label: '因子组合' },
+  { key: 'evaluate', label: '单因子评估' },
   { key: 'research', label: '组合研究' },
-  { key: 'custom', label: '自定义因子' },
 ]
 
 // ---------- 工具 ----------
@@ -562,12 +585,12 @@ onBeforeUnmount(() => {
     <!-- 标题 -->
     <div class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-      <p class="text-2xl font-bold text-white">因子实验室</p>
-      <p class="mt-2 max-w-xl text-sm text-slate-400">IC/Rank IC/分层收益评估，多因子合成选股；点击「详情」查看因子说明</p>
+      <p class="text-2xl font-bold text-white">因子研究</p>
+      <p class="mt-2 max-w-xl text-sm text-slate-400">从因子库了解指标，评估单因子，再检验组合的样本外表现。</p>
     </div>
 
     <!-- Tab -->
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
         <button
           v-for="t in tabs"
@@ -579,6 +602,18 @@ onBeforeUnmount(() => {
           {{ t.label }}
         </button>
       </div>
+      <button class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:-translate-y-0.5 hover:bg-white/10" @click="activeTab = activeTab === 'custom' ? 'library' : 'custom'">{{ activeTab === 'custom' ? '返回因子库' : '新建因子' }}</button>
+    </div>
+
+    <div v-if="activeTab === 'research'" class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm font-semibold text-white">选择因子 → 配置权重与区间 → 运行评估</p>
+      <details class="text-sm text-slate-300">
+        <summary class="cursor-pointer">高级评估方式</summary>
+        <div class="mt-3 flex flex-wrap gap-3">
+          <button :aria-pressed="combinationMode === 'research'" class="rounded-full border border-white/10 px-4 py-2 hover:bg-white/5" @click="changeCombinationMode('research')">训练 / 测试验证</button>
+          <button :aria-pressed="combinationMode === 'quick'" class="rounded-full border border-white/10 px-4 py-2 hover:bg-white/5" @click="changeCombinationMode('quick')">合成因子评估</button>
+        </div>
+      </details>
     </div>
 
     <!-- ============ 因子库 ============ -->
@@ -676,7 +711,7 @@ onBeforeUnmount(() => {
     </template>
 
     <!-- ============ 因子组合 ============ -->
-    <template v-else-if="activeTab === 'composite'">
+    <template v-else-if="activeTab === 'research' && combinationMode === 'quick'">
       <SectionCard title="合成配置" hint="选择至少两个因子，计算相关性并合成评估">
         <div class="mb-1 flex items-center justify-between">
           <span class="text-xs text-slate-400">因子（已选 {{ compForm.factor_names.length }} 个，至少 2 个）</span>
@@ -1005,7 +1040,7 @@ onBeforeUnmount(() => {
         </div>
       </SectionCard>
 
-      <SectionCard title="已定义自定义因子" hint="从因子库中筛选 category === '自定义' 的因子">
+      <SectionCard title="已定义自定义因子" hint="自行创建的因子，可用于单因子评估和组合研究">
         <DataTable :columns="customCols" :rows="customFactors" empty="暂无自定义因子">
           <template #cell-direction="{ value }">
             <span :class="value === 1 ? 'text-emerald-300' : 'text-rose-300'">{{ directionLabel(value) }}</span>

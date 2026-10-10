@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, reactive, ref } from 'vue'
 import { getRisk, saveRisk, riskEvents } from '../../api.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
@@ -9,6 +9,7 @@ import EmptyState from '../ui/EmptyState.vue'
 import FormField from '../ui/FormField.vue'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
@@ -34,9 +35,15 @@ const actionOptions = [
 
 const loadingRisk = ref(false)
 const saving = ref(false)
+const savedSnapshot = ref('')
+const loadError = ref('')
+const dirty = computed(() => !!savedSnapshot.value && savedSnapshot.value !== JSON.stringify(form))
+const ready = computed(() => !!savedSnapshot.value && !loadingRisk.value && !loadError.value && !saving.value)
+defineExpose({ dirty, ready })
 
 async function loadRisk() {
   loadingRisk.value = true
+  loadError.value = ''
   try {
     const data = await getRisk()
     Object.assign(form, {
@@ -50,7 +57,9 @@ async function loadRisk() {
       drawdown_action: data.drawdown_action,
       drawdown_target_weight: data.drawdown_target_weight,
     })
+    savedSnapshot.value = JSON.stringify(form)
   } catch (e) {
+    loadError.value = e.message || '风控配置加载失败'
     props.notify(e.message || '加载失败')
   } finally {
     loadingRisk.value = false
@@ -58,6 +67,7 @@ async function loadRisk() {
 }
 
 async function onSubmit() {
+  const submittedSnapshot = JSON.stringify(form)
   saving.value = true
   try {
     await saveRisk({
@@ -71,6 +81,7 @@ async function onSubmit() {
       drawdown_action: form.drawdown_action,
       drawdown_target_weight: Number(form.drawdown_target_weight),
     })
+    savedSnapshot.value = submittedSnapshot
     props.notify('已保存')
   } catch (e) {
     props.notify(e.message || '保存失败')
@@ -111,22 +122,23 @@ async function loadEvents() {
   }
 }
 
-onMounted(() => {
-  loadRisk()
-  loadEvents()
+onActivated(() => {
+  if (!dirty.value) loadRisk()
+  if (!props.embedded) loadEvents()
 })
 </script>
 
 <template>
   <div class="space-y-6">
     <!-- 标题 -->
-    <div>
+    <div v-if="!embedded">
       <h1 class="text-xl font-bold text-white">风险管理</h1>
       <p class="mt-1 text-sm text-slate-400">所有策略共用的组合级风控参数</p>
     </div>
 
     <!-- 风控配置 -->
-    <SectionCard title="风控配置" hint="修改后会应用到新运行的回测和模拟账户。">
+    <SectionCard title="风控配置" :hint="embedded ? '保存后应用到新回测；最大持股数量沿用上方回测配置。' : '修改后会应用到新运行的回测和模拟账户。'">
+      <p v-if="loadError" role="alert" class="mb-3 text-sm text-rose-300">{{ loadError }} <button class="underline" @click="loadRisk">重试</button></p>
       <div v-if="loadingRisk" class="text-sm text-slate-400">加载中…</div>
       <div v-else>
         <div class="grid gap-5 sm:grid-cols-2">
@@ -134,7 +146,7 @@ onMounted(() => {
             <FormField label="" type="checkbox" v-model="form.enabled" hint="启用风控" />
             <FormField label="最大总仓位" type="number" v-model="form.max_total_weight" :min="0" :max="1" :step="0.05" />
             <FormField label="单只股票最大权重" type="number" v-model="form.max_single_weight" :min="0" :max="1" :step="0.05" />
-            <FormField label="最大持股数量" type="number" v-model="form.max_positions" :min="1" :step="1" />
+            <FormField v-if="!embedded" label="最大持股数量" type="number" v-model="form.max_positions" :min="1" :step="1" />
             <div>
               <FormField label="" type="checkbox" v-model="form.daily_position_limits" hint="每日检查实际持仓并自动纠偏" />
               <p class="mt-1 pl-6 text-xs text-slate-500">持仓上涨导致单股、总仓位或持股数量超限时，下一交易日自动减仓。</p>
@@ -152,7 +164,7 @@ onMounted(() => {
         <div class="mt-6">
           <button
             @click="onSubmit"
-            :disabled="saving"
+            :disabled="saving || !ready"
             class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
           >
             {{ saving ? '保存中…' : '保存风控配置' }}
@@ -162,7 +174,7 @@ onMounted(() => {
     </SectionCard>
 
     <!-- 最近风控记录 -->
-    <SectionCard title="最近风控记录" hint="每次回测与模拟账户运行产生的组合级风控检查结果。">
+    <SectionCard v-if="!embedded" title="最近风控记录" hint="每次回测与模拟账户运行产生的组合级风控检查结果。">
       <div v-if="loadingEvents" class="text-sm text-slate-400">加载中…</div>
       <div v-else>
         <div class="grid gap-5 sm:grid-cols-3">

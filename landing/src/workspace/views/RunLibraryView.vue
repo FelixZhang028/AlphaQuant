@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, ref } from 'vue'
+import { openResearch } from '../researchNavigation.js'
 import { listRuns, compareRuns } from '../../api.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
@@ -161,7 +162,8 @@ const comparisonRows = computed(() => {
 })
 
 // ---------- 表格列 ----------
-const runColumns = [
+const showDetailedColumns = ref(false)
+const fullRunColumns = [
   { key: 'run_id', label: '运行' },
   { key: 'run_kind', label: '类型' },
   { key: 'status', label: '状态' },
@@ -174,7 +176,17 @@ const runColumns = [
   { key: 'max_drawdown', label: '最大回撤', align: 'right' },
   { key: 'sharpe', label: '夏普', align: 'right' },
   { key: 'updated_at', label: '更新时间' },
+  { key: 'actions', label: '操作' },
 ]
+const runColumns = computed(() => showDetailedColumns.value ? fullRunColumns : [
+  { key: 'strategy', label: '策略 / 记录' },
+  { key: 'period', label: '回测区间' },
+  { key: 'cumulative_return', label: '累计收益', align: 'right' },
+  { key: 'max_drawdown', label: '最大回撤', align: 'right' },
+  { key: 'sharpe', label: '夏普', align: 'right' },
+  { key: 'trust', label: '指标状态' },
+  { key: 'actions', label: '操作' },
+])
 
 const compareColumns = [
   { key: 'run_id', label: '运行' },
@@ -187,13 +199,13 @@ const compareColumns = [
   { key: 'metrics_reliable', label: '可信度' },
 ]
 
-onMounted(() => loadRuns(''))
+onActivated(() => loadRuns(keyword.value.trim()))
 </script>
 
 <template>
   <div class="space-y-6">
     <!-- 标题 -->
-    <div>
+    <div class="glass glass-sheen rounded-2xl p-6">
       <h1 class="text-xl font-bold text-white">研究记录</h1>
       <p class="mt-1 text-sm text-slate-400">统一管理回测记录，支持筛选与 2~5 次绩效对比</p>
     </div>
@@ -239,9 +251,17 @@ onMounted(() => loadRuns(''))
 
     <!-- 历史记录 -->
     <SectionCard title="历史记录" :hint="`共 ${total} 条真实回测记录。`">
+      <template #actions><label class="flex items-center gap-2 text-sm text-slate-400"><input v-model="showDetailedColumns" type="checkbox" class="accent-indigo-500" />显示详细字段</label></template>
       <div v-if="loading" class="text-sm text-slate-400">加载中…</div>
       <EmptyState v-else-if="!runs.length" text="暂无回测记录" />
       <DataTable v-else :columns="runColumns" :rows="runs" empty="暂无回测记录">
+        <template #cell-actions="{ row }">
+          <div class="flex flex-wrap gap-2 whitespace-nowrap text-sm text-indigo-300">
+            <button @click="openResearch('backtest-review', { run: row.backtest_id || row.run_id })">查看结果</button>
+            <button v-if="row.strategy_reference" @click="openResearch('backtest-review', { strategy: row.strategy_reference, run: row.backtest_id || row.run_id, mode: 'reuse' })">继续研究</button>
+            <button v-if="row.strategy_reference?.startsWith('package:') || row.strategy_reference?.startsWith('user:')" @click="openResearch('strategy-hub', { strategy: row.strategy_reference })">回到策略</button>
+          </div>
+        </template>
         <template #cell-run_id="{ row }">
           <span class="font-mono text-xs text-indigo-300">{{ row.run_id }}</span>
         </template>
@@ -261,7 +281,9 @@ onMounted(() => loadRuns(''))
         </template>
         <template #cell-strategy="{ row }">
           <span class="font-medium text-white">{{ row.strategy || '—' }}</span>
+          <span v-if="!showDetailedColumns" class="mt-1 block text-xs text-slate-400">{{ row.run_id }}</span>
         </template>
+        <template #cell-period="{ row }"><span class="whitespace-nowrap text-slate-400">{{ row.start_date }}<br />至 {{ row.end_date }}</span></template>
         <template #cell-start_date="{ row }">
           <span class="text-slate-400">{{ row.start_date || '—' }}</span>
         </template>

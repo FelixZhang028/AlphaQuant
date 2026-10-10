@@ -4,6 +4,23 @@ import QuantBackground from './components/QuantBackground.vue'
 import { useScrollState } from './home/useScrollState'
 import { CONTENT } from './home/homeContent'
 import { useTheme } from './theme'
+import { getToken } from './api.js'
+
+const hasSession = ref(Boolean(getToken()))
+const entryHref = computed(() => hasSession.value ? '/app.html' : '/auth.html')
+const workspaceLabel = computed(() => lang.value === 'en' ? 'Open workspace' : '进入工作台')
+function syncSession() { hasSession.value = Boolean(getToken()) }
+onMounted(() => {
+  syncSession()
+  window.addEventListener('storage', syncSession)
+  window.addEventListener('pageshow', syncSession)
+  window.addEventListener('focus', syncSession)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', syncSession)
+  window.removeEventListener('pageshow', syncSession)
+  window.removeEventListener('focus', syncSession)
+})
 
 /* ---------- 原生滚动 / 滚动进度 / 鼠标视差 ---------- */
 const { state: scrollState, update: updateScroll, scrollToSection } = useScrollState()
@@ -152,7 +169,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
               <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
             </svg>
           </button>
-          <a href="/auth.html" class="fq-menu-login">{{ c.nav.login }}</a>
+          <a :href="entryHref" class="fq-menu-login">{{ hasSession ? workspaceLabel : c.nav.login }}</a>
         </div>
       </nav>
     </header>
@@ -174,7 +191,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
             {{ c.hero.tagLine1 }}<br />{{ c.hero.tagLine2 }}
           </p>
           <div class="fq-hero-cta fq-reveal" :style="{ transitionDelay: '0.75s' }">
-            <a class="fq-btn fq-btn-solid" href="/auth.html">{{ c.hero.ctaPrimary }}</a>
+            <a class="fq-btn fq-btn-solid" :href="entryHref">{{ hasSession ? workspaceLabel : c.hero.ctaPrimary }}</a>
             <a class="fq-btn" href="/app.html?view=nl-strategy">{{ c.hero.ctaSecondary }}</a>
           </div>
         </div>
@@ -251,7 +268,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
           <p class="fq-text fq-reveal">{{ c.about.p1 }}</p>
           <p class="fq-text fq-reveal">{{ c.about.p2 }}</p>
           <p class="fq-about-links fq-reveal">
-            <a v-for="link in c.about.links" :key="link.href" :href="link.href">{{ link.label }} ↗</a>
+            <a v-for="link in c.about.links" :key="link.href" :href="link.href === '/auth.html' ? entryHref : link.href">{{ link.label }} ↗</a>
           </p>
         </div>
       </section>

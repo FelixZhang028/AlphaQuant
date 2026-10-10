@@ -1,8 +1,36 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import ThemeToggle from './ThemeToggle.vue'
-import { login, register, setSession, forgotRequest, forgotReset } from '../api.js'
+import { getToken, login, register, setSession, forgotRequest, forgotReset, restoreSession } from '../api.js'
+
+const checkingSession = ref(Boolean(getToken()))
+const sessionIssue = ref('')
+async function resumeSession() {
+  checkingSession.value = true
+  sessionIssue.value = ''
+  const session = await restoreSession()
+  if (session.status === 'authenticated') {
+    window.location.replace('/app.html')
+    return
+  }
+  if (session.status === 'unavailable') {
+    sessionIssue.value = '暂时无法验证已有登录，登录状态已保留。请重试连接，无需重新输入密码。'
+  }
+  checkingSession.value = false
+}
+function checkRestoredPage() {
+  if (!checkingSession.value && !submitting.value && getToken()) resumeSession()
+}
+onMounted(() => {
+  if (checkingSession.value) resumeSession()
+  window.addEventListener('pageshow', checkRestoredPage)
+  window.addEventListener('storage', checkRestoredPage)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('pageshow', checkRestoredPage)
+  window.removeEventListener('storage', checkRestoredPage)
+})
 
 const mode = ref('login') // 'login' | 'register' | 'forgot'
 
@@ -209,7 +237,14 @@ const features = [
       <ThemeToggle />
     </div>
 
-    <div
+    <div v-if="checkingSession || sessionIssue" class="glass relative z-10 w-full max-w-md rounded-2xl p-7 text-center">
+      <p v-if="checkingSession" role="status" class="text-sm text-slate-300">正在恢复登录状态…</p>
+      <template v-else>
+        <p role="alert" class="text-sm text-slate-300">{{ sessionIssue }}</p>
+        <button class="mt-5 rounded-full bg-indigo-500 px-5 py-2 text-sm text-white" @click="resumeSession">重新连接</button>
+      </template>
+    </div>
+    <div v-else
       class="glass-strong relative z-10 grid w-full max-w-4xl overflow-hidden rounded-3xl lg:grid-cols-2"
     >
       <!-- 左侧品牌展示 -->

@@ -168,7 +168,7 @@ onMounted(async () => {
     <!-- 回测 -->
     <section class="glass rounded-2xl p-5">
       <h2 class="text-sm font-semibold text-white">快速回测</h2><p class="mt-2 text-xs text-slate-400">初始资金 100 万，最多 10 只，每周调仓；更多配置请进入回测与验证。</p>
-      <div class="mt-4 grid gap-4 md:grid-cols-5">
+      <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <label class="block">
           <span class="mb-1 block text-xs text-slate-400">策略</span>
           <select v-model="bt.strategy" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white"><option v-for="s in btStrategies" :key="s.value" :value="s.value" class="bg-ink">{{ s.label }}</option></select>

@@ -1,40 +1,19 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import {
   previewUserStrategy,
   saveUserStrategy,
-  listUserStrategies,
-  deleteUserStrategy,
 } from '../../api.js'
-import DataTable from '../ui/DataTable.vue'
-import SectionCard from '../ui/SectionCard.vue'
+import StrategySaved from '../ui/StrategySaved.vue'
+import { openResearch } from '../researchNavigation.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
 
-const DEFAULT_CODE = `from fellowquant.strategy import register_strategy
-
-
-@register_strategy(
-    name="双均线策略",
-    description="短期均线上穿长期均线时买入，下穿时卖出",
-)
-class DualMovingAverage:
-    def __init__(self, fast=5, slow=20):
-        self.fast = fast
-        self.slow = slow
-
-    def on_bar(self, ctx, bar):
-        fast_ma = ctx.sma(self.fast)
-        slow_ma = ctx.sma(self.slow)
-        if fast_ma > slow_ma and ctx.position == 0:
-            ctx.buy()
-        elif fast_ma < slow_ma and ctx.position > 0:
-            ctx.sell()`
-
-const tab = ref('editor') // editor | mine
+const DEFAULT_CODE = "\"\"\"我的自定义策略（示例：双均线 + 动量排序）。\n\n使用说明：\n1. 继承 BaseStrategy，并用 @register_strategy(\"唯一英文标识\") 注册；\n2. 在 __init__ 里声明带默认值的参数，平台会自动生成网页参数表单；\n3. 重写 generate_signals，通过 context.history() 只读取截至当天的数据；\n4. 返回 Signal 列表，score 越大的股票越优先入选。\n\n常用行情字段（可在 required_fields 之外通过 context.history 使用）：\nadjusted_close（前复权收盘）、raw_close/raw_high/raw_low（未复权）、amount（成交额）、\nvolume（成交量）、up_limit/down_limit（涨跌停）、is_suspended、is_st 等。\n\"\"\"\n\nimport pandas as pd\n\nfrom quant_platform.signals.models import Signal\nfrom quant_platform.strategies.context import StrategyContext\nfrom quant_platform.user_strategies import BaseStrategy, register_strategy\n\n\n@register_strategy(\n    \"my_ma_momentum\",\n    display_name=\"我的双均线动量\",\n    description=\"价格站上快线且快线高于慢线时，按近期动量排序选股\",\n)\nclass MyStrategy(BaseStrategy):\n    # 策略需要哪些行情字段（平台会在运行前校验数据是否满足）\n    required_fields = frozenset({\"symbol\", \"trade_date\", \"adjusted_close\", \"amount\"})\n\n    # 可选：给参数更友好的网页标签、取值范围和说明\n    param_specs = {\n        \"fast\": {\"label\": \"快速均线（日）\", \"min\": 2, \"max\": 60},\n        \"slow\": {\"label\": \"慢速均线（日）\", \"min\": 5, \"max\": 250},\n        \"momentum\": {\"label\": \"动量窗口（日）\", \"min\": 2, \"max\": 120},\n    }\n\n    def __init__(self, fast: int = 5, slow: int = 20, momentum: int = 20):\n        self.fast = fast\n        self.slow = slow\n        self.momentum = momentum\n\n    def generate_signals(self, context: StrategyContext) -> list[Signal]:\n        history = context.history(\n            fields=[\"adjusted_close\", \"amount\"],\n            lookback=max(self.slow, self.momentum) + 1,\n        )\n        signals: list[Signal] = []\n        cutoff = pd.Timestamp(context.trade_date)\n        for symbol, group in history.groupby(\"symbol\"):\n            group = group.sort_values(\"trade_date\")\n            if group.empty or pd.Timestamp(group.iloc[-1][\"trade_date\"]) != cutoff:\n                continue\n            close = pd.to_numeric(group[\"adjusted_close\"], errors=\"coerce\").dropna()\n            if len(close) < self.slow + 1:\n                continue\n            fast_ma = float(close.tail(self.fast).mean())\n            slow_ma = float(close.tail(self.slow).mean())\n            current = float(close.iloc[-1])\n            if not (current > fast_ma > slow_ma):\n                continue\n            base = float(close.iloc[-self.momentum - 1])\n            if base <= 0:\n                continue\n            signals.append(\n                Signal(\n                    strategy_id=self.strategy_id,\n                    trade_date=context.trade_date,\n                    symbol=str(symbol),\n                    signal_type=\"MY_MA_MOMENTUM\",\n                    score=current / base - 1.0,\n                )\n            )\n        return sorted(signals, key=lambda signal: -signal.score)\n"
+const savedAsset = ref(null)
 
 // ---------- 编写策略 ----------
 const code = ref(DEFAULT_CODE)
@@ -44,7 +23,6 @@ const riskAck = ref(false)
 const saving = ref(false)
 const warnings = ref([])
 
-const sourceLabel = { editor: '编辑器', upload: '上传', nl: '自然语言' }
 
 async function onSave() {
   if (!displayName.value.trim()) return props.notify('请输入策略显示名')
@@ -67,12 +45,11 @@ async function onSave() {
       return props.notify(msg || '代码未通过安全校验')
     }
     warnings.value = preview?.safety_report?.warnings || []
-    await saveUserStrategy(payload)
+    savedAsset.value = await saveUserStrategy(payload)
     props.notify('已保存')
     displayName.value = ''
     description.value = ''
     riskAck.value = false
-    loadMine()
   } catch (e) {
     props.notify(e.message || '保存失败')
   } finally {
@@ -80,50 +57,15 @@ async function onSave() {
   }
 }
 
-// ---------- 我的策略 ----------
-const myStrategies = ref([])
-const listLoading = ref(false)
-
-const columns = computed(() => [
-  { key: 'display_name', label: '显示名' },
-  { key: 'plugin_name', label: '插件名' },
-  { key: 'source', label: '来源' },
-  { key: 'updated_at', label: '更新时间' },
-  { key: 'action', label: '操作' },
-])
-
-async function loadMine() {
-  listLoading.value = true
-  try {
-    const data = await listUserStrategies()
-    myStrategies.value = data?.strategies || []
-  } catch (e) {
-    props.notify(e.message || '加载策略失败')
-  } finally {
-    listLoading.value = false
-  }
-}
-
-async function onDelete(s) {
-  if (!confirm(`确定删除策略「${s.display_name}」？`)) return
-  try {
-    await deleteUserStrategy(s.plugin_name)
-    myStrategies.value = myStrategies.value.filter((x) => x.plugin_name !== s.plugin_name)
-    props.notify('已删除')
-  } catch (e) {
-    props.notify(e.message || '删除失败')
-  }
-}
-
-onMounted(loadMine)
 </script>
 
 <template>
   <div class="space-y-6">
     <!-- 标题 -->
-    <div>
+    <div class="glass glass-sheen rounded-2xl p-6">
+      <button class="mb-3 text-sm text-indigo-300" @click="openResearch('strategy-hub')">← 返回我的策略</button>
       <h1 class="text-xl font-bold text-white">自定义策略（Python）</h1>
-      <p class="mt-1 text-sm text-slate-400">在网页编写 Python 策略，平台自动生成参数表单并回测</p>
+      <p class="mt-1 text-sm text-slate-400">编写并校验策略代码，保存后到统一回测页配置与运行。</p>
     </div>
 
     <!-- 高级模式警告 -->
@@ -131,26 +73,10 @@ onMounted(loadMine)
       高级模式：会运行你自己编写的 Python 代码
     </div>
 
-    <!-- Tab 分段按钮 -->
-    <div class="flex w-fit rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
-      <button
-        class="rounded-full px-3 py-1 transition"
-        :class="tab === 'editor' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white' : 'text-slate-400 hover:text-slate-200'"
-        @click="tab = 'editor'"
-      >
-        编写策略
-      </button>
-      <button
-        class="rounded-full px-3 py-1 transition"
-        :class="tab === 'mine' ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white' : 'text-slate-400 hover:text-slate-200'"
-        @click="tab = 'mine'"
-      >
-        我的策略
-      </button>
-    </div>
+    <StrategySaved v-if="savedAsset" :asset="savedAsset" />
 
     <!-- 编写策略 -->
-    <section v-if="tab === 'editor'" class="glass rounded-2xl p-5">
+    <section class="glass rounded-2xl p-5">
       <h2 class="text-sm font-semibold text-white">编写策略</h2>
       <p class="mt-0.5 text-xs text-slate-500">在下方编辑 Python 代码，保存后平台自动解析参数并生成表单。</p>
 
@@ -207,35 +133,9 @@ onMounted(loadMine)
       </div>
     </section>
 
-    <!-- 我的策略 -->
-    <SectionCard v-else title="我的策略" hint="已保存的自定义策略，删除前请确认不再需要。">
-      <div v-if="listLoading" class="text-sm text-slate-400">加载中…</div>
-      <DataTable
-        v-else
-        :columns="columns"
-        :rows="myStrategies"
-        empty="暂无自定义策略，去「编写策略」创建一个。"
-      >
-        <template #cell-source="{ row }">
-          <span class="text-slate-400">{{ sourceLabel[row.source] || row.source || '—' }}</span>
-        </template>
-        <template #cell-updated_at="{ row }">
-          <span class="text-slate-400">{{ row.updated_at || row.created_at || '—' }}</span>
-        </template>
-        <template #cell-action="{ row }">
-          <button
-            @click="onDelete(row)"
-            class="rounded-lg border border-rose-400/20 px-2.5 py-1 text-xs text-rose-300 transition hover:bg-rose-400/10"
-          >
-            删除
-          </button>
-        </template>
-      </DataTable>
-    </SectionCard>
-
     <!-- 安全边界说明 -->
     <p class="text-xs text-slate-500">
-      安全边界：自定义代码在隔离沙箱内运行，无法访问您的账户与密钥；平台会基于 <code class="font-mono text-slate-400">@register_strategy</code> 装饰器与 <code class="font-mono text-slate-400">__init__</code> 参数自动生成策略表单，请勿在代码中写入敏感信息。
+      安全边界：自定义代码在本地进程内运行，仅运行可信代码；平台会基于 <code class="font-mono text-slate-400">@register_strategy</code> 装饰器与 <code class="font-mono text-slate-400">__init__</code> 参数自动生成策略表单，请勿在代码中写入敏感信息。
     </p>
   </div>
 </template>

@@ -10,6 +10,10 @@ const props = defineProps({
   notify: { type: Function, default: () => {} },
 })
 
+function backToOverview() {
+  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: 'data-management' }))
+}
+
 const catalog = ref([])
 const loading = ref(false)
 const activeCatId = ref(null)
@@ -144,6 +148,7 @@ onMounted(() => {
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <p class="text-2xl font-bold text-white">XTick 数据服务</p>
+      <button type="button" class="mt-2 text-sm text-indigo-300 hover:underline" @click="backToOverview">← 返回数据概览</button>
       <p class="mt-2 max-w-2xl text-sm text-slate-400">
         调用 XTick 金融行情数据 HTTP API，接口表单由官方 apidoc 动态生成；成功响应为 ZIP
         压缩包（内含 data.json），后端自动解包并附加股票名称。

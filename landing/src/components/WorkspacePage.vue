@@ -3,27 +3,40 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import OnboardingTour from './OnboardingTour.vue'
 import ThemeToggle from './ThemeToggle.vue'
-import { allItems, groups, itemLabel, navigationItem, overviewKey, views } from '../workspace/modules.js'
-import { getLocalUser, getToken, logout, me } from '../api.js'
+import { allItems, contentLayout, groups, itemLabel, navigationItem, overviewKey, views } from '../workspace/modules.js'
+import { getLocalUser, logout, restoreSession } from '../api.js'
+import '../workspace/workspace.css'
+import { researchContext, researchUrl } from '../workspace/researchNavigation.js'
 
 const user = ref(getLocalUser())
 const loading = ref(true)
+const sessionError = ref('')
 const sidebarOpen = ref(false)
 const activeKey = ref(initialViewKey())
+const routeContext = ref(researchContext(new URL(window.location.href)))
 const activeSection = computed(() => navigationItem(activeKey.value))
 function isItemActive(item) { return activeSection.value?.key === item.key }
 const toast = ref('')
 const tourOpen = ref(false)
 const githubUrl = 'https://github.com/FelixZhang028/AlphaQuant'
 
-function navigate(key) {
+function navigate(destination) {
+  const key = typeof destination === 'string' ? destination : destination?.view
+  if (!allItems.some((item) => item.key === key)) return
+  const url = researchUrl(window.location.href, destination)
+  routeContext.value = researchContext(url)
   activeKey.value = key
   sidebarOpen.value = false
-  const url = new URL(window.location.href)
-  url.searchParams.set('view', key)
   window.history.pushState({}, '', url)
 }
-function syncView() { activeKey.value = initialViewKey() }
+function syncView() {
+  routeContext.value = researchContext(new URL(window.location.href))
+  activeKey.value = initialViewKey()
+}
+function navigateResearchTab(key) {
+  const baseline = routeContext.value.baseline || (routeContext.value.run ? `run-${String(routeContext.value.run).replace(/^run-/, '')}` : '')
+  navigate(['research', 'walk-forward'].includes(key) && baseline ? { view: key, baseline } : key)
+}
 // 子视图可派发 `fq-navigate` 请求切换视图（如结果页深链审计页），与侧栏导航共用同一路径。
 function onNavigateEvent(e) { navigate(e.detail) }
 onMounted(() => {
@@ -89,22 +102,24 @@ function notify(msg) {
   setTimeout(() => (toast.value = ''), 2600)
 }
 
-onMounted(async () => {
-  if (!getToken()) {
+async function verifySession() {
+  loading.value = true
+  sessionError.value = ''
+  const session = await restoreSession()
+  if (session.status === 'anonymous') {
     window.location.href = '/auth.html'
     return
   }
-  try {
-    user.value = await me()
-  } catch {
-    logout()
-    window.location.href = '/auth.html'
+  if (session.status !== 'authenticated') {
+    sessionError.value = '暂时无法连接登录服务，已保留你的登录状态，请稍后重试。'
     return
   }
+  user.value = session.user
   loading.value = false
   // 首次进入工作台自动弹出新手引导（可在顶栏 ? 图标重新打开）
   if (!localStorage.getItem('zt_tour_done')) tourOpen.value = true
-})
+}
+onMounted(verifySession)
 
 function closeTour() {
   localStorage.setItem('zt_tour_done', '1')
@@ -118,7 +133,7 @@ function doLogout() {
 </script>
 
 <template>
-  <div class="relative min-h-screen text-slate-200">
+  <div class="workspace-shell relative min-h-screen text-slate-200">
     <DynamicBackground />
 
     <!-- 全局提示 -->
@@ -133,11 +148,18 @@ function doLogout() {
       </div>
     </transition>
 
-    <div v-if="loading" class="flex min-h-screen items-center justify-center">
-      <div class="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-indigo-400" />
+    <div v-if="loading" class="flex min-h-screen items-center justify-center p-6">
+      <div v-if="sessionError" class="glass relative z-10 max-w-md rounded-2xl p-6 text-center">
+        <p role="alert" class="text-sm text-slate-300">{{ sessionError }}</p>
+        <div class="mt-5 flex flex-wrap justify-center gap-3">
+          <button class="rounded-full bg-indigo-500 px-5 py-2 text-sm text-white" @click="verifySession">重新连接</button>
+          <a href="/" class="rounded-full border border-white/10 px-5 py-2 text-sm text-slate-300">返回官网</a>
+        </div>
+      </div>
+      <div v-else role="status" aria-label="正在验证登录状态" class="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-indigo-400" />
     </div>
 
-    <div v-else class="mx-auto flex max-w-[1500px]">
+    <div v-else class="flex w-full">
       <!-- 侧边栏 -->
       <aside
         :class="[
@@ -204,7 +226,7 @@ function doLogout() {
           <button class="rounded-lg p-2 text-slate-400 hover:bg-white/5 lg:hidden" @click="sidebarOpen = !sidebarOpen" aria-label="菜单">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
-          <h1 class="text-lg font-semibold text-white">{{ activeSection?.label || itemLabel(activeKey) }}</h1>
+          <h1 class="text-lg font-semibold text-white">{{ activeSection?.children ? activeSection.label : itemLabel(activeKey) }}</h1>
           <a href="/" class="hidden rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-slate-300 transition hover:border-white/25 hover:text-white sm:inline-flex">返回官网</a>
 
           <!-- 右上角：主题切换 + 新手引导 + 用户头像 + 名字 + 退出 -->
@@ -233,25 +255,28 @@ function doLogout() {
           </div>
         </header>
 
-        <main class="space-y-6 p-5 lg:p-8">
-          <nav v-if="activeSection?.children" :aria-label="`${activeSection.label}功能`" class="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
-            <button v-for="tab in activeSection.children" :key="tab.key" @click="navigate(tab.key)"
-              :aria-current="activeKey === tab.key ? 'page' : undefined"
-              class="rounded-lg px-4 py-2 text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
-              :class="activeKey === tab.key ? 'bg-indigo-500/20 font-medium text-fq-strong' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'">
-              {{ tab.label }}
-            </button>
-          </nav>
-          <Suspense>
-            <keep-alive :max="8">
-              <component :is="views[activeKey] || views[overviewKey]" :user="user" :notify="notify" />
-            </keep-alive>
-            <template #fallback>
-              <div class="flex items-center justify-center py-20">
-                <div class="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-indigo-400" />
-              </div>
-            </template>
-          </Suspense>
+        <main class="p-5 lg:p-8">
+          <div class="workspace-content space-y-6" :class="`workspace-content--${contentLayout(activeKey)}`">
+            <button v-if="['audit-report', 'strategy-forensics', 'risk-management'].includes(activeKey)" class="text-sm text-indigo-300 hover:text-indigo-200" @click="navigate({ view: 'backtest-review', run: routeContext.run || '' })">← 返回策略回测</button>
+            <nav v-if="activeSection?.children" :aria-label="`${activeSection.label}功能`" class="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/5 p-2">
+              <button v-for="tab in activeSection.children" :key="tab.key" @click="navigateResearchTab(tab.key)"
+                :aria-current="activeKey === tab.key ? 'page' : undefined"
+                class="rounded-lg px-4 py-2 text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+                :class="activeKey === tab.key ? 'bg-indigo-500/20 font-medium text-fq-strong' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'">
+                {{ tab.label }}
+              </button>
+            </nav>
+            <Suspense>
+              <keep-alive :max="8">
+                <component :is="views[activeKey] || views[overviewKey]" :user="user" :notify="notify" :route-context="routeContext" :research-mode="activeKey" />
+              </keep-alive>
+              <template #fallback>
+                <div class="flex items-center justify-center py-20">
+                  <div class="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-indigo-400" />
+                </div>
+              </template>
+            </Suspense>
+          </div>
         </main>
       </div>
     </div>

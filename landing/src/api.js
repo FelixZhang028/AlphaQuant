@@ -1,5 +1,7 @@
 // 后端 API 封装（FastAPI，默认 http://127.0.0.1:8000）
 // 可用环境变量 VITE_API_BASE 覆盖
+import { checkSavedSession } from './sessionState.js'
+
 export const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const TOKEN_KEY = 'zt_token'
@@ -100,6 +102,15 @@ export async function login({ email, password }) {
 }
 export function me() {
   return request('/api/v1/auth/me', { auth: true })
+}
+export async function restoreSession() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const session = await checkSavedSession({ readToken: getToken, fetchUser: me, clear: clearSession })
+    if (session.status === 'changed') continue
+    if (session.status === 'authenticated') localStorage.setItem(USER_KEY, JSON.stringify(session.user))
+    return session
+  }
+  return { status: 'unavailable', user: null, error: new Error('登录状态正在变化，请重试') }
 }
 export function forgotRequest({ name, email }) {
   return request('/api/v1/auth/forgot/request', { method: 'POST', body: { name, email } })
@@ -274,6 +285,15 @@ export function forensicsCheck(payload) {
 // ---- 数据管理 ----
 export function dataOverview() {
   return request('/api/v1/data-center/overview', { auth: true })
+}
+export function localMarketList(params = {}) {
+  return request(`/api/v1/data-center/market?${new URLSearchParams(params)}`, { auth: true })
+}
+export function localMarketDetail(symbol) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}`, { auth: true })
+}
+export function updateLocalStock(symbol, payload) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/update`, { method: 'POST', body: payload, auth: true })
 }
 export function dataUpdate(payload) {
   return request('/api/v1/data-center/update', { method: 'POST', body: payload, auth: true })

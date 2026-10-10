@@ -19,17 +19,19 @@ import re
 from dataclasses import replace as dc_replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from uuid import uuid4
+from typing import Any, Literal
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict
 
 from ..database import _now, get_conn
 from ..quant.result_adapter import backtest_run_to_result, factor_report_to_dict
 from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
+from ..quant.market_catalog import LocalMarketCatalog
 from ..quant.runtime import (
     BACKEND_ROOT,
     CONFIG_PATH,
@@ -41,6 +43,7 @@ from ..quant.runtime import (
     build_data_center_service,
     build_factor_evaluator,
     build_factor_registry,
+    default_universe_settings,
     local_data_bounds,
     market_repository,
     security_names,
@@ -76,7 +79,7 @@ from quant_platform.strategies.rule_schema import (
     OPERATOR_LABELS,
     RuleStrategyDefinition,
 )
-from quant_platform.strategies.templates import beginner_templates
+from quant_platform.strategies.templates import beginner_templates, get_beginner_template
 from quant_platform.web.factor_fields import field_description
 from quant_platform.web.security_names import xtick_security_names
 from quant_platform.jev import JevClient, ChoiceRequest, NoulRequest, ScoreRequest
@@ -197,8 +200,19 @@ class DefinitionIn(BaseModel):
 class PackageIn(BaseModel):
     definition: DefinitionIn
     top_n: int = Field(5, ge=1, le=50)
-    rebalance: str = Field("weekly")
+    rebalance: Literal["daily", "weekly", "monthly"] = "weekly"
     source: str = Field("visual_builder")
+    style: Literal["conservative", "balanced", "aggressive"] = "balanced"
+
+
+class PackageBacktestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    from_date: str = Field("", validation_alias=AliasChoices("from_date", "start_date"))
+    to_date: str = Field("", validation_alias=AliasChoices("to_date", "end_date"))
+    initial_cash: float = Field(1_000_000, gt=0, allow_inf_nan=False)
+    top_n: int | None = Field(None, ge=1, le=50)
+    rebalance: Literal["daily", "weekly", "monthly"] | None = None
+    style: Literal["conservative", "balanced", "aggressive"] = "balanced"
 
 
 class CopyIn(BaseModel):
@@ -262,6 +276,14 @@ def create_package(body: PackageIn, user: dict = Depends(get_current_user)):
     if not definition.get("strategy_id"):
         definition["strategy_id"] = f"strategy_{random.Random().randint(0, 0xFFFFFFFF):08x}"
     canonical = definition_to_quant(definition)
+    source = body.source
+    if source.startswith("template:"):
+        try:
+            preset = get_beginner_template(source.split(":")[1]).presets[body.style]
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        canonical = preset.definition.to_dict()
+        source = f"template:{source.split(':')[1]}:{body.style}"
     try:
         rule_def = RuleStrategyDefinition.from_mapping(canonical)
     except ConfigurationError as exc:
@@ -271,7 +293,7 @@ def create_package(body: PackageIn, user: dict = Depends(get_current_user)):
         conn.execute(
             "INSERT INTO strategy_packages (user_id, package_id, name, definition, top_n, rebalance, source, created_at) VALUES (?,?,?,?,?,?,?,?)",
             (user["id"], package_id, rule_def.name, json.dumps(rule_def.to_dict(), ensure_ascii=False),
-             body.top_n, body.rebalance, body.source, _now()),
+             body.top_n, body.rebalance, source, _now()),
         )
         row = conn.execute(
             "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
@@ -298,12 +320,13 @@ def copy_package(package_id: str, body: CopyIn | None = None, user: dict = Depen
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="策略包不存在")
-        definition = json.loads(row["definition"])
+        definition = _stored_package(row).definition.to_dict()
         new_name = (body.name if body and body.name else None) or f"{row['name']}（副本）"
+        definition["name"] = new_name
         new_id = f"{re.sub(r'[^A-Za-z0-9_]', '', definition.get('strategy_id') or 'strategy')[:20]}-{random.Random().randint(0, 0xFFFFFFFF):08x}"
         conn.execute(
             "INSERT INTO strategy_packages (user_id, package_id, name, definition, top_n, rebalance, source, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"], new_id, new_name, row["definition"], row["top_n"], row["rebalance"],
+            (user["id"], new_id, new_name, json.dumps(definition, ensure_ascii=False), row["top_n"], row["rebalance"],
              f"copy:{package_id}", _now()),
         )
         new_row = conn.execute(
@@ -385,48 +408,42 @@ def package_risk_score(package_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.post("/packages/{package_id}/backtest", status_code=status.HTTP_201_CREATED, summary="运行策略包回测")
-def backtest_package(package_id: str, body: dict[str, Any] | None = None, user: dict = Depends(get_current_user)):
+def backtest_package(package_id: str, body: PackageBacktestIn | None = None, user: dict = Depends(get_current_user)):
     with get_conn() as conn:
         row = conn.execute(
             "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="策略包不存在")
-    body = body or {}
+    body = body or PackageBacktestIn()
 
     if not local_data_bounds():
         raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
-    start, end = _clamped_range(str(body.get("from_date") or body.get("start_date") or ""),
-                                str(body.get("to_date") or body.get("end_date") or ""))
-    initial_cash = float(body.get("initial_cash") or 1_000_000)
+    bounds = local_data_bounds()
+    try:
+        requested_start = date.fromisoformat(body.from_date) if body.from_date else bounds[0]
+        requested_end = date.fromisoformat(body.to_date) if body.to_date else bounds[1]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期格式需为 YYYY-MM-DD")
+    start, end = max(requested_start, bounds[0]), min(requested_end, bounds[1])
+    if start >= end:
+        raise HTTPException(status_code=422, detail="开始日期需早于结束日期，且区间须与本地行情有交集。")
 
     service = build_backtest_service(user)
     studio = StrategyStudioService(service)
-    source = str(row["source"] or "")
-    if source.startswith("template:"):
-        # 模板快速回测：使用 AlphaQuant 官方模板预设（style 控制风格），
-        # top_n / rebalance 沿用用户在模板页设置的值。
-        template_id = source.split(":", 1)[1]
-        style = str(body.get("style") or "balanced")
-        try:
-            package = studio.template_package(template_id, style)
-        except (ValueError, ConfigurationError) as exc:
-            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
-        package = dc_replace(package, top_n=row["top_n"], rebalance=row["rebalance"])
-    else:
-        try:
-            package = _package_from_definition(
-                json.loads(row["definition"]), row["top_n"], row["rebalance"], row["source"]
-            )
-        except ConfigurationError as exc:
-            raise HTTPException(status_code=422, detail=f"策略定义无效：{_sanitize_detail(exc)}")
+    try:
+        package = _stored_package(row, body.style)
+        package = dc_replace(package, top_n=body.top_n or package.top_n,
+                             rebalance=body.rebalance or package.rebalance)
+    except (ValueError, ConfigurationError) as exc:
+        raise HTTPException(status_code=422, detail=f"策略定义无效：{_sanitize_detail(exc)}")
 
     base = dc_replace(
         service.default_request(),
         start_date=start,
         end_date=end,
-        initial_cash=initial_cash,
-        risk_limits=user_risk_limits(user["id"]),
+        initial_cash=body.initial_cash,
+        risk_limits=dc_replace(user_risk_limits(user["id"]), max_positions=package.top_n),
     )
     try:
         run = studio.run(package, base_request=base)
@@ -438,14 +455,33 @@ def backtest_package(package_id: str, body: dict[str, Any] | None = None, user: 
         raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
 
     result = backtest_run_to_result(run, names=security_names())
+    result["effective_config"] = {
+        "strategy_reference": f"package:{package_id}", "package_id": package_id,
+        "strategy_plugin": "rule_builder", "market": "当前股票池",
+        "strategy_parameters": {"definition_json": package.definition.to_json()},
+        "initial_capital": base.initial_cash, "max_positions": package.top_n,
+        "rebalance": package.rebalance, "from_date": start.isoformat(), "to_date": end.isoformat(),
+    }
+    result = with_run_evidence(result)
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO backtests (user_id, strategy, market, from_date, to_date, status, result, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"], row["name"], "沪深300", start.isoformat(), end.isoformat(), "完成",
+            (user["id"], row["name"], "当前股票池", start.isoformat(), end.isoformat(), "完成",
              json.dumps(result, ensure_ascii=False), _now()),
         )
         bid = cur.lastrowid
     return {"id": bid, "run_id": result["run_id"], "status": "完成", "summary": result}
+
+
+def _stored_package(row, legacy_style: str = "balanced") -> StrategyPackage:
+    source = str(row["source"] or "")
+    # Legacy template rows stored placeholder rules; resolve their actual preset.
+    if source.startswith("template:") and len(source.split(":")) == 2:
+        preset = get_beginner_template(source.split(":")[1]).presets[legacy_style]
+        definition = preset.definition.to_dict()
+    else:
+        definition = json.loads(row["definition"])
+    return _package_from_definition(definition, row["top_n"], row["rebalance"], source)
 
 
 def _package_from_definition(definition: dict[str, Any], top_n: int, rebalance: str, source: str) -> StrategyPackage:
@@ -647,13 +683,12 @@ def user_strategy_save(body: UserStrategyIn, user: dict = Depends(get_current_us
         raise HTTPException(status_code=422, detail={"blockers": blockers})
     if warnings and not body.risk_acknowledged:
         raise HTTPException(status_code=409, detail="存在安全风险提示，请先勾选风险确认。")
-    plugin_name = re.sub(r"[^A-Za-z0-9_]", "", body.display_name.lower() or "custom_strategy") or "custom_strategy"
+    plugin_name = f"{re.sub(r'[^A-Za-z0-9_]', '', body.display_name.lower())[:32] or 'custom_strategy'}_{uuid4().hex[:8]}"
     params = _parse_params(body.code)
     now = _now()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO user_strategies (user_id, plugin_name, display_name, description, source, code, parameters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(user_id, plugin_name) DO UPDATE SET display_name=excluded.display_name, description=excluded.description, code=excluded.code, parameters=excluded.parameters, updated_at=excluded.updated_at",
+            "INSERT INTO user_strategies (user_id, plugin_name, display_name, description, source, code, parameters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (user["id"], plugin_name, body.display_name or "自定义策略", body.description, body.source, body.code,
              json.dumps(params, ensure_ascii=False), now, now),
         )
@@ -1143,7 +1178,10 @@ def run_library(user: dict = Depends(get_current_user), strategy: str = "", run_
         state = "SUCCESS" if r["status"] == "完成" else r["status"]
         if (strategy and strategy != r["strategy"]) or (run_kind and run_kind != kind) or (status and status != state):
             continue
-        items.append({"run_id": f"run-{r['id']}", "run_label": label, "run_kind": kind, "status": state,
+        items.append({"run_id": f"run-{r['id']}", "backtest_id": r["id"],
+                      "strategy_reference": (res.get("effective_config") or {}).get("strategy_reference")
+                          or (res.get("effective_config") or {}).get("strategy_plugin"),
+                      "run_label": label, "run_kind": kind, "status": state,
                       **{k: res[k] for k in ("validity_status", "metrics_reliable", "legacy_unverified", "validity_issues")},
                       "grade": _cached_grade(int(r["id"]), res),
                       "strategy": r["strategy"], "start_date": r["from_date"], "end_date": r["to_date"],
@@ -1495,6 +1533,50 @@ def data_overview(user: dict = Depends(get_current_user)):
         "providers": providers,
         "per_symbol": per_symbol,
     }
+
+
+def _local_market_catalog() -> LocalMarketCatalog:
+    try:
+        return LocalMarketCatalog(market_repository().root)
+    except Exception:
+        raise HTTPException(status_code=503, detail="本地行情正在更新或暂时无法读取，请稍后刷新列表")
+
+
+@router.get("/data-center/market", summary="分页查询本地股票行情")
+def local_market_list(q: str = Query("", max_length=80), scope: str = Query("all", pattern="^(all|universe)$"),
+                      page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                      user: dict = Depends(get_current_user)):
+    return _local_market_catalog().page(
+        _load_universe_symbols(user["id"]), scope=scope, q=q, page=page, page_size=page_size)
+
+
+@router.get("/data-center/market/{symbol}", summary="单只股票行情完整性与缺失区间")
+def local_market_detail(symbol: str, user: dict = Depends(get_current_user)):
+    try:
+        return _local_market_catalog().detail(symbol, _load_universe_symbols(user["id"]))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="本地没有该股票的行情，且该股票不在当前股票池")
+
+
+class SingleStockUpdateIn(BaseModel):
+    start_date: date
+    end_date: date
+
+
+@router.post("/data-center/market/{symbol}/update", summary="更新单只股票行情，不改变股票池")
+def local_market_update(symbol: str, body: SingleStockUpdateIn, user: dict = Depends(get_current_user)):
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="请提供有效的六位股票代码")
+    if body.start_date > body.end_date or body.end_date > date.today():
+        raise HTTPException(status_code=422, detail="请检查起止日期，结束日期不能晚于今天")
+    service = build_data_center_service(user)
+    try:
+        with DATA_UPDATE_LOCK, _backend_cwd():
+            result = service.update_market_data(body.start_date, body.end_date, symbols=[to_canonical(symbol)])
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_sanitize_detail(exc))
+    return {"status": result.status, "message": result.message, "rows": result.rows,
+            "version_id": result.version_id, "symbol": to_bare(symbol)}
 
 
 @router.post("/data-center/update", summary="运行数据更新")
@@ -1926,7 +2008,6 @@ def risk_events(user: dict = Depends(get_current_user)):
 #    （模拟交易入口已移除，迁移自 AlphaQuant 092b2b6 导航调整）
 # --------------------------------------------------------------------------- #
 
-_DEFAULT_UNIVERSE = ["600519", "000001", "300750", "601318", "000858"]
 
 
 def _local_symbol_stats() -> dict[str, dict[str, Any]]:
@@ -1956,9 +2037,8 @@ def universe_get(user: dict = Depends(get_current_user)):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM universe WHERE user_id = ?", (user["id"],)).fetchone()
     if not row:
-        symbols = list(_DEFAULT_UNIVERSE)
-        filters = {"exclude_st": True, "exclude_suspended": True, "minimum_listing_days": 60,
-                   "minimum_history_days": 120, "minimum_average_amount": 0}
+        defaults, filters = default_universe_settings()
+        symbols = [to_bare(symbol) for symbol in defaults]
     else:
         symbols = json.loads(row["symbols"])
         filters = {"exclude_st": bool(row["exclude_st"]), "exclude_suspended": bool(row["exclude_suspended"]),
@@ -1991,15 +2071,22 @@ class UniverseRemoveIn(BaseModel):
 def _load_universe_symbols(user_id: int) -> list[str]:
     with get_conn() as conn:
         row = conn.execute("SELECT symbols FROM universe WHERE user_id = ?", (user_id,)).fetchone()
-    return json.loads(row["symbols"]) if row else list(_DEFAULT_UNIVERSE)
+    if row:
+        return json.loads(row["symbols"])
+    symbols, _ = default_universe_settings()
+    return [to_bare(symbol) for symbol in symbols]
 
 
 def _save_universe(user_id: int, symbols: list[str], filters: dict[str, Any] | None = None) -> None:
+    if filters is None:
+        _, filters = default_universe_settings()
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO universe (user_id, symbols, exclude_st, exclude_suspended, minimum_listing_days, minimum_history_days, minimum_average_amount, updated_at) "
             "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET symbols=excluded.symbols, updated_at=excluded.updated_at",
-            (user_id, json.dumps(symbols, ensure_ascii=False), 1, 1, 60, 120, 0, _now()),
+            (user_id, json.dumps(symbols, ensure_ascii=False), int(bool(filters.get("exclude_st", False))),
+             int(bool(filters.get("exclude_suspended", False))), filters.get("minimum_listing_days", 0),
+             filters.get("minimum_history_days", 0), filters.get("minimum_average_amount", 0), _now()),
         )
 
 
