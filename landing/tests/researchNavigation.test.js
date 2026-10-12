@@ -18,10 +18,13 @@ test('策略研究五个主入口与两项回测步骤，旧链接仍然可达',
   const group = groups.find((g) => g.label === '策略研究')
   assert.deepEqual(group.items.map((i) => i.label), ['行情图表', '我的策略', '因子研究', '回测与验证', '研究记录'])
   assert.deepEqual(group.items[3].children.map((i) => i.label), ['策略回测', '参数验证'])
-  for (const key of ['strategy-studio', 'custom-strategy', 'nl-strategy']) {
+  for (const key of ['strategy-studio', 'custom-strategy']) {
     assert.ok(allItems.some((i) => i.key === key))
     assert.equal(navigationItem(key).key, 'strategy-hub')
   }
+  // 三种创建方式合并为一页：旧的“自然语言创建”链接落到同一页。
+  assert.equal(resolveView('nl-strategy'), 'strategy-studio')
+  assert.ok(!allItems.some((i) => i.key === 'nl-strategy'))
   // 参数优化与样本外验证合并为一页：旧的样本外验证链接落到同一页，其他链接不受影响。
   assert.equal(resolveView('walk-forward'), 'research')
   assert.ok(views[resolveView('walk-forward')])

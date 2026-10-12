@@ -2,6 +2,7 @@
 import { computed, onActivated, ref } from 'vue'
 import { copyPackage, deletePackage, deleteUserStrategy, listPackages, listUserStrategies } from '../../api.js'
 import { openResearch, strategyReference } from '../researchNavigation.js'
+import { sourceLabel as ruleSourceLabel } from '../ruleForm.js'
 import EmptyState from '../ui/EmptyState.vue'
 import SectionCard from '../ui/SectionCard.vue'
 
@@ -13,16 +14,12 @@ const keyword = ref('')
 const confirming = ref('')
 const busy = ref('')
 const methods = [
-  { label: '从模板开始', hint: '选择现成思路，保存为自己的策略', view: 'strategy-studio', mode: 'template' },
-  { label: '可视化规则', hint: '用指标与条件搭建选股规则', view: 'strategy-studio', mode: 'builder' },
-  { label: '自然语言', hint: '描述思路，核对生成的规则后保存', view: 'nl-strategy' },
+  { label: '新建规则策略', hint: '不用写代码：从模板开始、用一句话描述，或自己填写条件', view: 'strategy-studio' },
   { label: 'Python 策略', hint: '适合需要自定义逻辑的进阶研究', view: 'custom-strategy' },
 ]
 const visibleAssets = computed(() => assets.value.filter((asset) =>
   `${asset.name} ${asset.description || ''}`.toLowerCase().includes(keyword.value.trim().toLowerCase())))
-const sourceLabel = (asset) => asset.kind === 'python' ? 'Python' :
-  asset.source?.startsWith('template:') ? '模板' : asset.source?.startsWith('copy:') ? '副本' :
-    ({ visual_builder: '可视化规则', nl_builder: '自然语言' }[asset.source] || '规则策略')
+const sourceLabel = (asset) => (asset.kind === 'python' ? 'Python' : ruleSourceLabel(asset.source))
 const freqLabel = (value) => ({ daily: '每日', weekly: '每周', monthly: '每月' }[value] || '—')
 
 async function loadAssets() {

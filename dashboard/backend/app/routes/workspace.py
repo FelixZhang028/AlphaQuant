@@ -87,6 +87,7 @@ from quant_platform.factors.combine import (
 )
 from quant_platform.strategies.nl_builder import NLStrategyBuilder, definition_explanation
 from quant_platform.strategies.rule_schema import (
+    IndicatorSpec,
     INDICATOR_LABELS,
     OPERATOR_LABELS,
     RuleStrategyDefinition,
@@ -289,17 +290,24 @@ def create_package(body: PackageIn, user: dict = Depends(get_current_user)):
         definition["strategy_id"] = f"strategy_{random.Random().randint(0, 0xFFFFFFFF):08x}"
     canonical = definition_to_quant(definition)
     source = body.source
+    preset = None
     if source.startswith("template:"):
         try:
             preset = get_beginner_template(source.split(":")[1]).presets[body.style]
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
-        canonical = preset.definition.to_dict()
-        source = f"template:{source.split(':')[1]}:{body.style}"
+        if not definition.get("entry_rules"):
+            # 没有提交规则的旧客户端：按模板原文保存。
+            canonical = preset.definition.to_dict()
     try:
         rule_def = RuleStrategyDefinition.from_mapping(canonical)
     except ConfigurationError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+    if preset is not None:
+        # 保存的是页面上看到的规则；来源标签如实记录它是否还和模板一致。
+        saved, published = rule_def.to_dict(), preset.definition.to_dict()
+        unchanged = all(saved[key] == published[key] for key in ("entry_logic", "entry_rules", "ranking"))
+        source = f"{'template' if unchanged else 'template_modified'}:{source.split(':')[1]}:{body.style}"
     package_id = f"{re.sub(r'[^A-Za-z0-9_]', '', rule_def.strategy_id)[:24]}-{random.Random().randint(0, 0xFFFFFFFF):08x}"
     with get_conn() as conn:
         conn.execute(
@@ -369,7 +377,8 @@ def preflight_package(body: PackageIn, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
     available_days = available_trading_days()
     warnings = list(StrategyStudioService.preflight(package, available_days=available_days))
-    return {"warnings": warnings, "minimum_history_days": package.definition.minimum_history_days}
+    return {"warnings": warnings, "minimum_history_days": package.definition.minimum_history_days,
+            "description": package.definition.describe(top_n=body.top_n, rebalance=body.rebalance)}
 
 
 @router.get("/packages/{package_id}/risk-score", summary="AI 策略风险评估（Jev Score）")
@@ -529,7 +538,20 @@ def studio_options(user: dict = Depends(get_current_user)):
             "main_risk": template.main_risk,
             "top_n": preset.top_n,
             "rebalance": preset.rebalance,
+            # 每种风格的实际规则：选模板后直接填进表单，用户能看到也能修改。
+            "presets": {
+                style: {"definition": definition_to_frontend(item.definition.to_dict()),
+                        "top_n": item.top_n, "rebalance": item.rebalance}
+                for style, item in template.presets.items()
+            },
         })
+    indicator_windows = {}
+    for frontend, (quant, default) in _FRONTEND_INDICATORS.items():
+        if default is None:
+            indicator_windows[frontend] = None
+            continue
+        minimum, maximum = IndicatorSpec(quant, default).window_limits
+        indicator_windows[frontend] = {"default": default, "minimum": minimum, "maximum": maximum}
     indicators = {
         frontend: INDICATOR_LABELS[quant]
         for frontend, (quant, _) in _FRONTEND_INDICATORS.items()
@@ -541,6 +563,7 @@ def studio_options(user: dict = Depends(get_current_user)):
     return {
         "templates": templates,
         "indicators": indicators,
+        "indicator_windows": indicator_windows,
         "operators": operators,
         "frequencies": _FREQUENCIES,
         "directions": _DIRECTIONS,

@@ -131,3 +131,62 @@ def test_two_chinese_named_python_assets_remain_distinct_and_reach_their_plugins
     assert captured[0].strategy_plugin != captured[1].strategy_plugin
     assert client.post('/api/v1/backtests', json={**payload(reference), 'strategy_parameters': {'typo': 8}}).status_code == 422
     assert len(captured) == 2
+
+
+def test_options_show_each_templates_real_rules_and_the_window_range_of_every_indicator(workflow):
+    client, *_ = workflow
+    options = client.get('/api/v1/studio/options').json()
+    template = beginner_templates()[0]
+    listed = next(item for item in options['templates'] if item['template_id'] == template.template_id)
+    assert set(listed['presets']) == set(template.presets)
+    preset = listed['presets']['aggressive']
+    saved = client.post('/api/v1/packages', json={
+        'definition': {**preset['definition'], 'name': '照模板保存'}, 'top_n': preset['top_n'],
+        'rebalance': preset['rebalance'], 'source': f'template:{template.template_id}', 'style': 'aggressive'}).json()
+    # What the form received from the options is exactly what the engine would run for that template.
+    published = template.presets['aggressive'].definition.to_dict()
+    with workflow[1]() as conn:
+        stored = json.loads(conn.execute('SELECT definition FROM strategy_packages').fetchone()[0])
+    assert all(stored[key] == published[key] for key in ('entry_logic', 'entry_rules', 'ranking'))
+    assert (saved['name'], saved['source']) == ('照模板保存', f'template:{template.template_id}:aggressive')
+    assert options['indicator_windows']['close'] is None
+    assert options['indicator_windows']['sma'] == {'default': 20, 'minimum': 2, 'maximum': 500}
+    assert set(options['indicator_windows']) == set(options['indicators'])
+
+
+def test_an_edited_template_is_saved_as_shown_and_labelled_as_modified(workflow):
+    client, connect, captured, *_ = workflow
+    template = beginner_templates()[0]
+    definition = client.get('/api/v1/studio/options').json()['templates'][0]['presets']['balanced']['definition']
+    definition = {**definition, 'name': '改过的动量', 'entry_rules': [
+        {'left': {'name': 'close'}, 'operator': 'gt', 'right': {'name': 'sma', 'window': 120}}]}
+    saved = client.post('/api/v1/packages', json={
+        'definition': definition, 'top_n': 4, 'rebalance': 'weekly',
+        'source': f'template:{template.template_id}', 'style': 'balanced'})
+    assert saved.status_code == 201, saved.text
+    body = saved.json()
+    assert body['source'] == f'template_modified:{template.template_id}:balanced'
+    assert body['definition']['entry_rules'] == definition['entry_rules']
+    assert '收盘价大于120日移动平均线' in body['describe_text']
+    # The stored rules, not the template's, are what a later backtest executes.
+    run = client.post('/api/v1/backtests', json=payload(f"package:{body['package_id']}"))
+    assert run.status_code == 201, run.text
+    executed = json.loads(captured[-1].strategy_parameters['definition_json'])
+    assert executed['entry_rules'] == [
+        {'left': {'name': 'close'}, 'operator': 'greater_than', 'right': {'name': 'moving_average', 'window': 120}}]
+
+
+def test_the_check_reads_the_rules_back_and_explains_what_is_wrong(workflow):
+    client, *_ = workflow
+    body = {'definition': {'name': '检查', 'entry_logic': 'any', 'entry_rules': [
+        {'left': {'name': 'return_1d', 'window': 60}, 'operator': 'gt', 'value': 0.05},
+        {'left': {'name': 'close'}, 'operator': 'gt', 'right': {'name': 'sma', 'window': 60}}],
+        'ranking': {'indicator': {'name': 'volatility', 'window': 40}, 'direction': 'ascending'}},
+        'top_n': 3, 'rebalance': 'monthly'}
+    checked = client.post('/api/v1/packages/preflight', json=body).json()
+    assert checked['description'].startswith('每月调仓；只保留满足“60日区间涨跌幅大于5.00%，或者收盘价大于60日移动平均线”的股票')
+    assert '按40日历史波动率从低到高排序，等权持有前3只' in checked['description']
+    assert checked['minimum_history_days'] == 61
+    body['definition']['entry_rules'][0]['left']['window'] = 9999
+    rejected = client.post('/api/v1/packages/preflight', json=body)
+    assert rejected.status_code == 422 and '周期必须在1至500之间' in rejected.json()['detail']

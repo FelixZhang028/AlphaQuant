@@ -35,8 +35,7 @@ export const groups = [
 const utilityItems = [
   { key: 'prior-knowledge', label: '研究经验', parent: 'knowledge-base' },
   { key: 'xtick-data', label: 'XTick 数据服务', parent: 'data-management' },
-  { key: 'strategy-studio', label: '模板与规则创建', parent: 'strategy-hub' },
-  { key: 'nl-strategy', label: '自然语言创建', parent: 'strategy-hub' },
+  { key: 'strategy-studio', label: '新建规则策略', parent: 'strategy-hub' },
   { key: 'custom-strategy', label: 'Python 策略创建', parent: 'strategy-hub' },
   { key: 'audit-report', label: '可信度审计', parent: 'backtest-review' },
   { key: 'strategy-forensics', label: '成交核查', parent: 'backtest-review' },
@@ -45,7 +44,7 @@ export const allItems = [{ key: overviewKey, label: '首页' }, ...groups.flatMa
   g.items.flatMap((item) => item.children || [item])), ...utilityItems]
 
 // 已合并页面的旧链接，直接落到现在包含该功能的页面。
-const legacyViews = { 'walk-forward': 'research', 'risk-management': 'backtest-review' }
+const legacyViews = { 'walk-forward': 'research', 'risk-management': 'backtest-review', 'nl-strategy': 'strategy-studio' }
 export function resolveView(key) {
   return legacyViews[key] || key
 }
@@ -79,7 +78,6 @@ export const views = {
   [overviewKey]: defineAsyncComponent(() => import('./views/OverviewView.vue')),
   'market-chart': defineAsyncComponent(() => import('./views/MarketChartView.vue')),
   'strategy-hub': defineAsyncComponent(() => import('./views/StrategyHubView.vue')),
-  'nl-strategy': defineAsyncComponent(() => import('./views/NlStrategyView.vue')),
   'strategy-studio': defineAsyncComponent(() => import('./views/StrategyStudioView.vue')),
   'custom-strategy': defineAsyncComponent(() => import('./views/CustomStrategyView.vue')),
   'factor-lab': defineAsyncComponent(() => import('./views/FactorLabView.vue')),
