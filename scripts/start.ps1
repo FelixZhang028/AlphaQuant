@@ -7,9 +7,36 @@ New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 $backend = $null
 $frontend = $null
 try {
+    Write-Host '============================================'
+    Write-Host '  智投引擎 FellowQuant - 一键启动'
+    Write-Host '============================================'
+    Write-Host ''
+    Write-Host '[启动] 后端服务  http://127.0.0.1:8000  （API 文档 /docs）'
+    Write-Host '[启动] 前端页面  http://localhost:5273'
+    Write-Host '服务在后台运行，按任意键停止全部服务。'
+    Write-Host ''
+
+    # 清理上次会话遗留的本平台进程（直接关闭启动窗口时子进程会存活并占住端口）。
+    # 只清理命令行可识别为本平台的进程；外来进程仍按端口冲突报错。
+    foreach ($port in @(8000, 5273)) {
+        $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+        foreach ($listener in $listeners) {
+            $stale = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+            $commandLine = if ($stale) { [string]$stale.CommandLine } else { '' }
+            $ours = $commandLine.Contains($projectRoot) -or
+                ($port -eq 8000 -and $commandLine -match 'uvicorn') -or
+                ($port -eq 5273 -and $commandLine -match 'vite')
+            if ($ours) {
+                Write-Host "[清理] 发现上次遗留的进程（端口 $port，PID $($listener.OwningProcess)），已自动停止。"
+                & taskkill.exe /PID $listener.OwningProcess /T /F | Out-Null
+            }
+        }
+    }
+    Start-Sleep -Milliseconds 500
+
     foreach ($port in @(8000, 5273)) {
         if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
-            throw "端口 $port 已被占用，请先停止已有服务。"
+            throw "端口 $port 已被其他程序占用（非本平台进程），请先停止该程序再启动。"
         }
     }
     $pythonPath = (Get-Command python -ErrorAction Stop).Source
