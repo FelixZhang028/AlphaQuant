@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
     DataUnavailableError,
 )
+from quant_platform.data.adjustment import ContinuousAdjustmentRepository
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
@@ -40,6 +41,9 @@ from quant_platform.data.versioning import DataManifest, save_manifest
 from quant_platform.data.xtick_backfill import XTickRangeBackfill
 
 logger = logging.getLogger(__name__)
+
+# How far before the requested start an update may reach back to find stored bars to align with.
+CONTINUITY_LOOKBACK_DAYS = 45
 
 
 @dataclass(frozen=True)
@@ -286,9 +290,11 @@ class DataCenterService:
         }
         existing_master = self.repository.read_table("security_master")
         try:
-            source, report, attempts = self._run_market_backfill(
+            fetch_start = self._continuity_start(selected, start_date)
+            parameters["fetch_start_date"] = fetch_start.isoformat()
+            source, report, attempts, unaligned = self._run_market_backfill(
                 selected,
-                start_date,
+                fetch_start,
                 end_date,
                 source_order=sources,
                 allow_fallback=fallback_enabled,
@@ -307,13 +313,18 @@ class DataCenterService:
                     "duplicate_rows": report.duplicate_rows,
                     "status_counts": report.status_counts,
                     "missing_by_column": report.missing_by_column,
+                    "unaligned_symbols": unaligned,
                 },
             )
             save_manifest(self.repository, completed)
-            return self._result(
-                completed,
-                f"行情更新完成（来源：{self.sources.source_display_name(source)}）",
-            )
+            message = f"行情更新完成（来源：{self.sources.source_display_name(source)}）"
+            if unaligned:
+                preview = "、".join(unaligned[:5]) + (" 等" if len(unaligned) > 5 else "")
+                message += (
+                    f"；{len(unaligned)} 只股票的新行情与已有行情没有重叠的交易日，"
+                    f"复权因子无法对齐，未更新（{preview}），请提前开始日期后重试"
+                )
+            return self._result(completed, message)
         except Exception as exc:
             failed = DataManifest.start("daily_bars", " -> ".join(sources), parameters).fail(exc)
             save_manifest(self.repository, failed)
@@ -551,39 +562,41 @@ class DataCenterService:
         *,
         source_order: list[str] | None = None,
         allow_fallback: bool | None = None,
-    ) -> tuple[str, Any, list[dict[str, str]]]:
+    ) -> tuple[str, Any, list[dict[str, str]], list[str]]:
         attempts: list[dict[str, str]] = []
         failures: list[str] = []
         sources = self.sources.resolve_market_sources(source_order)
         fallback_enabled = self.sources.fallback_enabled(allow_fallback)
         for source in sources:
+            # Whatever the source, new bars are put on the stored adjustment basis before saving.
+            repository = ContinuousAdjustmentRepository(self.repository)
             try:
                 if source == "baostock":
                     report = BaoStockRangeBackfill(
                         self.raw_repository,
-                        self.repository,
+                        repository,
                         self.sources.baostock_provider(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "xtick":
-                    report = XTickRangeBackfill(self.raw_repository, self.repository).backfill(
+                    report = XTickRangeBackfill(self.raw_repository, repository).backfill(
                         symbols, start_date, end_date
                     )
                 elif source == "ifind":
                     report = IFindRangeBackfill(
                         self.raw_repository,
-                        self.repository,
+                        repository,
                         self.sources.ifind_provider(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "akshare":
                     report = AkShareRangeBackfill(
                         self.raw_repository,
-                        self.repository,
+                        repository,
                         client=self._akshare_client(),
                     ).backfill(symbols, start_date, end_date)
                 elif source == "pytdx":
                     backfill = PyTdxRangeBackfill(
                         self.raw_repository,
-                        self.repository,
+                        repository,
                         self.sources.pytdx_provider(),
                     )
                     report = backfill.backfill(symbols, start_date, end_date)
@@ -595,7 +608,7 @@ class DataCenterService:
                 if source == "pytdx":
                     success.update({key: str(value) for key, value in backfill.metadata.items()})
                 attempts.append(success)
-                return source, report, attempts
+                return source, report, attempts, repository.unaligned
             except Exception as exc:
                 from quant_platform.core.diagnostics import redact_text
 
@@ -608,6 +621,18 @@ class DataCenterService:
         raise DataUnavailableError(
             "All configured market-data sources failed; " + "; ".join(failures)
         )
+
+    def _continuity_start(self, symbols: list[str], start_date: date) -> date:
+        """Start the request early enough to overlap each symbol's last stored bar.
+
+        Without a shared trading day the new factors cannot be tied to the stored ones.
+        The lookback is bounded so one long-stale symbol does not turn a daily update
+        into a multi-year download; such a symbol is reported as unaligned instead.
+        """
+
+        floor = start_date - timedelta(days=CONTINUITY_LOOKBACK_DAYS)
+        last = self.repository.last_adjusted_bar_dates(symbols, before=start_date, since=floor)
+        return min([start_date, *last.values()])
 
     def _resolve_market_sources(self, requested: list[str] | None) -> list[str]:
         """Backward-compatible wrapper around the extracted resolver."""
