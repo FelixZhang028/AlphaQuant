@@ -1,5 +1,5 @@
 // Only these research-context values travel between views and survive refresh/back.
-export const researchQueryKeys = ['strategy', 'run', 'baseline', 'mode']
+export const researchQueryKeys = ['strategy', 'run', 'baseline', 'mode', 'symbol']
 
 export function researchContext(url) {
   return Object.fromEntries(researchQueryKeys.map((key) => [key, url.searchParams.get(key) || '']))

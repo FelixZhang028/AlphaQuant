@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { summarizeDataOverview } from '../src/workspace/dataPresentation.js'
-import { allItems, groups, navigationItem } from '../src/workspace/modules.js'
+import { allItems, groups, navigationItem, resolveView } from '../src/workspace/modules.js'
 
 const complete = () => ({
   configured_symbol_count: 2, coverage_ratio: 1, unknown_status_rows: 0,
@@ -48,10 +48,12 @@ test('空股票池和无本地行情显示不同下一步', () => {
   assert.equal(summarizeDataOverview({ ...complete(), per_symbol: [], coverage_ratio: 0 }).state, 'missing')
 })
 
-test('菜单收敛后，XTick和风险管理的原直达链接仍能定位到正确分组', () => {
+test('菜单收敛后，XTick的原直达链接仍能定位到正确分组，风险管理的旧链接落到回测页', () => {
   const data = groups.find((group) => group.label === '数据管理')
   assert.deepEqual(data.items.map((item) => item.key), ['data-management', 'data-update', 'universe'])
-  for (const key of ['xtick-data', 'risk-management']) assert.ok(allItems.some((item) => item.key === key))
+  assert.ok(allItems.some((item) => item.key === 'xtick-data'))
   assert.equal(navigationItem('xtick-data').key, 'data-management')
-  assert.equal(navigationItem('risk-management').key, 'backtest-review')
+  // 风控设置只保留在回测表单里；独立页面已删除。
+  assert.ok(!allItems.some((item) => item.key === 'risk-management'))
+  assert.equal(resolveView('risk-management'), 'backtest-review')
 })

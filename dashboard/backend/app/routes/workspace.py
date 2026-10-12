@@ -32,6 +32,18 @@ from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
 from ..quant.market_catalog import LocalMarketCatalog
+from ..quant.run_trades import symbol_trades, traded_symbols
+from ..quant.research_runs import (
+    MAX_BACKTESTS,
+    MAX_COMBINATIONS,
+    ResearchInputError,
+    baseline_request,
+    parameter_grid,
+    run_optimization,
+    run_walk_forward,
+    tunable_parameters,
+    walk_forward_range,
+)
 from ..quant.runtime import (
     BACKEND_ROOT,
     CONFIG_PATH,
@@ -1059,18 +1071,45 @@ def factor_custom_delete(name: str, user: dict = Depends(get_current_user)):
 _OBJECTIVES = {"sharpe": "夏普比率", "annual_return": "年化收益", "calmar": "卡玛比率", "max_drawdown": "最大回撤"}
 
 
-@router.get("/research/baselines", summary="可作为实验基线的成功回测")
+@router.get("/research/baselines", summary="可作为实验基线的成功回测及其可调参数")
 def research_baselines(user: dict = Depends(get_current_user)):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, strategy, market, from_date, to_date, status, created_at FROM backtests WHERE user_id = ? AND status = '完成' ORDER BY id DESC LIMIT 50",
+            "SELECT id, strategy, market, from_date, to_date, status, result, created_at FROM backtests WHERE user_id = ? AND status = '完成' ORDER BY id DESC LIMIT 50",
             (user["id"],),
         ).fetchall()
-    return {"items": [
-        {"run_id": f"run-{r['id']}", "strategy": r["strategy"], "market": r["market"], "from_date": r["from_date"],
-         "to_date": r["to_date"], "created_at": r["created_at"], "display_label": f"{r['strategy']}｜{r['from_date']}~{r['to_date']}"}
-        for r in rows
-    ]}
+    service = build_backtest_service(user)
+    items = []
+    for r in rows:
+        result = json.loads(r["result"]) if r["result"] else {}
+        # 没有保存运行明细的旧记录无法重建配置，不能作为基准。
+        if run_directory(result) is None:
+            continue
+        config = result.get("effective_config") or {}
+        try:
+            metadata = service.catalog.get_metadata(str(config.get("strategy_plugin")))
+            parameters = tunable_parameters(metadata, config.get("strategy_parameters") or {})
+        except Exception:  # noqa: BLE001 - 策略已删除或无法加载时仍列出记录，只是没有可调参数
+            parameters = []
+        items.append({"run_id": f"run-{r['id']}", "strategy": r["strategy"], "market": r["market"],
+                      "from_date": r["from_date"], "to_date": r["to_date"], "created_at": r["created_at"],
+                      "display_label": f"{r['strategy']}｜{r['from_date']}~{r['to_date']}", "parameters": parameters})
+    return {"items": items, "max_combinations": MAX_COMBINATIONS, "max_backtests": MAX_BACKTESTS}
+
+
+def _research_baseline(run_ref: str, user: dict):
+    """基准记录 -> (回测服务, 与基准一致的请求, 策略元数据, 引擎运行编号)。"""
+
+    _, result = _audit_run_row(run_ref, user)
+    directory = run_directory(result)
+    if directory is None:
+        raise HTTPException(status_code=422, detail="这条回测记录没有保存运行明细，不能作为基准。")
+    service = build_backtest_service(user)
+    try:
+        base, metadata = baseline_request(service, directory.name)
+    except ResearchInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return service, base, metadata, directory.name
 
 
 class OptimizeIn(BaseModel):
@@ -1078,87 +1117,52 @@ class OptimizeIn(BaseModel):
     parameter_grid: dict[str, list[Any]] = {}
     objective: str = "sharpe"
     max_drawdown_limit: float = 0.30
-    start_date: str = ""
-    end_date: str = ""
 
 
-@router.post("/research/optimize", summary="运行参数优化网格搜索（模拟）")
+@router.post("/research/optimize", summary="参数优化：每组候选参数运行一次真实回测")
 def research_optimize(body: OptimizeIn, user: dict = Depends(get_current_user)):
-    grid = body.parameter_grid or {"window": [10, 20, 30], "threshold": [0.0, 0.05]}
-    keys = list(grid)
-    combos: list[dict[str, Any]] = []
-    def _recurse(i: int, acc: dict[str, Any]):
-        if i == len(keys):
-            combos.append(dict(acc))
-            return
-        for v in grid[keys[i]]:
-            acc[keys[i]] = v
-            _recurse(i + 1, acc)
-    _recurse(0, {})
-    combos = combos[:100]
-    rng = random.Random(abs(hash((user["id"], body.baseline_run_id, json.dumps(grid)))))
-    results = []
-    for idx, c in enumerate(combos):
-        obj = round(rng.uniform(-0.1, 2.0), 3) if body.objective != "max_drawdown" else round(rng.uniform(0.05, 0.5), 3)
-        dd = round(rng.uniform(0.05, 0.5), 3)
-        eligible = dd <= body.max_drawdown_limit
-        results.append({"rank": idx + 1, "eligible": eligible, "objective_value": obj,
-                        "parameters": c, "max_drawdown": dd, "status": "SUCCESS", "run_id": f"run-opt-{idx}"})
-    results.sort(key=lambda x: (not x["eligible"], -x["objective_value"]))
-    for i, r in enumerate(results, 1):
-        r["rank"] = i
-    return {"optimization_id": f"opt-{_now()}", "objective": body.objective, "combination_count": len(combos), "results": results}
+    service, base, metadata, engine_run_id = _research_baseline(body.baseline_run_id, user)
+    try:
+        grid = parameter_grid(metadata, body.parameter_grid)
+        return run_optimization(service, base, grid, objective=body.objective,
+                                max_drawdown_limit=body.max_drawdown_limit, baseline_run_id=engine_run_id)
+    except ResearchInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+        raise HTTPException(status_code=422, detail=f"参数优化失败：{_sanitize_detail(exc)}")
 
 
 class WalkForwardIn(BaseModel):
     baseline_run_id: str = ""
     parameter_grid: dict[str, list[Any]] = {}
     objective: str = "sharpe"
-    training_months: int = Field(12, ge=3)
-    test_months: int = Field(3, ge=1)
-    step_months: int = Field(3, ge=1)
+    training_months: int = Field(12, ge=3, le=60)
+    test_months: int = Field(3, ge=1, le=24)
+    step_months: int = Field(3, ge=1, le=24)
     max_windows: int = Field(8, ge=1, le=24)
-    start_date: str = ""
-    end_date: str = ""
 
 
-@router.post("/research/walk-forward", summary="运行滚动样本外验证（模拟）")
+@router.post("/research/walk-forward", summary="滚动样本外验证：训练期选参数，后续测试期运行真实回测")
 def research_walk_forward(body: WalkForwardIn, user: dict = Depends(get_current_user)):
     if body.step_months < body.test_months:
         raise HTTPException(status_code=400, detail="滚动步长不能小于测试月数")
-    rng = random.Random(abs(hash((user["id"], body.baseline_run_id))))
-    windows = []
-    start = date.today() - timedelta(days=365 * 2)
-    for w in range(body.max_windows):
-        train_start = start
-        train_end = train_start + timedelta(days=30 * body.training_months)
-        test_start = train_end
-        test_end = test_start + timedelta(days=30 * body.test_months)
-        oos_ret = round(rng.gauss(0.03, 0.08), 4)
-        windows.append({
-            "window": w + 1, "train_start": train_start.isoformat(), "train_end": train_end.isoformat(),
-            "test_start": test_start.isoformat(), "test_end": test_end.isoformat(),
-            "train_run_id": f"run-wf-train-{w}", "test_run_id": f"run-wf-test-{w}",
-            "selected_parameters": {"window": rng.choice([10, 20, 30])},
-            "train_objective_value": round(rng.uniform(0.5, 2.0), 3),
-            "test_cumulative_return": oos_ret, "test_max_drawdown": round(rng.uniform(0.05, 0.25), 3),
-            "test_sharpe": round(rng.uniform(0.2, 2.0), 3), "status": "SUCCESS",
-        })
-        start = start + timedelta(days=30 * body.step_months)
-    successful = [w for w in windows if w["status"] == "SUCCESS"]
-    oos_cum = sum(w["test_cumulative_return"] for w in successful)
-    positive = sum(1 for w in successful if w["test_cumulative_return"] > 0)
-    worst_dd = min((w["test_max_drawdown"] for w in successful), default=0)
-    return {
-        "validation_id": f"wf-{_now()}", "window_count": len(windows),
-        "summary": {
-            "successful_windows": len(successful), "out_of_sample_cumulative_return": round(oos_cum, 4),
-            "positive_window_ratio": round(positive / len(successful), 4) if successful else 0,
-            "worst_window_drawdown": round(worst_dd, 4),
-            "trust_warning": "固定股票池仍可能存在事后选股偏差，样本外结果不代表未来表现。",
-        },
-        "windows": windows,
-    }
+    bounds = local_data_bounds()
+    if bounds is None:
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    service, base, metadata, engine_run_id = _research_baseline(body.baseline_run_id, user)
+    # 基准回测的区间通常不够长；滚动验证改用本地最近的一段行情，其余配置与基准一致。
+    start, end = walk_forward_range(bounds, training_months=body.training_months, test_months=body.test_months,
+                                    step_months=body.step_months, max_windows=body.max_windows)
+    try:
+        grid = parameter_grid(metadata, body.parameter_grid)
+        return run_walk_forward(service, dc_replace(base, start_date=start, end_date=end), grid,
+                                objective=body.objective, training_months=body.training_months,
+                                test_months=body.test_months, step_months=body.step_months,
+                                max_windows=body.max_windows, baseline_run_id=engine_run_id)
+    except ResearchInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+        raise HTTPException(status_code=422, detail=f"滚动验证失败：{_sanitize_detail(exc)}")
 
 
 @router.get("/runs", summary="回测记录库列表")
@@ -1277,6 +1281,30 @@ def _cached_grade(db_id: int, result: dict) -> str | None:
         grade = "B"
     _GRADE_CACHE[db_id] = grade
     return grade
+
+
+def _run_trade_directory(run_ref: str, user: dict):
+    row, result = _audit_run_row(run_ref, user)
+    directory = run_directory(result)
+    if directory is None or not (directory / "fills.parquet").exists():
+        raise HTTPException(status_code=404, detail="该记录没有保存成交明细，无法在K线上显示")
+    return row, directory
+
+
+@router.get("/runs/{run_ref}/trades", summary="一次回测交易过的股票及成交次数")
+def run_traded_symbols(run_ref: str, user: dict = Depends(get_current_user)):
+    row, directory = _run_trade_directory(run_ref, user)
+    return {"run_id": run_ref, "run_label": f"{row['strategy']}｜{row['from_date']}~{row['to_date']}",
+            "start_date": row["from_date"], "end_date": row["to_date"],
+            "symbols": traded_symbols(directory, _local_market_catalog().names)}
+
+
+@router.get("/runs/{run_ref}/trades/{symbol}", summary="一次回测在单只股票上的成交、未成交订单与持仓区间")
+def run_symbol_trades(run_ref: str, symbol: str, user: dict = Depends(get_current_user)):
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="请提供有效的六位股票代码")
+    _, directory = _run_trade_directory(run_ref, user)
+    return symbol_trades(directory, symbol)
 
 
 @router.get("/runs/{run_ref}/audit", summary="回测可信度审计：六维评级与证据链")
@@ -1556,6 +1584,15 @@ def local_market_detail(symbol: str, user: dict = Depends(get_current_user)):
         return _local_market_catalog().detail(symbol, _load_universe_symbols(user["id"]))
     except KeyError:
         raise HTTPException(status_code=404, detail="本地没有该股票的行情，且该股票不在当前股票池")
+
+
+@router.get("/data-center/market/{symbol}/bars", summary="单只股票日K线（前复权或不复权）")
+def local_market_bars(symbol: str, adjust: str = Query("forward", pattern="^(forward|none)$"),
+                      user: dict = Depends(get_current_user)):
+    try:
+        return _local_market_catalog().kline(symbol, adjust=adjust)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="本地没有该股票的行情，请先更新行情")
 
 
 class SingleStockUpdateIn(BaseModel):
@@ -1988,19 +2025,6 @@ def risk_save(body: dict[str, Any], user: dict = Depends(get_current_user)):
              1 if merged["daily_position_limits"] else 0, merged["drawdown_action"], merged["drawdown_target_weight"], _now()),
         )
     return {"saved": True}
-
-
-@router.get("/risk/events", summary="最近风控记录（模拟）")
-def risk_events(user: dict = Depends(get_current_user)):
-    rng = random.Random(abs(hash(user["id"])))
-    events = []
-    for i in range(40):
-        decision = rng.choice(["REJECT", "ADJUST", "PASS"])
-        events.append({"run_id": f"run-{rng.randint(1, 9)}", "trade_date": (date.today() - timedelta(days=i)).isoformat(),
-                       "symbol": f"{600000 + rng.randint(0, 500)}", "decision": decision,
-                       "reason": "超过单股最大权重" if decision != "PASS" else ""})
-    return {"events": events, "checks": len(events), "adjustments": sum(1 for e in events if e["decision"] == "ADJUST"),
-            "rejections": sum(1 for e in events if e["decision"] == "REJECT")}
 
 
 # --------------------------------------------------------------------------- #

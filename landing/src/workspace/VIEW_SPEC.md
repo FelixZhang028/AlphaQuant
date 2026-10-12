@@ -108,13 +108,13 @@ const props = defineProps({
 
 ### 策略研究导航与统一回测流程（2026-10-10）
 
-- 主栏目为「我的策略」「因子研究」「回测与验证」「研究记录」。创建方式是「新建策略」的页内入口，旧直达链接继续有效。
+- 主栏目为「行情图表」「我的策略」「因子研究」「回测与验证」「研究记录」。创建方式是「新建策略」的页内入口，旧直达链接继续有效。
 - 我的策略汇总规则与 Python 资产，支持名称搜索、规则策略复制、行内确认删除。创建页只负责保存，保存后「去回测」进入统一配置页，不自动执行。
-- 回测与验证保留策略回测、参数优化、样本外验证三个步骤。共用日期、资金、持仓、调仓和策略参数配置；风险默认配置折叠嵌入，未保存修改会阻止运行。完整审计附于结果，外部成交核查位于高级工具。
+- 回测与验证分为策略回测、参数验证两页；参数验证在同一页先做参数优化、再做样本外验证，共用基准回测与候选参数。风控设置只在回测表单里折叠出现这一处（独立的风险管理页已删除），未保存修改会阻止运行。回测结果的概览包含全部收益与风险指标。完整审计附于结果，外部成交核查位于高级工具。旧链接 `walk-forward`、`risk-management` 分别落到参数验证页和策略回测页。
 - 模板将所选风格的实际规则保存，副本保持规则一致。统一回测记录保存策略引用与实际执行配置；Python 资产使用独立身份，名称相同或代码装饰器相同也不会覆盖另一个资产。
 - 因子研究默认三个栏目：因子库、单因子评估、组合研究。组合页完成选因子、权重/区间配置和评估；原合成评估作为高级方式保留。
 - 研究记录默认显示关键指标，可开启详细字段；提供查看结果、带入历史配置继续研究、回到原策略。日期、资金、持仓与策略参数可以复用，股票池与风险使用当前设置。
-- 策略、记录与基准通过白名单 URL 参数传递，支持刷新/后退；常规导航清除旧上下文。优化与滚动验证后端仍为模拟接口，在操作前和结果区明确标注。
+- 策略、记录、基准与股票代码通过白名单 URL 参数传递，支持刷新/后退；常规导航清除旧上下文。参数优化与滚动验证运行真实回测：同步执行，上限 24 种组合、100 次回测。
 
 ### 单次回测与复盘
 - `listBacktests()` → `[ {id,strategy,market,from_date,to_date,status,result,created_at} ]`
@@ -122,9 +122,9 @@ const props = defineProps({
 - `submitBacktest({strategy,market,from_date,to_date})` → `{ id,status,result,created_at }`
 
 ### 参数优化与稳健性验证
-- `researchBaselines()` → `{ items:[{run_id,strategy,market,from_date,to_date,created_at,display_label}] }`
-- `runOptimization({baseline_run_id,parameter_grid:{参数名:[候选值]},objective,max_drawdown_limit,start_date,end_date})` → `{ optimization_id,objective,combination_count,results:[{rank,eligible,objective_value,parameters,max_drawdown,status,run_id}] }`
-- `runWalkForward({baseline_run_id,parameter_grid,objective,training_months,test_months,step_months,max_windows,start_date,end_date})` → `{ validation_id,window_count,summary:{successful_windows,out_of_sample_cumulative_return,positive_window_ratio,worst_window_drawdown,trust_warning},windows:[{window,train_start,train_end,test_start,test_end,train_run_id,test_run_id,selected_parameters,train_objective_value,test_cumulative_return,test_max_drawdown,test_sharpe,status}] }`
+- `researchBaselines()` → `{ items:[{run_id,strategy,market,from_date,to_date,created_at,display_label,parameters:[{name,label,kind,description,current,minimum,maximum,choices}]}],max_combinations,max_backtests }`；只列出保存了运行明细的记录，`parameters` 为该策略可以调整的参数（规则策略为空）。
+- `runOptimization({baseline_run_id,parameter_grid:{参数名:[候选值]},objective,max_drawdown_limit})` → `{ optimization_id,objective,combination_count,start_date,end_date,results:[{rank,eligible,status,error,run_id,parameters,objective_value,cumulative_return,annual_return,max_drawdown,sharpe,dsr,selection_bias_status,selection_bias_reason}],selection_bias:{status,message,dsr} }`；百分比字段已乘 100，回撤为正数；`max_drawdown_limit` 为 0 表示不限制。
+- `runWalkForward({baseline_run_id,parameter_grid,objective,training_months,test_months,step_months,max_windows})` → `{ validation_id,objective,window_count,backtest_count,start_date,end_date,summary:{successful_windows,failed_windows,out_of_sample_cumulative_return,average_window_return,positive_window_ratio,worst_window_drawdown,average_window_sharpe,trust_warning},windows:[{window,status,error,train_start,train_end,test_start,test_end,train_run_id,test_run_id,selected_parameters,train_objective_value,test_cumulative_return,test_max_drawdown,test_sharpe}] }`；使用本地最近一段能放下这些窗口的行情，不限于基准回测的区间。
 
 ### 回测记录库
 - `listRuns({strategy?,run_kind?,status?,keyword?})` → `{ items:[{run_id,run_label,run_kind,status,validity_status,metrics_reliable,legacy_unverified,strategy,start_date,end_date,updated_at,cumulative_return,max_drawdown,sharpe,sortino,calmar}],total,stats:{all,success,failed,legacy_unverified,experiment} }`
@@ -134,6 +134,7 @@ const props = defineProps({
 - `dataOverview()` → `{ security_count,configured_symbol_count,coverage_ratio,market_rows,unknown_status_rows,last_market_source,benchmark_symbol,per_symbol:[{symbol,coverage,start_date,end_date,rows}] }`
 - `localMarketList({q,scope:'all'|'universe',page,page_size})` → `{items:[{symbol,name,start_date,end_date,status,status_label,in_universe}],total,page,pages,page_size,downloaded_count,universe_count,universe_downloaded_count}`；全部范围仅列已下载股票，股票池范围也列出未下载标的。按行情/名称/交易日历文件版本缓存摘要，翻页不重复读取行情价格。
 - `localMarketDetail(symbol)` → `{symbol,name,rows,coverage,missing_rows,unknown_rows,duplicate_rows,unexpected_rows,missing_ranges:[{start_date,end_date,days}],missing_range_count,...}`；覆盖率只核对已保存区间，缺失段最多展示 20 段，本地日历不足时标记待核对。
+- `localMarketBars(symbol,adjust:'forward'|'none')` → `{symbol,name,adjust,start_date,end_date,suspended_days,invalid_rows,bars:[{date,open,high,low,close,volume,factor}]}`；前复权以最新一根为基准，`factor` 是当天的复权比例，停牌日与价格不完整的记录只计数不返回。K 线只在「行情图表」页显示，详情面板提供跳转链接。
 - `updateLocalStock(symbol,{start_date,end_date})` → `{status,message,rows,version_id,symbol}`；仅下载所选单股，不修改股票池。先展示日期表单，再明确执行。
 - `dataUpdate({start_date,end_date,include_security_master,include_market,include_benchmark,source_choice,allow_fallback})` → `{ results:[{dataset,version_id,status,rows,message,error}] }`
 
@@ -141,10 +142,14 @@ const props = defineProps({
 - `xtickCatalog()` → `{ catalog:[{id,name,apis:[{id,name,url,description,inputs:[{name,label,type,default,range}]}]}] }`（type 为 'String'|'date'|'range'，range 形如 `"1-沪深京A股，2-沪深指数"`）
 - `xtickRequest({...请求参数})` → `{ rows:[对象数组], count }`
 
-### 风险管理
+### 风控设置（回测表单内）
 - `getRisk()` → `{ enabled,max_total_weight,max_single_weight,max_positions,minimum_cash_ratio,max_drawdown,daily_position_limits,drawdown_action,drawdown_target_weight }`
 - `saveRisk(payload)` → `{ saved:true }`
-- `riskEvents()` → `{ events:[{run_id,trade_date,symbol,decision,reason}],checks,adjustments,rejections }`
+
+### 行情图表
+- 左侧股票列表、中间 K 线（日/周/月、MACD/KDJ/RSI、前复权/不复权）、右侧行情摘要；周线与月线由日线在前端合并。
+- `listAuditRuns()` 提供可叠加的回测；`runTradedSymbols(runId)` → `{ run_id,run_label,start_date,end_date,symbols:[{symbol,name,buys,sells,rejected}] }`
+- `runSymbolTrades(runId,symbol)` → `{ symbol,fills:[{date,side,quantity,price,reference_price,fees,slippage_cost}],rejected:[{date,side,quantity,reason,reason_label}],holdings:[{start_date,end_date}] }`；成交价为不复权价格，前端按当天 `factor` 换算后标在 K 线上。
 
 ### 模拟交易
 - `paperAccounts()` → `{ accounts:[{account_id,display_name,status,strategy,start_date,initial_cash,top_n,last_date}] }`

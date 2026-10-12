@@ -113,6 +113,31 @@ def test_nontrading_dates_cannot_hide_missing_sessions(repo):
     assert row["missing_rows"] == 1 and row["coverage"] == .8
 
 
+def test_kline_adjusts_to_latest_bar_and_hides_suspended_sessions(repo):
+    repo.save_table("daily_bars", pd.DataFrame({
+        "symbol": "000002.SZ", "trade_date": pd.date_range("2026-01-05", "2026-01-08"), "quality_status": "OK",
+        "raw_open": [20.0, 20.0, 10.0, 11.0], "raw_high": [22.0, 20.0, 11.0, 12.0],
+        "raw_low": [19.0, 20.0, 9.0, 10.0], "raw_close": [20.0, 20.0, 10.0, 12.0],
+        "volume": [100.0, 0.0, 300.0, 400.0], "adj_factor": [0.5, 0.5, 1.0, 1.0],
+        "is_suspended": [False, True, False, False]}))
+    forward = LocalMarketCatalog(repo.root).kline("000002")
+    assert forward["adjust"] == "forward" and forward["suspended_days"] == 1 and forward["invalid_rows"] == 0
+    assert [bar["date"] for bar in forward["bars"]] == ["2026-01-05", "2026-01-07", "2026-01-08"]
+    assert forward["bars"][0] == {"date": "2026-01-05", "open": 10.0, "high": 11.0, "low": 9.5, "close": 10.0, "volume": 100, "factor": 0.5}
+    assert forward["bars"][-1]["close"] == 12.0 and forward["end_date"] == "2026-01-08"
+    raw = LocalMarketCatalog(repo.root).kline("000002", adjust="none")["bars"][0]
+    assert raw["open"] == 20.0 and raw["factor"] == 1.0
+
+
+def test_kline_never_draws_incomplete_prices_or_invents_adjustment(repo):
+    # The shared fixture stores closes only: no candle can be drawn and no factor exists.
+    result = LocalMarketCatalog(repo.root).kline("600519")
+    assert result["bars"] == [] and result["invalid_rows"] == 5 and result["start_date"] is None
+    assert result["adjust"] == "none"
+    with pytest.raises(KeyError):
+        LocalMarketCatalog(repo.root).kline("000002")
+
+
 @pytest.fixture
 def client(repo, monkeypatch):
     app = FastAPI()
@@ -129,6 +154,9 @@ def test_catalog_routes_and_validation(client):
     assert response.status_code == 200 and response.json()["total"] == 1
     assert client.get("/api/v1/data-center/market/000001").json()["missing_rows"] == 2
     assert client.get("/api/v1/data-center/market/000003").status_code == 404
+    assert client.get("/api/v1/data-center/market/600519/bars").json()["symbol"] == "600519"
+    assert client.get("/api/v1/data-center/market/000002/bars").status_code == 404
+    assert client.get("/api/v1/data-center/market/600519/bars", params={"adjust": "backward"}).status_code == 422
     for params in [{"page": 0}, {"page_size": 101}, {"scope": "wrong"}]:
         assert client.get("/api/v1/data-center/market", params=params).status_code == 422
 

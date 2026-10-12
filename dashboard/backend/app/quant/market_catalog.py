@@ -209,3 +209,40 @@ class LocalMarketCatalog:
                 row["status"] = "GAPS" if missing_ranges else "COMPLETE"
                 row["status_label"] = "区间有缺失" if missing_ranges else "已保存区间完整"
         return {**row, "missing_ranges": missing_ranges[:20], "missing_range_count": len(missing_ranges)}
+
+    def kline(self, symbol: str, *, adjust: str = "forward") -> dict:
+        """Daily candles for one stock; forward adjustment anchors on the latest bar."""
+        canonical = to_canonical(symbol)
+        if canonical not in self.stats:
+            raise KeyError(symbol)
+        wanted = ["trade_date", "raw_open", "raw_high", "raw_low", "raw_close", "volume", "adj_factor", "is_suspended"]
+        frames = []
+        for filename in self.paths:
+            available = pq.ParquetFile(filename).schema_arrow.names
+            frames.append(pd.read_parquet(filename, columns=[column for column in wanted if column in available],
+                                          filters=[("symbol", "==", canonical)]))
+        frame = pd.concat(frames, ignore_index=True).reindex(columns=wanted)
+        frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce").dt.normalize()
+        frame = frame.dropna(subset=["trade_date"]).sort_values("trade_date").drop_duplicates("trade_date", keep="last")
+        prices = ["raw_open", "raw_high", "raw_low", "raw_close"]
+        numeric = ["volume", "adj_factor", *prices]
+        frame[numeric] = frame[numeric].apply(pd.to_numeric, errors="coerce").replace([float("inf"), -float("inf")], float("nan"))
+        # Suspended sessions carry no trading range, so they are counted but not drawn.
+        suspended = frame["is_suspended"].astype("boolean").fillna(False).astype(bool)
+        valid = frame[prices].gt(0).all(axis=1) & frame["raw_high"].ge(frame["raw_low"])
+        shown = frame[~suspended & valid].copy()
+        factor = shown["adj_factor"].where(shown["adj_factor"] > 0).ffill().bfill()
+        applied = "forward" if adjust == "forward" and factor.notna().any() else "none"
+        # Each bar carries its own ratio so raw prices from elsewhere (backtest fills) can be placed on it.
+        shown["ratio"] = (factor / factor.iloc[-1]).round(6) if applied == "forward" else 1.0
+        shown[prices] = shown[prices].mul(shown["ratio"], axis=0).round(4)
+        return {"symbol": to_bare(canonical), "name": self.names.get(canonical, "名称待补充"), "adjust": applied,
+                "start_date": shown["trade_date"].iloc[0].date().isoformat() if len(shown) else None,
+                "end_date": shown["trade_date"].iloc[-1].date().isoformat() if len(shown) else None,
+                "suspended_days": int(suspended.sum()), "invalid_rows": int((~suspended & ~valid).sum()),
+                "bars": [{"date": day.date().isoformat(), "open": o, "high": h, "low": l, "close": c, "volume": v,
+                          "factor": ratio}
+                         for day, o, h, l, c, v, ratio in zip(
+                             shown["trade_date"], shown["raw_open"], shown["raw_high"], shown["raw_low"],
+                             shown["raw_close"], shown["volume"].fillna(0).astype("int64"), shown["ratio"],
+                             strict=True)]}
