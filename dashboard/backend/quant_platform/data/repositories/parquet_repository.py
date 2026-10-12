@@ -180,6 +180,50 @@ class ParquetMarketDataRepository(MarketDataRepository):
         dates = pd.to_datetime(frame["trade_date"], errors="coerce").dropna()
         return (dates.min().date(), dates.max().date()) if not dates.empty else None
 
+    def last_adjusted_bar_dates(
+        self, symbols: list[str], *, before: date, since: date | None = None
+    ) -> dict[str, date]:
+        """Each symbol's latest bar with a valid adjustment factor in ``[since, before)``.
+
+        Reads three columns, newest year first, and stops once every symbol is found.
+        """
+
+        directory, legacy = self._partition_path("daily_bars"), self._flat_path("daily_bars")
+        if self._has_partitions(directory):
+            years = sorted(
+                (int(path.name.split("=", 1)[1]), path)
+                for path in directory.glob(f"{_PARTITION_COLUMN}=*")
+            )
+            sources = [
+                path
+                for year, path in reversed(years)
+                if year <= before.year and (since is None or year >= since.year)
+            ]
+        else:
+            sources = [legacy] if legacy.exists() else []
+        filters = [("trade_date", "<", pd.Timestamp(before))]
+        if since is not None:
+            filters.append(("trade_date", ">=", pd.Timestamp(since)))
+        remaining = set(symbols)
+        found: dict[str, date] = {}
+        for source in sources:
+            if not remaining:
+                break
+            try:
+                frame = pd.read_parquet(
+                    source,
+                    columns=["symbol", "trade_date", "adj_factor"],
+                    filters=[("symbol", "in", sorted(remaining)), *filters],
+                )
+            except (KeyError, ValueError):
+                # A table saved without factors has no adjustment basis to preserve.
+                continue
+            frame = frame[pd.to_numeric(frame["adj_factor"], errors="coerce").gt(0)]
+            latest = pd.to_datetime(frame["trade_date"]).groupby(frame["symbol"]).max()
+            found.update({str(symbol): day.date() for symbol, day in latest.items()})
+            remaining.difference_update(found)
+        return found
+
     @staticmethod
     def _has_partitions(directory: Path) -> bool:
         return directory.exists() and any(directory.iterdir())
