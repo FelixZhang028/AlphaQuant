@@ -2,7 +2,7 @@
 import { computed, onActivated, reactive, ref, watch } from 'vue'
 import { openResearch } from '../researchNavigation.js'
 import { researchBaselines, runOptimization, runWalkForward } from '../../api.js'
-import { candidateGrid, combinationCount, parameterHint } from '../researchGrid.js'
+import { candidateGrid, candidateLabel, combinationCount, parameterHint } from '../researchGrid.js'
 import DataTable from '../ui/DataTable.vue'
 import EmptyState from '../ui/EmptyState.vue'
 import MetricCard from '../ui/MetricCard.vue'
@@ -197,7 +197,10 @@ function fmtParams(params) {
   const entries = Object.entries(params || {})
   if (!entries.length) return '—'
   return entries
-    .map(([k, v]) => `${parameters.value.find((p) => p.name === k)?.label || k}=${v}`)
+    .map(([k, v]) => {
+      const parameter = parameters.value.find((p) => p.name === k)
+      return `${parameter?.label || k}=${candidateLabel(parameter, v)}`
+    })
     .join('，')
 }
 
@@ -238,8 +241,8 @@ onActivated(loadBaselines)
     </SectionCard>
 
     <!-- 候选参数 -->
-    <SectionCard title="候选参数" hint="从基准策略的参数中选择，填写要比较的取值；下面两种验证共用这里的配置">
-      <p v-if="baseline && !parameters.length" class="text-sm text-amber-200">这个策略没有可以调整的参数。规则策略请在创建页修改条件后重新回测。</p>
+    <SectionCard title="候选参数" hint="可以比较策略自己的参数，也可以比较持股数量和调仓频率；下面两种验证共用这里的配置">
+      <p v-if="baseline && !parameters.length" class="text-sm text-amber-200">这条回测使用的策略已删除或无法加载，不能做参数验证。请换一条基准回测。</p>
       <template v-else-if="baseline">
         <div v-for="(slot, index) in slots" :key="index" class="grid gap-4 md:grid-cols-2" :class="{ 'mt-4': index }">
           <label class="block">

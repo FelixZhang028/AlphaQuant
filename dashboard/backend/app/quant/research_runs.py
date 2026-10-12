@@ -35,11 +35,32 @@ def _tunable(parameter: StrategyParameter) -> bool:
     return parameter.kind != ParameterKind.STRING or bool(parameter.choices)
 
 
-def tunable_parameters(metadata: StrategyMetadata, current: dict[str, Any]) -> list[dict[str, Any]]:
+REBALANCE_LABELS = {"daily": "每日", "weekly": "每周", "monthly": "每月"}
+
+
+def research_parameters(metadata: StrategyMetadata) -> tuple[StrategyParameter, ...]:
+    """The strategy's own tunable parameters, then the two settings every strategy shares."""
+    own = tuple(p for p in metadata.parameters if _tunable(p))
+    shared = (
+        StrategyParameter("top_n", "持股数量", ParameterKind.INTEGER, 10, "每次调仓后持有的股票数量", minimum=1,
+                          maximum=50 if metadata.plugin_name == "rule_builder" else 500),
+        StrategyParameter("rebalance", "调仓频率", ParameterKind.STRING, "weekly",
+                          "，".join(f"{value} 表示{label}" for value, label in REBALANCE_LABELS.items()),
+                          choices=tuple(REBALANCE_LABELS)),
+    )
+    names = {p.name for p in own}
+    return (*own, *(p for p in shared if p.name not in names))
+
+
+def tunable_parameters(metadata: StrategyMetadata, current: dict[str, Any], *, top_n: Any = None,
+                       rebalance: Any = None) -> list[dict[str, Any]]:
+    """Parameters offered for search with their value in the baseline run."""
+    baseline = {"top_n": top_n, "rebalance": rebalance, **current}
     return [{"name": p.name, "label": p.label, "kind": p.kind.value, "description": p.description,
-             "current": current.get(p.name, p.default), "minimum": p.minimum, "maximum": p.maximum,
-             "choices": list(p.choices)}
-            for p in metadata.parameters if _tunable(p)]
+             "current": p.default if baseline.get(p.name) is None else baseline[p.name],
+             "minimum": p.minimum, "maximum": p.maximum, "choices": list(p.choices),
+             "choice_labels": REBALANCE_LABELS if p.name == "rebalance" and p.choices == tuple(REBALANCE_LABELS) else {}}
+            for p in research_parameters(metadata)]
 
 
 def baseline_request(service: BacktestService, run_id: str) -> tuple[BacktestRequest, StrategyMetadata]:
@@ -56,9 +77,7 @@ def baseline_request(service: BacktestService, run_id: str) -> tuple[BacktestReq
 
 
 def parameter_grid(metadata: StrategyMetadata, raw: dict[str, list[Any]]) -> dict[str, tuple[Any, ...]]:
-    definitions = {p.name: p for p in metadata.parameters if _tunable(p)}
-    if not definitions:
-        raise ResearchInputError("这个策略没有可以调整的参数；规则策略请在创建页修改条件后重新回测。")
+    definitions = {p.name: p for p in research_parameters(metadata)}
     grid: dict[str, tuple[Any, ...]] = {}
     for name, values in raw.items():
         definition = definitions.get(name)
@@ -72,6 +91,8 @@ def parameter_grid(metadata: StrategyMetadata, raw: dict[str, list[Any]]) -> dic
                 limits = "" if definition.minimum is None and definition.maximum is None else (
                     f"（允许范围 {definition.minimum if definition.minimum is not None else '不限'} ~ "
                     f"{definition.maximum if definition.maximum is not None else '不限'}）")
+                if definition.choices:
+                    limits = f"（可选 {' / '.join(definition.choices)}）"
                 raise ResearchInputError(f"参数「{definition.label}」的候选值 {value} 无效{limits}。") from exc
             if candidate not in parsed:
                 parsed.append(candidate)

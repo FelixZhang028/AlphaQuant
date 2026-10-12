@@ -27,11 +27,20 @@ export function combinationCount(grid) {
 
 export function parameterHint(parameter) {
   if (!parameter) return ''
-  const parts = [`基准中的取值 ${parameter.current}`]
-  if (parameter.choices?.length) parts.push(`可选 ${parameter.choices.join(' / ')}`)
+  const labels = parameter.choice_labels || {}
+  const named = (value) => (labels[value] ? `${value}（${labels[value]}）` : String(value))
+  const parts = [`基准中的取值 ${named(parameter.current)}`]
+  if (parameter.choices?.length) parts.push(`可选 ${parameter.choices.map(named).join(' / ')}`)
   else if (parameter.kind === 'boolean') parts.push('可填 true / false')
   else if (parameter.minimum != null || parameter.maximum != null) {
     parts.push(`允许范围 ${parameter.minimum ?? '不限'} ~ ${parameter.maximum ?? '不限'}`)
   }
+  // 选项已经带中文说明时，不再重复参数说明。
+  if (parameter.description && !Object.keys(labels).length) parts.push(parameter.description)
   return parts.join('，')
+}
+
+// 结果表里的取值：有中文名的选项显示中文名。
+export function candidateLabel(parameter, value) {
+  return parameter?.choice_labels?.[value] ?? value
 }

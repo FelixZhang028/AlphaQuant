@@ -25,6 +25,29 @@ OBJECTIVES = {
 }
 
 
+# Searchable settings that live on the request itself instead of in the strategy's own
+# parameters. They apply to every strategy, including rule strategies with nothing else to tune.
+REQUEST_FIELDS = ("top_n", "rebalance")
+
+
+def apply_candidate(base: BacktestRequest, values: dict[str, Any]) -> BacktestRequest:
+    """Return ``base`` with one candidate applied to its strategy parameters and request fields."""
+
+    parameters = dict(base.strategy_parameters)
+    settings: dict[str, Any] = {}
+    for name, value in values.items():
+        # A strategy's own parameter of the same name wins over the request field.
+        if name in REQUEST_FIELDS and name not in parameters:
+            settings[name] = value
+        else:
+            parameters[name] = value
+    if "top_n" in settings:
+        settings["top_n"] = int(settings["top_n"])
+        # The risk limit follows the holding count, as it does for a single backtest.
+        settings["risk_limits"] = replace(base.risk_limits, max_positions=settings["top_n"])
+    return replace(base, strategy_parameters=parameters, **settings)
+
+
 def _run_isolated(job):
     """Each process creates its own service, engine, account and run directory."""
     path, configs, request, row = job
@@ -109,18 +132,17 @@ class OptimizationService:
             itertools.product(*(request.parameter_grid[name] for name in names)),
             start=1,
         ):
-            parameters = dict(request.base_request.strategy_parameters)
-            parameters.update(dict(zip(names, values, strict=True)))
+            candidate = dict(zip(names, values, strict=True))
             effective = replace(
-                request.base_request,
+                apply_candidate(request.base_request, candidate),
                 strategy_id=f"{request.base_request.strategy_id}_opt_{index:03d}",
-                strategy_parameters=parameters,
                 run_kind="optimization",
                 parent_experiment_id=optimization_id,
                 baseline_run_id=request.baseline_run_id,
             )
             row: dict[str, Any] = {
-                **{f"param_{name}": value for name, value in parameters.items()},
+                **{f"param_{name}": value for name, value in effective.strategy_parameters.items()},
+                **{f"param_{name}": value for name, value in candidate.items()},
                 "status": "SUCCESS",
                 "run_id": None,
                 "error": None,

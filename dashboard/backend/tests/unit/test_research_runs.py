@@ -21,6 +21,13 @@ from app.quant.research_runs import (
 from app.routes import workspace
 from app.routes.auth import get_current_user
 from quant_platform.application.backtest_service import BacktestRequest
+from quant_platform.application.optimization_service import (
+    OptimizationRequest,
+    OptimizationService,
+    apply_candidate,
+)
+from quant_platform.application.walk_forward_service import WalkForwardRequest, WalkForwardService
+from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.spec import ParameterKind, StrategyMetadata, StrategyParameter
 
 METADATA = StrategyMetadata(
@@ -37,10 +44,17 @@ BASE = BacktestRequest(strategy_plugin="demo", strategy_id="demo_1", strategy_pa
                        rebalance="weekly")
 
 
-def test_only_parameters_with_a_meaningful_grid_are_offered():
-    offered = tunable_parameters(METADATA, {"short_window": 30})
-    assert [p["name"] for p in offered] == ["short_window", "threshold", "mode"]
+def test_strategy_parameters_come_first_then_the_two_settings_every_strategy_shares():
+    offered = tunable_parameters(METADATA, {"short_window": 30}, top_n=5, rebalance="monthly")
+    assert [p["name"] for p in offered] == ["short_window", "threshold", "mode", "top_n", "rebalance"]
     assert offered[0]["current"] == 30 and offered[0]["minimum"] == 2 and offered[1]["current"] == 0.0
+    holding, frequency = offered[3], offered[4]
+    assert (holding["label"], holding["current"], holding["minimum"], holding["maximum"]) == ("持股数量", 5, 1, 500)
+    assert frequency["current"] == "monthly" and frequency["choices"] == ["daily", "weekly", "monthly"]
+    assert frequency["choice_labels"] == {"daily": "每日", "weekly": "每周", "monthly": "每月"}
+    # A rule strategy has no numeric parameters of its own, but can still vary these two.
+    rules = replace(METADATA, plugin_name="rule_builder", parameters=METADATA.parameters[2:3])
+    assert [(p["name"], p["maximum"]) for p in tunable_parameters(rules, {})] == [("top_n", 50), ("rebalance", None)]
 
 
 def test_grid_is_validated_against_the_strategy_before_anything_runs():
@@ -52,9 +66,64 @@ def test_grid_is_validated_against_the_strategy_before_anything_runs():
                           ({"short_window": list(range(2, 2 + MAX_COMBINATIONS + 1))}, "超过上限")]:
         with pytest.raises(ResearchInputError, match=fragment):
             parameter_grid(METADATA, raw)
-    rules_only = replace(METADATA, parameters=METADATA.parameters[2:3])
-    with pytest.raises(ResearchInputError, match="没有可以调整的参数"):
-        parameter_grid(rules_only, {"definition_json": ["{}"]})
+    rules = replace(METADATA, plugin_name="rule_builder", parameters=METADATA.parameters[2:3])
+    assert parameter_grid(rules, {"top_n": ["3", 5], "rebalance": ["weekly", "monthly"]}) == {
+        "top_n": (3, 5), "rebalance": ("weekly", "monthly")}
+    with pytest.raises(ResearchInputError, match="可选 daily / weekly / monthly"):
+        parameter_grid(rules, {"rebalance": ["yearly"]})
+    with pytest.raises(ResearchInputError, match="允许范围 1 ~ 50"):
+        parameter_grid(rules, {"top_n": [51]})
+
+
+def test_a_candidate_changes_request_settings_without_touching_strategy_parameters():
+    base = replace(BASE, risk_limits=RiskLimits(max_positions=10))
+    changed = apply_candidate(base, {"top_n": 3, "rebalance": "monthly", "short_window": 5})
+    assert (changed.top_n, changed.rebalance, changed.risk_limits.max_positions) == (3, "monthly", 3)
+    assert changed.strategy_parameters == {**BASE.strategy_parameters, "short_window": 5}
+    assert (base.top_n, base.rebalance, base.strategy_parameters["short_window"]) == (10, "weekly", 20)
+    # A strategy that defines its own parameter with the same name keeps it.
+    own = replace(BASE, strategy_parameters={"top_n": 7})
+    assert apply_candidate(own, {"top_n": 3}).strategy_parameters == {"top_n": 3}
+    assert apply_candidate(own, {"top_n": 3}).top_n == 10
+
+
+class RecordingBacktests:
+    """Stands in for BacktestService: records each request and scores it by holding count."""
+
+    app_config_path = "unused"
+    configs: dict = {}
+
+    def __init__(self, root):
+        self.runs_root = root / "runs"
+        self.requests = []
+
+    def run(self, request):
+        self.requests.append(request)
+        summary = {"sharpe": 1.0 + request.top_n / 10 + (0.5 if request.rebalance == "monthly" else 0.0),
+                   "max_drawdown": -0.1, "cumulative_return": 0.1, "metrics_reliable": True}
+        return SimpleNamespace(result=SimpleNamespace(run_id=f"run-{len(self.requests)}", summary=summary))
+
+
+def test_the_real_search_services_vary_holding_count_and_rebalance_frequency(tmp_path):
+    backtests = RecordingBacktests(tmp_path)
+    grid = {"top_n": (3, 5), "rebalance": ("weekly", "monthly")}
+    result = OptimizationService(backtests).run(OptimizationRequest(base_request=BASE, parameter_grid=grid))
+    assert sorted((r.top_n, r.rebalance, r.risk_limits.max_positions) for r in backtests.requests) == [
+        (3, "monthly", 3), (3, "weekly", 3), (5, "monthly", 5), (5, "weekly", 5)]
+    assert all(r.strategy_parameters == BASE.strategy_parameters for r in backtests.requests)
+    best = result.experiments.iloc[0]
+    assert (int(best["param_top_n"]), best["param_rebalance"]) == (5, "monthly")
+
+    walker = RecordingBacktests(tmp_path / "walk")
+    walked = WalkForwardService(walker).run(WalkForwardRequest(
+        base_request=replace(BASE, start_date=date(2024, 1, 1), end_date=date(2025, 3, 31)),
+        parameter_grid=grid, training_months=12, test_months=3, step_months=3, max_windows=1))
+    tested = walker.requests[-1]
+    # The unseen test window runs with the winner of the training window, including request settings.
+    assert (tested.run_kind, tested.top_n, tested.rebalance, tested.risk_limits.max_positions) == (
+        "walk_forward_oos", 5, "monthly", 5)
+    assert '"top_n": 5' in walked.windows.iloc[0]["selected_parameters"]
+    assert '"rebalance": "monthly"' in walked.windows.iloc[0]["selected_parameters"]
 
 
 def test_walk_forward_uses_the_latest_data_that_fits_the_windows():

@@ -1088,7 +1088,8 @@ def research_baselines(user: dict = Depends(get_current_user)):
         config = result.get("effective_config") or {}
         try:
             metadata = service.catalog.get_metadata(str(config.get("strategy_plugin")))
-            parameters = tunable_parameters(metadata, config.get("strategy_parameters") or {})
+            parameters = tunable_parameters(metadata, config.get("strategy_parameters") or {},
+                                            top_n=config.get("max_positions"), rebalance=config.get("rebalance"))
         except Exception:  # noqa: BLE001 - 策略已删除或无法加载时仍列出记录，只是没有可调参数
             parameters = []
         items.append({"run_id": f"run-{r['id']}", "strategy": r["strategy"], "market": r["market"],
