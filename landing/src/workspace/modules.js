@@ -11,12 +11,12 @@ export const groups = [
     { key: 'decision-center', label: '决策辅助' },
   ] },
   { label: '策略研究', items: [
+    { key: 'market-chart', label: '行情图表' },
     { key: 'strategy-hub', label: '我的策略' },
     { key: 'factor-lab', label: '因子研究' },
     { key: 'backtest-review', label: '回测与验证', children: [
       { key: 'backtest-review', label: '策略回测' },
-      { key: 'research', label: '参数优化' },
-      { key: 'walk-forward', label: '样本外验证' },
+      { key: 'research', label: '参数验证' },
     ] },
     { key: 'run-library', label: '研究记录' },
   ] },
@@ -40,10 +40,15 @@ const utilityItems = [
   { key: 'custom-strategy', label: 'Python 策略创建', parent: 'strategy-hub' },
   { key: 'audit-report', label: '可信度审计', parent: 'backtest-review' },
   { key: 'strategy-forensics', label: '成交核查', parent: 'backtest-review' },
-  { key: 'risk-management', label: '风险管理', parent: 'backtest-review' },
 ]
 export const allItems = [{ key: overviewKey, label: '首页' }, ...groups.flatMap((g) =>
   g.items.flatMap((item) => item.children || [item])), ...utilityItems]
+
+// 已合并页面的旧链接，直接落到现在包含该功能的页面。
+const legacyViews = { 'walk-forward': 'research', 'risk-management': 'backtest-review' }
+export function resolveView(key) {
+  return legacyViews[key] || key
+}
 
 export function navigationItem(key) {
   const parentKey = utilityItems.find((item) => item.key === key)?.parent || key
@@ -58,7 +63,8 @@ export function itemLabel(key) {
 
 // 内容宽度与外壳独立：研究页为图表留空间，账户/设置保持紧凑。
 const wideViews = new Set([
-  'factor-lab', 'backtest-review', 'research', 'walk-forward', 'audit-report',
+  'market-chart',
+  'factor-lab', 'backtest-review', 'research', 'audit-report',
   'strategy-forensics', 'strategy-studio', 'run-library',
 ])
 const compactViews = new Set(['account', 'settings'])
@@ -68,10 +74,10 @@ export function contentLayout(key) {
   return wideViews.has(key) ? 'wide' : 'standard'
 }
 
-const researchView = defineAsyncComponent(() => import('./views/ResearchView.vue'))
 const investmentKnowledgeView = defineAsyncComponent(() => import('./views/InvestmentKnowledgeView.vue'))
 export const views = {
   [overviewKey]: defineAsyncComponent(() => import('./views/OverviewView.vue')),
+  'market-chart': defineAsyncComponent(() => import('./views/MarketChartView.vue')),
   'strategy-hub': defineAsyncComponent(() => import('./views/StrategyHubView.vue')),
   'nl-strategy': defineAsyncComponent(() => import('./views/NlStrategyView.vue')),
   'strategy-studio': defineAsyncComponent(() => import('./views/StrategyStudioView.vue')),
@@ -83,13 +89,11 @@ export const views = {
   'backtest-review': defineAsyncComponent(() => import('./views/BacktestReviewView.vue')),
   'audit-report': defineAsyncComponent(() => import('./views/AuditReportView.vue')),
   'strategy-forensics': defineAsyncComponent(() => import('./views/StrategyForensicsView.vue')),
-  research: researchView,
-  'walk-forward': researchView,
+  research: defineAsyncComponent(() => import('./views/ResearchView.vue')),
   'run-library': defineAsyncComponent(() => import('./views/RunLibraryView.vue')),
   'data-update': defineAsyncComponent(() => import('./views/DataUpdateView.vue')),
   'data-management': defineAsyncComponent(() => import('./views/DataManagementView.vue')),
   'xtick-data': defineAsyncComponent(() => import('./views/XtickDataView.vue')),
-  'risk-management': defineAsyncComponent(() => import('./views/RiskManagementView.vue')),
   universe: defineAsyncComponent(() => import('./views/UniverseView.vue')),
   'prior-knowledge': investmentKnowledgeView,
   settings: defineAsyncComponent(() => import('./views/SettingsView.vue')),

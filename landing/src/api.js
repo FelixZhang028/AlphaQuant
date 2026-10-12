@@ -267,6 +267,12 @@ export function compareRuns(runIds) {
 export function listAuditRuns() {
   return request('/api/v1/runs/audit', { auth: true })
 }
+export function runTradedSymbols(runId) {
+  return request(`/api/v1/runs/${encodeURIComponent(runId)}/trades`, { auth: true })
+}
+export function runSymbolTrades(runId, symbol) {
+  return request(`/api/v1/runs/${encodeURIComponent(runId)}/trades/${encodeURIComponent(symbol)}`, { auth: true })
+}
 export function getRunAudit(runId) {
   return request(`/api/v1/runs/${runId}/audit`, { auth: true })
 }
@@ -291,6 +297,9 @@ export function localMarketList(params = {}) {
 }
 export function localMarketDetail(symbol) {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}`, { auth: true })
+}
+export function localMarketBars(symbol, adjust = 'forward') {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/bars?${new URLSearchParams({ adjust })}`, { auth: true })
 }
 export function updateLocalStock(symbol, payload) {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/update`, { method: 'POST', body: payload, auth: true })
@@ -334,9 +343,6 @@ export function getRisk() {
 }
 export function saveRisk(payload) {
   return request('/api/v1/risk', { method: 'PUT', body: payload, auth: true })
-}
-export function riskEvents() {
-  return request('/api/v1/risk/events', { auth: true })
 }
 
 // ---- 股票池管理 ----

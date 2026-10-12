@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onActivated, ref } from 'vue'
 import { localMarketList, localMarketDetail, updateLocalStock, universeAdd } from '../../api.js'
+import { openResearch } from '../researchNavigation.js'
 import SectionCard from './SectionCard.vue'
 import DataTable from './DataTable.vue'
 import FormField from './FormField.vue'
@@ -179,7 +180,10 @@ onActivated(() => load())
     <section v-if="selected" ref="detailPanel" class="mt-5 scroll-mt-24 rounded-xl border border-white/10 bg-white/5 p-4" aria-label="单只股票行情详情">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h3 class="text-lg font-semibold text-white">{{ selected.name }} · {{ selected.symbol }}</h3>
-        <button type="button" class="text-sm text-slate-400 hover:text-white disabled:opacity-40" :disabled="updating" @click="closeDetail">关闭详情</button>
+        <div class="flex items-center gap-4">
+          <button v-if="selected.rows" type="button" class="text-sm text-indigo-300 hover:underline" @click="openResearch('market-chart', { symbol: selected.symbol })">在行情图表中打开</button>
+          <button type="button" class="text-sm text-slate-400 hover:text-white disabled:opacity-40" :disabled="updating" @click="closeDetail">关闭详情</button>
+        </div>
       </div>
       <p v-if="detailLoading" class="mt-3 text-sm text-slate-400">正在核对该股票的行情…</p>
       <p v-else-if="detailError" class="mt-3 text-sm text-rose-300">{{ detailError }} <button type="button" class="underline" @click="readDetail">重试</button></p>

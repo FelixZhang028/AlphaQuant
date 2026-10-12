@@ -2,7 +2,7 @@
 import { computed, onActivated, reactive, ref, watch } from 'vue'
 import { getBacktestCatalog, getBacktest, getRunAudit, listBacktests, listPackages, submitBacktest } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
-import RiskManagementView from './RiskManagementView.vue'
+import RiskSettings from '../ui/RiskSettings.vue'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import LineChart from '../ui/LineChart.vue'
@@ -78,7 +78,7 @@ function openAudit() {
   openResearch('audit-report', { run: selectedId.value })
 }
 
-const tabs = ['概览', '收益与风险', '交易与成本', '持仓分析']
+const tabs = ['概览', '交易与成本', '持仓分析']
 const activeTab = ref('概览')
 
 // ---------- 格式化辅助 ----------
@@ -105,30 +105,21 @@ const totalCost = computed(() => {
   return num(r.total_cost ?? r.trading_cost ?? r.total_trading_cost ?? r.cost)
 })
 
+// 累计收益、最大回撤已在概览顶部，总交易成本在“交易与成本”里，这里不重复。
 const metrics = computed(() => {
-  const ret = num(result.value.total_return)
   const annual = num(result.value.annual_return)
-  const dd = num(result.value.max_drawdown)
   return [
     { label: '最终权益', value: fmtMoney(finalEquity.value), tone: '' },
-    { label: '累计收益', value: fmtPct(ret), tone: ret === null ? '' : ret >= 0 ? 'text-emerald-300' : 'text-rose-300' },
     { label: '年化收益', value: fmtPct(annual), tone: annual === null ? '' : annual >= 0 ? 'text-emerald-300' : 'text-rose-300' },
-    { label: '最大回撤', value: fmtPct(dd), tone: 'text-rose-300' },
     { label: '夏普比率', value: fmtNum(result.value.sharpe), tone: '' },
     { label: '索提诺比率', value: fmtNum(result.value.sortino), tone: '' },
     { label: '卡玛比率', value: fmtNum(result.value.calmar), tone: '' },
-    { label: '总交易成本', value: fmtMoney(totalCost.value), tone: '' },
   ]
 })
 
 const equitySeries = computed(() => [
   { label: '资金曲线', color: '#818cf8', points: Array.isArray(result.value.equity) ? result.value.equity : [] },
 ])
-
-const drawdownNote = computed(() => {
-  const r = result.value
-  return `本区间策略累计收益 ${fmtPct(r.total_return)}，最大回撤 ${fmtPct(r.max_drawdown)}。最大回撤指资金曲线从峰值到谷底的最大跌幅，是衡量策略下行风险的核心指标：回撤越小，资金曲线越稳健，持有体验越好。`
-})
 
 // 交易与成本 / 持仓分析
 const tradeCols = [
@@ -299,7 +290,7 @@ onActivated(async () => {
       </div>
       <details :open="riskOpen" class="mt-5 rounded-xl border border-white/10 bg-white/5" @toggle="riskOpen = $event.target.open">
         <summary class="cursor-pointer px-4 py-3 text-sm text-slate-300">风险设置 <span v-if="riskEditor?.dirty" class="text-amber-300">· 有未保存修改</span></summary>
-        <div class="p-3 pt-0"><RiskManagementView ref="riskEditor" embedded :user="user" :notify="notify" /></div>
+        <div class="p-3 pt-0"><RiskSettings ref="riskEditor" :notify="notify" /></div>
       </details>
       <p v-if="runError" class="mt-4 text-sm text-rose-300">{{ runError }}</p>
       <div class="mt-5 flex justify-end">
@@ -375,8 +366,11 @@ onActivated(async () => {
               :value="fmtPct(result.total_return)"
               :tone="num(result.total_return) === null ? '' : num(result.total_return) >= 0 ? 'text-emerald-300' : 'text-rose-300'"
             />
-            <MetricCard label="最大回撤" :value="fmtPct(result.max_drawdown)" tone="text-rose-300" />
+            <MetricCard label="最大回撤" :value="fmtPct(result.max_drawdown)" sub="资金曲线从峰值到谷底的最大跌幅" tone="text-rose-300" />
             <MetricCard label="可信度评级" :value="gradeValue" :sub="gradeSub" :tone="gradeTone" />
+          </section>
+          <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
+            <MetricCard v-for="m in metrics" :key="m.label" :label="m.label" :value="m.value" :tone="m.tone" />
           </section>
           <button
             @click="openAudit"
@@ -385,27 +379,15 @@ onActivated(async () => {
             查看完整可信度审计 →
           </button>
           <div class="flex flex-wrap gap-3 text-sm text-indigo-300">
-            <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数优化 →</button>
-            <button @click="openResearch('walk-forward', { baseline: `run-${selectedId}` })">样本外验证 →</button>
+            <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数验证 →</button>
+            <button @click="openResearch('market-chart', { run: selectedId })">在K线上查看成交 →</button>
             <button @click="openResearch('run-library')">查看研究记录 →</button>
           </div>
           <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div class="flex items-center justify-between text-xs text-slate-400">
-              <span>资金曲线</span>
-              <span class="text-emerald-300">累计收益 {{ fmtPct(result.total_return) }}</span>
-            </div>
+            <p class="text-xs text-slate-400">资金曲线</p>
             <LineChart :series="equitySeries" :height="220" />
           </div>
-          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p class="text-xs text-slate-400">回撤说明</p>
-            <p class="mt-2 text-sm leading-relaxed text-slate-300">{{ drawdownNote }}</p>
-          </div>
         </div>
-
-        <!-- 收益与风险 -->
-        <section v-else-if="activeTab === '收益与风险'" class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard v-for="m in metrics" :key="m.label" :label="m.label" :value="m.value" :tone="m.tone" />
-        </section>
 
         <!-- 交易与成本 -->
         <div v-else-if="activeTab === '交易与成本'" class="space-y-5">
@@ -433,7 +415,6 @@ onActivated(async () => {
       <summary class="cursor-pointer text-sm font-semibold text-slate-300">高级工具</summary>
       <div class="mt-4 flex flex-wrap gap-3">
         <button class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5" @click="openResearch('strategy-forensics', { run: selectedId || '' })">成交核查</button>
-        <button class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5" @click="openResearch('risk-management')">风控记录与默认配置</button>
       </div>
     </details>
   </div>
