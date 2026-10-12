@@ -192,7 +192,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
           </p>
           <div class="fq-hero-cta fq-reveal" :style="{ transitionDelay: '0.75s' }">
             <a class="fq-btn fq-btn-solid" :href="entryHref">{{ hasSession ? workspaceLabel : c.hero.ctaPrimary }}</a>
-            <a class="fq-btn" href="/app.html?view=nl-strategy">{{ c.hero.ctaSecondary }}</a>
+            <a class="fq-btn" href="/app.html?view=strategy-studio&mode=describe">{{ c.hero.ctaSecondary }}</a>
           </div>
         </div>
         <div class="fq-scroll-hint fq-reveal" :style="{ transitionDelay: '0.9s' }">

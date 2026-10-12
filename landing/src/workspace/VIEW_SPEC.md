@@ -78,11 +78,11 @@ const props = defineProps({
 
 ### 策略包（策略创作中心 / 自然语言 / 零代码工作台）
 - `listPackages()` → `{ items:[{package_id,name,definition,top_n,rebalance,source,created_at,describe_text}], total }`
-- `createPackage({definition:{name,description,entry_logic,entry_rules:[{left:{name,window},operator,value|right}],ranking:{indicator:{name,window},direction}},top_n,rebalance,source})` → 返回单个 package 对象
+- `createPackage({definition:{name,description,entry_logic,entry_rules:[{left:{name,window},operator,value|right}],ranking:{indicator:{name,window},direction}},top_n,rebalance,source,style})` → 返回单个 package 对象。保存的是提交的规则；`source` 为 `template:<id>` 时后端与该风格的模板原文比较，记为 `template:<id>:<style>`（一致）或 `template_modified:<id>:<style>`（改过）。没有提交规则的旧客户端按模板原文保存。
 - `deletePackage(id)`、`copyPackage(id, name?)` → package 对象、`getPackage(id)`
-- `preflightPackage(payload)` → `{ warnings:[], minimum_history_days }`
+- `preflightPackage(payload)` → `{ warnings:[], minimum_history_days, description }`；`description` 是按将要执行的规则读出的一句中文说明，规则无效时返回 422 和原因。
 - `backtestPackage(id, payload?)` → `{ id, run_id, status, summary:{equity:[],total_return,max_drawdown,sharpe,win_rate,final_equity,...} }`
-- `studioOptions()` → `{ templates:[{template_id,name,summary,suitable_market,main_risk,top_n,rebalance}], indicators:{name:中文}, operators:{key:中文}, frequencies:['daily','weekly','monthly'], directions:['descending','ascending'], styles:['conservative','balanced','aggressive'] }`
+- `studioOptions()` → `{ templates:[{template_id,name,summary,suitable_market,main_risk,top_n,rebalance,presets:{风格:{definition,top_n,rebalance}}}], indicators:{name:中文}, indicator_windows:{name:{default,minimum,maximum}|null}, operators:{key:中文}, frequencies:['daily','weekly','monthly'], directions:['descending','ascending'], styles:['conservative','balanced','aggressive'] }`
 
 ### 自然语言
 - `nlProviders()` → `{ providers:[{key,display_name,default_base_url,requires_key,models:[],default_model}] }`
@@ -108,10 +108,11 @@ const props = defineProps({
 
 ### 策略研究导航与统一回测流程（2026-10-10）
 
-- 主栏目为「行情图表」「我的策略」「因子研究」「回测与验证」「研究记录」。创建方式是「新建策略」的页内入口，旧直达链接继续有效。
+- 主栏目为「行情图表」「我的策略」「因子研究」「回测与验证」「研究记录」。创建入口只有「新建规则策略」和「Python 策略」两个；旧直达链接继续有效，`nl-strategy` 落到新建规则策略页。
+- 新建规则策略是一页一张表单：从模板开始、用一句话描述、自己填，三种方式都把规则填进同一张可编辑的表单（每个条件可选周期，可与数值或另一个指标比较，最多 10 条）。页面实时显示后端读出的“这个策略的意思”，保存的就是表单里的规则。`mode=template|describe|blank` 选择开始方式，旧的 `mode=builder` 等同 `blank`。
 - 我的策略汇总规则与 Python 资产，支持名称搜索、规则策略复制、行内确认删除。创建页只负责保存，保存后「去回测」进入统一配置页，不自动执行。
 - 回测与验证分为策略回测、参数验证两页；参数验证在同一页先做参数优化、再做样本外验证，共用基准回测与候选参数。风控设置只在回测表单里折叠出现这一处（独立的风险管理页已删除），未保存修改会阻止运行。回测结果的概览包含全部收益与风险指标。完整审计附于结果，外部成交核查位于高级工具。旧链接 `walk-forward`、`risk-management` 分别落到参数验证页和策略回测页。
-- 模板将所选风格的实际规则保存，副本保持规则一致。统一回测记录保存策略引用与实际执行配置；Python 资产使用独立身份，名称相同或代码装饰器相同也不会覆盖另一个资产。
+- 模板的规则在表单里可见、可改，副本保持规则一致。统一回测记录保存策略引用与实际执行配置；Python 资产使用独立身份，名称相同或代码装饰器相同也不会覆盖另一个资产。
 - 因子研究默认三个栏目：因子库、单因子评估、组合研究。组合页完成选因子、权重/区间配置和评估；原合成评估作为高级方式保留。
 - 研究记录默认显示关键指标，可开启详细字段；提供查看结果、带入历史配置继续研究、回到原策略。日期、资金、持仓与策略参数可以复用，股票池与风险使用当前设置。
 - 策略、记录、基准与股票代码通过白名单 URL 参数传递，支持刷新/后退；常规导航清除旧上下文。参数优化与滚动验证运行真实回测：同步执行，上限 24 种组合、100 次回测。
