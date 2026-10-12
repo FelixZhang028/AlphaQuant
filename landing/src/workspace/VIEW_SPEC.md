@@ -122,7 +122,7 @@ const props = defineProps({
 - `submitBacktest({strategy,market,from_date,to_date})` → `{ id,status,result,created_at }`
 
 ### 参数优化与稳健性验证
-- `researchBaselines()` → `{ items:[{run_id,strategy,market,from_date,to_date,created_at,display_label,parameters:[{name,label,kind,description,current,minimum,maximum,choices}]}],max_combinations,max_backtests }`；只列出保存了运行明细的记录，`parameters` 为该策略可以调整的参数（规则策略为空）。
+- `researchBaselines()` → `{ items:[{run_id,strategy,market,from_date,to_date,created_at,display_label,parameters:[{name,label,kind,description,current,minimum,maximum,choices,choice_labels}]}],max_combinations,max_backtests }`；只列出保存了运行明细的记录。`parameters` 先列策略自己的可调参数，再列所有策略共用的 `top_n`（持股数量）和 `rebalance`（调仓频率），所以规则策略也能做参数验证；策略已删除或无法加载时为空。
 - `runOptimization({baseline_run_id,parameter_grid:{参数名:[候选值]},objective,max_drawdown_limit})` → `{ optimization_id,objective,combination_count,start_date,end_date,results:[{rank,eligible,status,error,run_id,parameters,objective_value,cumulative_return,annual_return,max_drawdown,sharpe,dsr,selection_bias_status,selection_bias_reason}],selection_bias:{status,message,dsr} }`；百分比字段已乘 100，回撤为正数；`max_drawdown_limit` 为 0 表示不限制。
 - `runWalkForward({baseline_run_id,parameter_grid,objective,training_months,test_months,step_months,max_windows})` → `{ validation_id,objective,window_count,backtest_count,start_date,end_date,summary:{successful_windows,failed_windows,out_of_sample_cumulative_return,average_window_return,positive_window_ratio,worst_window_drawdown,average_window_sharpe,trust_warning},windows:[{window,status,error,train_start,train_end,test_start,test_end,train_run_id,test_run_id,selected_parameters,train_objective_value,test_cumulative_return,test_max_drawdown,test_sharpe}] }`；使用本地最近一段能放下这些窗口的行情，不限于基准回测的区间。
 
