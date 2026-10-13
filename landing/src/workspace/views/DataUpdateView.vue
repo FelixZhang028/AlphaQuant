@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
-import { fundamentalsSummary, indicatorSummary } from '../dataPresentation.js'
+import { fundamentalsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -165,6 +165,7 @@ async function runUpdate() {
 const STAGES = {
   daily_indicators: '估值与换手率',
   quarterly_fundamentals: '财务数据',
+  industry: '行业分类',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -195,6 +196,7 @@ const DATASET_OPTIONS = [
   { value: 'derived', label: '历史股票池与退市结算' },
   { value: 'indicators', label: '估值与换手率' },
   { value: 'fundamentals', label: '财务数据' },
+  { value: 'industry', label: '行业分类' },
 ]
 function toggleDataset(v) {
   const idx = jobForm.datasets.indexOf(v)
@@ -391,6 +393,13 @@ async function downloadPoolFundamentals() {
   if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
   await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['fundamentals'], scope: 'universe' })
 }
+// 行业分类：每个季度末一张全市场快照，只保存发生变化的记录。
+const industry = computed(() => loop.value?.industry || null)
+const industryText = computed(() => industrySummary(industry.value))
+async function downloadIndustry() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['industry'] })
+}
 // 后台任务结束后，重新读取落地情况。
 watch(activeJob, (job, previous) => { if (previous && !job) loadLoop() })
 function clearPoll() {
@@ -532,6 +541,18 @@ onBeforeUnmount(clearPoll)
           @click="downloadPoolFundamentals">{{ activeJob ? '后台任务运行中…' : '下载股票池的财务数据' }}</button>
       </div>
       <p class="mt-2 text-xs text-slate-500">季度财报里的毛利率、同比增长、负债率和总股本，质量、成长和规模类因子要用到；每份财报从公告日起才会被使用。每只股票约 15 秒，已有的报告期不会重复下载。全市场大约需要 20 多个小时，可以在「高级更新」里选择「财务数据」后台下载，中断后可以继续。</p>
+    </section>
+    <section v-if="industry" class="glass rounded-2xl p-5" aria-label="行业分类">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">行业分类</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ industryText }}</p>
+        </div>
+        <button type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载约 20 到 40 分钟，在后台运行；以后只取新的时点。</p>
     </section>
     <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
     <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">

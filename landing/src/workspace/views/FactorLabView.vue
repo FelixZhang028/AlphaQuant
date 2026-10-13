@@ -15,6 +15,7 @@ import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
 import FactorFilter from '../ui/FactorFilter.vue'
 import { factorsBySource, filterFactors } from '../factorFilters.js'
+import { NEUTRALIZATION_OPTIONS } from '../dataPresentation.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -234,6 +235,7 @@ const evalForm = reactive({
   factor_name: '',
   horizon: 5,
   n_groups: 5,
+  neutralization: 'none',
   start_date: defaultStart,
   end_date: defaultEnd,
 })
@@ -251,6 +253,7 @@ async function runEvaluate() {
       factor_name: evalForm.factor_name,
       horizon: Number(evalForm.horizon),
       n_groups: Number(evalForm.n_groups),
+      neutralization: evalForm.neutralization,
       start_date: evalForm.start_date,
       end_date: evalForm.end_date,
     })
@@ -680,6 +683,14 @@ onBeforeUnmount(() => {
             <input v-model="evalForm.end_date" type="date" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
           </label>
         </div>
+        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2" role="group" aria-label="中性化">
+          <span class="text-xs text-slate-400">中性化</span>
+          <button v-for="option in NEUTRALIZATION_OPTIONS" :key="option.value" type="button" :aria-pressed="evalForm.neutralization === option.value"
+            class="rounded-full border px-3 py-1 text-xs transition"
+            :class="evalForm.neutralization === option.value ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'"
+            @click="evalForm.neutralization = option.value">{{ option.label }}</button>
+          <span class="text-xs text-slate-500">{{ NEUTRALIZATION_OPTIONS.find((option) => option.value === evalForm.neutralization)?.hint }}</span>
+        </div>
         <div class="mt-5 flex items-center gap-3">
           <button
             @click="runEvaluate"
@@ -703,6 +714,7 @@ onBeforeUnmount(() => {
         <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard v-for="m in evalView.metrics" :key="m.label" :label="m.label" :value="m.value" :sub="m.sub" :up="m.up" :tone="m.tone" />
         </section>
+        <p v-if="evalView.notes" class="rounded-xl border border-amber-400/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200" role="note">{{ evalView.notes }}</p>
 
         <SectionCard title="稳定性" hint="样本分段 IC 与调仓换手">
           <div class="grid gap-5 sm:grid-cols-3">

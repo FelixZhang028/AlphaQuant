@@ -31,6 +31,7 @@ _TABLE_KEYS: dict[str, list[str]] = {
     "corporate_actions": ["symbol", "ex_date"],
     "universe_membership": ["symbol", "effective_from"],
     "security_exposures": ["symbol", "date"],
+    "industry_snapshots": ["requested_date"],
     "delisting_settlements": ["symbol"],
 }
 

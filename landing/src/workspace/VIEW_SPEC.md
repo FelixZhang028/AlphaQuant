@@ -143,6 +143,8 @@ const props = defineProps({
 - `dataUpdate({start_date,end_date,include_security_master,include_market,include_benchmark,source_choice,allow_fallback})` → `{ results:[{dataset,version_id,status,rows,message,error}] }`
 - 估值与换手率（每日指标）：市盈率、市净率、市销率、市现率（TTM/最近一季）和换手率，单独存在 `daily_indicators` 表里，不改动行情表。用 BaoStock 更新行情时在同一次请求里取回并保存；以前下载的行情通过后台任务补全（`startDataJob({start_date,end_date,datasets:['indicators']})`，每只股票一次请求，只请求还没有的日期，可中断后继续）。`closedLoopStatus()` 的返回值增加 `indicators:{symbols,missing_symbols,rows,start_date,end_date}`；数据更新页据此显示覆盖情况和「补全历史数据」按钮。还没有下载时使用相关因子会提示去数据更新页补全。
 - 财务数据（季度财报）：净资产收益率、净利率、毛利率、净利润、同比增长（净资产、总资产、净利润、每股收益）、流动比率、速动比率、权益乘数、总股本和流通股本，存在 `quarterly_fundamentals` 表里，每行是一只股票的一个报告期，带公告日。**每份财报从公告日起才会被使用**（同一天公告两期时用较新的一期；超过 370 天的财报不再使用）。BaoStock 一次只能取一只股票的一个季度，所以默认只下载股票池：`startDataJob({start_date,end_date,datasets:['fundamentals'],scope:'universe'})`；不带 `scope` 时是本地有行情的全部股票（约 20 多个小时，可续传）。`closedLoopStatus()` 的返回值增加 `fundamentals:{symbols,missing_symbols,reports,latest_stat_date,latest_pub_date}`；数据更新页据此显示覆盖情况和「下载股票池的财务数据」按钮。
+- 行业分类：证监会行业分类（门类字母 + 两位大类，如 `J66货币金融服务`，共 84 个大类）。每个季度末取一张全市场快照，只把「第一次分类」和「发生变化」的记录存进 `security_exposures`，所以使用时是当时的行业。后台任务 `startDataJob({start_date,end_date,datasets:['industry']})`，第一次约 20 到 40 分钟，以后只取新的时点。`closedLoopStatus()` 的返回值增加 `industry:{symbols,missing_symbols,snapshots,start_date,end_date}`。
+- 因子评估的中性化：`evaluateFactor({...,neutralization:'none'|'industry'|'size'|'both'})`。行业用当时的分类，市值用当天收盘价乘以当时已公告的总股本。缺少行业或市值的样本不参与，并在返回的 `notes` 里说明数量（评估结果上方会显示）；股票太少（每天的股票数不比行业数多）时返回 422 并说明原因。
 
 ### XTick 数据服务
 - `xtickCatalog()` → `{ catalog:[{id,name,apis:[{id,name,url,description,inputs:[{name,label,type,default,range}]}]}] }`（type 为 'String'|'date'|'range'，range 形如 `"1-沪深京A股，2-沪深指数"`）

@@ -31,6 +31,8 @@ from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
 from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
+from quant_platform.data.industry import EXPOSURES_TABLE, SNAPSHOTS_TABLE
+from quant_platform.data.industry_backfill import BaoStockIndustryBackfill
 from quant_platform.data.coverage import (
     DatasetCoverage,
     calculate_daily_coverage,
@@ -567,6 +569,30 @@ class DataCenterService:
             "latest_pub_date": pd.to_datetime(reports["pub_date"]).max().date().isoformat() if len(reports) else None,
         }
 
+    @serialized_update
+    def backfill_industry(self, start_date: date, end_date: date, *, progress: Any = None) -> dict[str, Any]:
+        """下载行业分类的历史：每个季度末一张全市场快照，只保存发生变化的记录。"""
+
+        return BaoStockIndustryBackfill(self.repository, self.sources.baostock_provider()).backfill(
+            start_date, end_date, progress=progress
+        )
+
+    def industry_status(self) -> dict[str, Any]:
+        """行业分类的落地情况：多少只股票有分类、多少只有行情却没有、快照覆盖到哪一天。"""
+
+        bars = self.repository.daily_bar_summary()
+        changes = self.repository.read_table(EXPOSURES_TABLE)
+        classified = set(changes.dropna(subset=["industry"])["symbol"].astype(str)) if "industry" in changes.columns else set()
+        log = self.repository.read_table(SNAPSHOTS_TABLE)
+        covered = classified & set(bars.index)
+        return {
+            "symbols": len(covered),
+            "missing_symbols": int(len(bars)) - len(covered),
+            "snapshots": int(len(log)),
+            "start_date": pd.to_datetime(log["requested_date"]).min().date().isoformat() if not log.empty else None,
+            "end_date": pd.to_datetime(log["requested_date"]).max().date().isoformat() if not log.empty else None,
+        }
+
     def indicator_status(self) -> dict[str, Any]:
         """估值与换手率的落地情况：多少只股票有、多少只有行情却还没有、覆盖到哪一天。"""
 
@@ -619,6 +645,7 @@ class DataCenterService:
         status["checkpoint"] = backfill.state.snapshot()
         status["indicators"] = self.indicator_status()
         status["fundamentals"] = self.fundamentals_status()
+        status["industry"] = self.industry_status()
         return status
 
     def _catalog(self) -> AkShareCatalogIngestor:

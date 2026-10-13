@@ -78,3 +78,14 @@ test('财务数据的覆盖情况用一句话说明：没有、部分、全部',
   assert.equal(fundamentalsSummary({ symbols: 5478, missing_symbols: 0, reports: 250000, latest_stat_date: '2026-06-30' }),
     '本地有行情的 5,478 只股票都有财报（最新报告期 2026-06-30）。')
 })
+
+test('行业分类的覆盖情况用一句话说明；中性化有四种选择', async () => {
+  const { industrySummary, NEUTRALIZATION_OPTIONS } = await import('../src/workspace/dataPresentation.js')
+  assert.equal(industrySummary(null), '')
+  assert.equal(industrySummary({ symbols: 0, missing_symbols: 5478, snapshots: 0, start_date: null, end_date: null }), '还没有下载。')
+  assert.equal(industrySummary({ symbols: 5200, missing_symbols: 278, snapshots: 48, start_date: '2015-03-31', end_date: '2026-10-13' }),
+    '已有 5,200 只股票的行业分类（2015-03-31 至 2026-10-13，48 个时点）；有 278 只没有分类（多数是已经退市的）。')
+  assert.equal(industrySummary({ symbols: 300, missing_symbols: 0, snapshots: 2, start_date: '2026-06-30', end_date: '2026-10-13' }),
+    '已有 300 只股票的行业分类（2026-06-30 至 2026-10-13，2 个时点）。')
+  assert.deepEqual(NEUTRALIZATION_OPTIONS.map((option) => option.value), ['none', 'industry', 'size', 'both'])
+})

@@ -804,6 +804,8 @@ class FactorEvalIn(BaseModel):
     end_date: str = ""
     horizon: int = Field(5, ge=1, le=20)
     n_groups: int = Field(5, ge=5, le=10)
+    # 中性化：去掉因子值里能被行业、市值解释的部分。
+    neutralization: Literal["none", "industry", "size", "both"] = "none"
 
 
 class FactorCompositeIn(BaseModel):
@@ -886,7 +888,7 @@ def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
     try:
         report = evaluator.evaluate(
             factor, start, end, symbols=_factor_symbols(user),
-            horizon=body.horizon, n_groups=body.n_groups,
+            horizon=body.horizon, n_groups=body.n_groups, neutralization=body.neutralization,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
