@@ -2073,23 +2073,13 @@ def risk_save(body: dict[str, Any], user: dict = Depends(get_current_user)):
 def _local_symbol_stats() -> dict[str, dict[str, Any]]:
     """本地 daily_bars 的 symbol -> {local_rows, start_date, end_date} 统计。"""
 
-    bars = market_repository().read_table("daily_bars")
-    stats: dict[str, dict[str, Any]] = {}
-    if bars.empty:
-        return stats
-    frame = pd.DataFrame(
-        {"symbol": bars["symbol"].astype(str), "d": pd.to_datetime(bars["trade_date"], errors="coerce")}
-    ).dropna(subset=["d"])
-    if frame.empty:
-        return stats
-    grouped = frame.groupby("symbol")["d"].agg(["size", "min", "max"])
-    for symbol, row in grouped.iterrows():
-        stats[symbol] = {
-            "local_rows": int(row["size"]),
-            "start_date": row["min"].date().isoformat(),
-            "end_date": row["max"].date().isoformat(),
-        }
-    return stats
+    # 来自仓库缓存的每只股票汇总，不读全部行情。
+    summary = market_repository().daily_bar_summary()
+    summary = summary[summary["start"].notna()]
+    return {
+        str(symbol): {"local_rows": int(row.rows), "start_date": row.start.date().isoformat(), "end_date": row.end.date().isoformat()}
+        for symbol, row in summary.iterrows()
+    }
 
 
 @router.get("/universe", summary="股票池设置")
