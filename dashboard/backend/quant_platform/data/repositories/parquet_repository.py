@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from threading import RLock
 
+import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
@@ -170,6 +174,34 @@ class ParquetMarketDataRepository(MarketDataRepository):
             return self._drop_partition_column(pd.read_parquet(legacy, filters=filters or None))
         return pd.DataFrame()
 
+    def _daily_bar_files(self) -> list[Path]:
+        directory, legacy = self._partition_path("daily_bars"), self._flat_path("daily_bars")
+        if self._has_partitions(directory):
+            return sorted(directory.rglob("*.parquet"))
+        return [legacy] if legacy.exists() else []
+
+    def daily_bar_summary(self) -> pd.DataFrame:
+        """One row per symbol: how many bars, over which dates, and how many need attention.
+
+        Columns: ``rows`` (all stored rows), ``unique_rows`` (distinct trade dates), ``start``,
+        ``end``, ``unknown_status_rows`` (quality status other than OK) and
+        ``missing_price_rows`` (no raw open or close). Indexed by symbol, sorted.
+
+        Overview pages need these counts, not the prices. Only the five columns behind them are
+        read, and the result is kept until a bar file changes (path, modification time or size),
+        so a backfill or a single-stock update is picked up on the next call.
+        """
+
+        files = self._daily_bar_files()
+        signature = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in files)
+        key = str(self.root.resolve())
+        with _SUMMARY_LOCK:
+            cached = _SUMMARY_CACHE.get(key)
+            if cached is None or cached[0] != signature:
+                cached = (signature, _summarize_daily_bars(files))
+                _SUMMARY_CACHE[key] = cached
+            return cached[1].copy()
+
     def daily_bar_bounds(self) -> tuple[date, date] | None:
         """Read only the date column; never load prices just to bound a request."""
         directory, legacy = self._partition_path("daily_bars"), self._flat_path("daily_bars")
@@ -239,3 +271,84 @@ class ParquetMarketDataRepository(MarketDataRepository):
         if keys and all(key in frame.columns for key in keys):
             return frame.drop_duplicates(keys, keep="last").sort_values(keys).reset_index(drop=True)
         return frame
+
+
+_SUMMARY_COLUMNS = ["rows", "unique_rows", "start", "end", "unknown_status_rows", "missing_price_rows"]
+# 数据目录 -> (文件指纹, 汇总)。两个请求同时到达时，后一个等前一个算完后直接用结果。
+_SUMMARY_CACHE: dict[str, tuple[tuple, pd.DataFrame]] = {}
+_SUMMARY_LOCK = RLock()
+# 给每只股票留出的日期编号范围（约 2700 年），用来把（股票，日期）合成一个整数。
+_DAYS_PER_SYMBOL = 1_000_000
+
+
+def _summarize_daily_bars(files: list[Path]) -> pd.DataFrame:
+    """Aggregate the stored bars per symbol from the columns the counts depend on."""
+
+    wanted = ["symbol", "trade_date", "quality_status", "raw_open", "raw_close"]
+    parts: list[pd.DataFrame] = []
+    spans: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for path in files:
+        schema = pq.read_schema(path)
+        columns = [column for column in wanted if column in schema.names]
+        if not {"symbol", "trade_date"} <= set(columns):
+            continue
+        # 代码和状态重复度很高，按字典读取可以省掉上百万个字符串对象。
+        texts = [name for name in ("symbol", "quality_status") if name in columns and pa.types.is_string(schema.field(name).type)]
+        frame = pq.ParquetFile(path, read_dictionary=texts).read(columns=columns).to_pandas()
+        frame = frame[frame["symbol"].notna()]
+        if frame.empty:
+            continue
+        frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
+        parts.append(_summarize_file(frame))
+        spans.append((frame["trade_date"].min(), frame["trade_date"].max()))
+    if not parts:
+        return pd.DataFrame(columns=_SUMMARY_COLUMNS, index=pd.Index([], name="symbol"))
+    summary = pd.concat(parts).groupby(level=0, sort=True).agg(
+        rows=("rows", "sum"),
+        unique_rows=("unique_rows", "sum"),
+        start=("start", "min"),
+        end=("end", "max"),
+        unknown_status_rows=("unknown_status_rows", "sum"),
+        missing_price_rows=("missing_price_rows", "sum"),
+    )
+    ordered = sorted(span for span in spans if pd.notna(span[0]))
+    if any(later[0] <= earlier[1] for earlier, later in zip(ordered, ordered[1:])):
+        # 两个文件的日期有重叠时，同一个（股票，日期）可能各存了一份：按全部数据重新去重。
+        pairs = pd.concat([pd.read_parquet(path, columns=["symbol", "trade_date"]) for path in files], ignore_index=True)
+        pairs["trade_date"] = pd.to_datetime(pairs["trade_date"]).dt.normalize()
+        distinct = pairs.drop_duplicates().groupby(pairs["symbol"].astype(str)).size()
+        summary["unique_rows"] = distinct.reindex(summary.index).fillna(0)
+    summary.index = summary.index.rename("symbol")
+    return summary.astype({"rows": int, "unique_rows": int, "unknown_status_rows": int, "missing_price_rows": int})[_SUMMARY_COLUMNS]
+
+
+def _summarize_file(frame: pd.DataFrame) -> pd.DataFrame:
+    """Per-symbol counts for the rows of one bar file (``trade_date`` already normalized)."""
+
+    symbols = frame["symbol"].astype("category").cat.remove_unused_categories()
+    # 与逐行统计的口径一致：没有状态列时都算正常；没有价格列时都算缺价格。
+    unknown = ~(frame["quality_status"] == "OK") if "quality_status" in frame else pd.Series(False, index=frame.index)
+    missing = pd.Series(False, index=frame.index)
+    for column in ("raw_open", "raw_close"):
+        missing |= frame[column].isna() if column in frame else True
+    summary = pd.DataFrame({"date": frame["trade_date"], "unknown": unknown.astype(bool), "missing": missing}).groupby(
+        symbols, sort=True, observed=True
+    ).agg(
+        rows=("date", "size"),
+        start=("date", "min"),
+        end=("date", "max"),
+        unknown_status_rows=("unknown", "sum"),
+        missing_price_rows=("missing", "sum"),
+    )
+    # 每只股票有多少个不同的交易日：把（股票，日期）合成一个整数。文件通常已经按股票、日期
+    # 排好序，这时重复的行一定相邻，数一遍就够了；没排好序时才去重。
+    codes = symbols.cat.codes.to_numpy("int64")
+    pairs = codes * _DAYS_PER_SYMBOL + frame["trade_date"].to_numpy("datetime64[D]").astype("int64") % _DAYS_PER_SYMBOL
+    if np.all(pairs[1:] >= pairs[:-1]):
+        first = np.concatenate(([True], pairs[1:] != pairs[:-1]))
+        distinct = np.bincount(codes[first], minlength=len(symbols.cat.categories))
+    else:
+        distinct = np.bincount(pd.unique(pairs) // _DAYS_PER_SYMBOL, minlength=len(symbols.cat.categories))
+    summary["unique_rows"] = pd.Series(distinct, index=symbols.cat.categories).reindex(summary.index)
+    summary.index = summary.index.astype(str)
+    return summary

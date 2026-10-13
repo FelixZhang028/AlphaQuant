@@ -115,3 +115,63 @@ def calculate_daily_coverage(
         missing_price_rows=missing_prices,
     )
     return coverage, pd.DataFrame(per_symbol_rows)
+
+
+def coverage_from_summary(
+    summary: pd.DataFrame,
+    calendar: pd.DataFrame,
+    symbols: list[str] | None = None,
+) -> tuple[DatasetCoverage, pd.DataFrame]:
+    """``calculate_daily_coverage`` from the per-symbol summary instead of every stored row.
+
+    ``summary`` is ``ParquetMarketDataRepository.daily_bar_summary()``. The numbers are the
+    ones ``calculate_daily_coverage`` would give for the same bars; it needs a trade calendar,
+    because without one the expected sessions are the distinct dates of the rows themselves.
+    """
+
+    if calendar.empty:
+        raise ValueError("coverage_from_summary needs a trade calendar")
+    empty_columns = ["symbol", "rows", "start_date", "end_date", "expected_rows", "missing_rows", "coverage_ratio", "unknown_status_rows"]
+    if summary.empty:
+        return DatasetCoverage(0, 0, None, None, 0, 0, 0.0, 0, 0, 0), pd.DataFrame(columns=empty_columns)
+    selected_symbols = sorted(set(symbols) if symbols else set(summary.index))
+    selected = summary[summary.index.isin(selected_symbols)]
+    if selected.empty:
+        return DatasetCoverage(0, len(selected_symbols), None, None, 0, 0, 0.0, 0, 0, 0), pd.DataFrame()
+
+    start, end = selected["start"].min(), selected["end"].max()
+    calendar_dates = pd.to_datetime(calendar["cal_date"]).dt.normalize()
+    expected_per_symbol = len(pd.DatetimeIndex(calendar_dates[calendar_dates.between(start, end)].unique()))
+    expected_rows = expected_per_symbol * len(selected_symbols)
+    unique_rows = int(selected["unique_rows"].sum())
+
+    per_symbol_rows: list[dict[str, Any]] = []
+    for symbol in selected_symbols:
+        stored = selected.loc[symbol] if symbol in selected.index else None
+        rows = int(stored["unique_rows"]) if stored is not None else 0
+        per_symbol_rows.append(
+            {
+                "symbol": symbol,
+                "rows": rows,
+                "start_date": stored["start"].date() if stored is not None else None,
+                "end_date": stored["end"].date() if stored is not None else None,
+                "expected_rows": expected_per_symbol,
+                "missing_rows": max(expected_per_symbol - rows, 0),
+                "coverage_ratio": (rows / expected_per_symbol if expected_per_symbol else 0.0),
+                "unknown_status_rows": int(stored["unknown_status_rows"]) if stored is not None else 0,
+            }
+        )
+
+    coverage = DatasetCoverage(
+        rows=int(selected["rows"].sum()),
+        symbol_count=len(selected_symbols),
+        start_date=start.date(),
+        end_date=end.date(),
+        expected_rows=expected_rows,
+        missing_rows=max(expected_rows - unique_rows, 0),
+        coverage_ratio=unique_rows / expected_rows if expected_rows else 0.0,
+        duplicate_rows=int((selected["rows"] - selected["unique_rows"]).sum()),
+        unknown_status_rows=int(selected["unknown_status_rows"].sum()),
+        missing_price_rows=int(selected["missing_price_rows"].sum()),
+    )
+    return coverage, pd.DataFrame(per_symbol_rows)
