@@ -119,7 +119,9 @@ const props = defineProps({
 - 策略、记录、基准与股票代码通过白名单 URL 参数传递，支持刷新/后退；常规导航清除旧上下文。参数优化与滚动验证运行真实回测：同步执行，上限 24 种组合、100 次回测。
 
 ### 单次回测与复盘
-- `getBacktest(id)` → `{ id,strategy,market,from_date,to_date,status,created_at,result:{equity,total_return,max_drawdown,sharpe,win_rate,...},trades:[],positions:[] }`
+- `getBacktest(id)` → `{ id,strategy,market,from_date,to_date,status,created_at,result:{equity,total_return,max_drawdown,sharpe,win_rate,...},trades:[],positions:[],benchmark }`
+- `benchmark`（和基准的对比，默认沪深 300）：`{ symbol,name,comparable:true,strategy_curve:[],benchmark_curve:[],benchmark_return,excess_return,benchmark_max_drawdown,beta,alpha,information_ratio,tracking_error }`；百分比字段已乘 100，两条曲线是从同一天 0% 出发的累计收益。查看时从运行目录读出，所以以前的回测也有。基准行情晚于回测开始日时为 `{ symbol,name,comparable:false,benchmark_start }`，页面只说明原因、不做比较；回测没有记录基准时为 `null`，页面显示资金曲线。
+- `benchmark_options`：`[{symbol,name,start_date,end_date}]`，本地有行情的常用指数。`getBacktestBenchmark(id,symbol)` 返回和这个指数的对比（形状同 `benchmark`），按引擎同样的方法用本地指数行情重算；指数行情比回测早结束超过 5 个交易日时为 `{comparable:false,benchmark_end}`。页面在标题里提供下拉框，选择记在浏览器里（`fq-benchmark`），下次查看回测时沿用。
 - `submitBacktest({strategy,market,from_date,to_date})` → `{ id,status,result,created_at }`
 
 ### 参数优化与稳健性验证
