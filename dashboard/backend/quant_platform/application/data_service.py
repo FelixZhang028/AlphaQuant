@@ -21,7 +21,11 @@ from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
     DataUnavailableError,
 )
-from quant_platform.data.adjustment import AdjustmentSourceChanged, ContinuousAdjustmentRepository
+from quant_platform.data.adjustment import (
+    AdjustmentSourceChanged,
+    ContinuousAdjustmentRepository,
+    source_changed_message,
+)
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
@@ -630,17 +634,20 @@ class DataCenterService:
                 logger.warning("Market-data provider %s failed: %s", source, message)
                 if isinstance(exc, AdjustmentSourceChanged):
                     refused = (source, exc)
+                    if not fallback_enabled:
+                        break  # explained below, with the providers' display names
                 if not fallback_enabled:
                     raise
         if refused is not None:
             refusing_source, reason = refused
+            display = self.sources.source_display_name
             if refusing_source == sources[0]:
                 # The provider the user asked for is itself the mismatch; nothing was unreachable.
-                raise reason
+                raise AdjustmentSourceChanged(reason.changed, display) from reason
             # An earlier provider failed and a fallback answered, but its rows cannot continue
             # the stored history. Say that plainly instead of listing every technical failure.
             raise DataUnavailableError(
-                f"{self.sources.source_display_name(sources[0])} 暂时连不上。{reason} 请稍后重试。"
+                f"{display(sources[0])} 暂时连不上。{source_changed_message(reason.changed, display)} 请稍后重试。"
             )
         raise DataUnavailableError(
             "All configured market-data sources failed; " + "; ".join(failures)

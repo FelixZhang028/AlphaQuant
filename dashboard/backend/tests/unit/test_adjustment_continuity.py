@@ -229,14 +229,14 @@ def test_when_the_usual_provider_is_down_the_fallback_cannot_overwrite_its_histo
     run = DataCenterService._run_market_backfill
     window = (date(2026, 9, 23), date(2026, 9, 24))
 
-    with pytest.raises(DataUnavailableError, match="BaoStock 暂时连不上.*不能用 akshare 的数据续接.*请稍后重试"):
+    with pytest.raises(DataUnavailableError, match="BaoStock 暂时连不上.*历史行情来自 BaoStock，不能用 AkShare 的数据续接.*请稍后重试"):
         run(service_with(repo, ["baostock", "akshare"]), [SYMBOL], *window)
     assert repo.get_daily_bars([SYMBOL])["source"].eq("baostock").all()
 
     # Asking for the other provider directly is refused for what it is, not as an outage.
     with pytest.raises(AdjustmentSourceChanged) as refused:
         run(service_with(repo, ["akshare"]), [SYMBOL], *window)
-    assert "暂时连不上" not in str(refused.value)
+    assert "暂时连不上" not in str(refused.value) and "不能用 AkShare 的数据续接" in str(refused.value)
 
     # Stocks with nothing stored still get the fallback; the others are reported, not written.
     source, _, attempts, withheld = run(service_with(repo, ["baostock", "akshare"]), [SYMBOL, "300750.SZ"], *window)

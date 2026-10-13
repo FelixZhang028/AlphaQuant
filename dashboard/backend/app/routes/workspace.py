@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import json
-import math
 import random
 import re
 from dataclasses import replace as dc_replace
@@ -140,51 +139,6 @@ def factor_logical_category(factor: Any) -> str:
     return _FACTOR_CATEGORY_OVERRIDES.get(
         factor.name, _FACTOR_LOGICAL_CATEGORIES.get(factor.category, factor.category)
     )
-
-# --------------------------------------------------------------------------- #
-# 共用：可复现模拟回测
-# --------------------------------------------------------------------------- #
-
-
-def _sim_equity(seed: int, steps: int = 60) -> list[float]:
-    rng = random.Random(seed)
-    equity = [1_000_000.0]
-    for _ in range(steps):
-        ret = rng.gauss(0.004, 0.016)
-        equity.append(max(equity[-1] * (1 + ret), 1000.0))
-    return equity
-
-
-def _sim_metrics(equity: list[float]) -> dict[str, Any]:
-    total_return = (equity[-1] - equity[0]) / equity[0]
-    peak, max_dd = equity[0], 0.0
-    for v in equity:
-        peak = max(peak, v)
-        max_dd = max(max_dd, (peak - v) / peak)
-    rets = [(equity[i] / equity[i - 1] - 1) for i in range(1, len(equity)) if equity[i - 1] > 0]
-    mean = sum(rets) / len(rets) if rets else 0
-    var = sum((r - mean) ** 2 for r in rets) / len(rets) if rets else 0
-    std = math.sqrt(var)
-    sharpe = (mean / std) * math.sqrt(252) if std > 0 else 0
-    sortino_std = math.sqrt(sum((min(r, 0) ** 2 for r in rets)) / len(rets)) if rets else 0
-    sortino = (mean / sortino_std) * math.sqrt(252) if sortino_std > 0 else 0
-    calmar = (mean * 252) / (max_dd if max_dd > 0 else 1)
-    wins = sum(1 for r in rets if r > 0)
-    local_rng = random.Random(abs(hash((equity[0] if equity else 1, len(equity)))))
-    return {
-        "equity": [round(v, 2) for v in equity],
-        "final_equity": round(equity[-1], 2),
-        "total_return": round(total_return * 100, 2),
-        "annual_return": round(mean * 252 * 100, 2),
-        "max_drawdown": round(max_dd * 100, 2),
-        "sharpe": round(sharpe, 2),
-        "sortino": round(sortino, 2),
-        "calmar": round(calmar, 2),
-        "win_rate": round((wins / len(rets) * 100) if rets else 0, 2),
-        "fills": local_rng.randint(20, 120),
-        "orders": local_rng.randint(24, 140),
-    }
-
 
 def _stamp() -> str:
     return _now()

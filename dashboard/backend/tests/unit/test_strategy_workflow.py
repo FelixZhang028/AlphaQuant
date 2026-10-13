@@ -184,9 +184,16 @@ def test_the_check_reads_the_rules_back_and_explains_what_is_wrong(workflow):
         'ranking': {'indicator': {'name': 'volatility', 'window': 40}, 'direction': 'ascending'}},
         'top_n': 3, 'rebalance': 'monthly'}
     checked = client.post('/api/v1/packages/preflight', json=body).json()
-    assert checked['description'].startswith('每月调仓；只保留满足“60日区间涨跌幅大于5.00%，或者收盘价大于60日移动平均线”的股票')
+    assert checked['description'].startswith('每月调仓；只保留满足“60日区间涨跌幅大于5%，或者收盘价大于60日移动平均线”的股票')
     assert '按40日历史波动率从低到高排序，等权持有前3只' in checked['description']
     assert checked['minimum_history_days'] == 61
     body['definition']['entry_rules'][0]['left']['window'] = 9999
     rejected = client.post('/api/v1/packages/preflight', json=body)
     assert rejected.status_code == 422 and '周期必须在1至500之间' in rejected.json()['detail']
+
+
+def test_rule_descriptions_drop_decimals_that_carry_no_information():
+    from quant_platform.strategies.rule_schema import _format_number
+
+    shown = {0: "0", 5: "5", 70: "70", 0.05: "5%", 0.125: "12.5%", -0.05: "-5%", 12.345: "12.35", 1_000_000: "1,000,000"}
+    assert {value: _format_number(value) for value in shown} == shown

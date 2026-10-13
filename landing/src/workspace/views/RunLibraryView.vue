@@ -1,8 +1,8 @@
 <script setup>
 import { computed, onActivated, ref } from 'vue'
 import { openResearch } from '../researchNavigation.js'
-import { listRuns, compareRuns } from '../../api.js'
-import { MAX_COMPARED, recordsSummary, runTime, toggleSelection } from '../runRecords.js'
+import { getBacktestCatalog, listRuns, compareRuns } from '../../api.js'
+import { MAX_COMPARED, recordsSummary, runTime, strategyName, toggleSelection } from '../runRecords.js'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
@@ -21,6 +21,16 @@ const stats = ref(null)
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
+// 策略目录：用来把记录里的内部标识换成策略名称；读不到时显示记录里保存的名字。
+const strategies = ref([])
+const nameOf = (run, stored) => strategyName(strategies.value, run?.strategy_reference, stored ?? run?.strategy)
+async function loadStrategies() {
+  try {
+    strategies.value = (await getBacktestCatalog()).items || []
+  } catch {
+    strategies.value = []
+  }
+}
 
 const summary = computed(() => recordsSummary(total.value, stats.value))
 
@@ -136,7 +146,7 @@ async function onCompare() {
 const chartSeries = computed(() => {
   if (!navPoints.value.length) return []
   return compareRunIds.value.map((rid, i) => ({
-    label: runMap.value[rid]?.strategy || rid,
+    label: runMap.value[rid] ? nameOf(runMap.value[rid]) : rid,
     color: palette[i % palette.length],
     points: navPoints.value.map((p) => p[rid]),
   }))
@@ -146,7 +156,7 @@ const comparisonRows = computed(() => {
   if (!comparison.value) return []
   return comparison.value.map((c) => ({
     ...c,
-    strategy: c.strategy || '—',
+    strategy: nameOf(runMap.value[c.run_id], c.strategy),
   }))
 })
 
@@ -166,7 +176,7 @@ const fullRunColumns = [
   { key: 'cumulative_return', label: '累计收益', align: 'right' },
   { key: 'max_drawdown', label: '最大回撤', align: 'right' },
   { key: 'sharpe', label: '夏普', align: 'right' },
-  { key: 'updated_at', label: '更新时间' },
+  { key: 'updated_at', label: '运行时间' },
   { key: 'actions', label: '操作' },
 ]
 const runColumns = computed(() => showDetailedColumns.value ? fullRunColumns : [
@@ -191,7 +201,10 @@ const compareColumns = [
   { key: 'metrics_reliable', label: '可信度' },
 ]
 
-onActivated(() => loadRuns(keyword.value.trim()))
+onActivated(() => {
+  loadRuns(keyword.value.trim())
+  loadStrategies()
+})
 </script>
 
 <template>
@@ -263,7 +276,7 @@ onActivated(() => loadRuns(keyword.value.trim()))
           <StatusPill :value="row.grade || '待检查'" :text="row.grade ? `评级 ${row.grade}` : '待检查'" />
         </template>
         <template #cell-strategy="{ row }">
-          <span class="font-medium text-white">{{ row.strategy || '—' }}</span>
+          <span class="font-medium text-white">{{ nameOf(row) }}</span>
           <span v-if="!showDetailedColumns" class="mt-1 block text-xs text-slate-400">{{ row.run_id }} · {{ runTime(row.updated_at) }}</span>
         </template>
         <template #cell-period="{ row }"><span class="whitespace-nowrap text-slate-400">{{ row.start_date }}<br />至 {{ row.end_date }}</span></template>

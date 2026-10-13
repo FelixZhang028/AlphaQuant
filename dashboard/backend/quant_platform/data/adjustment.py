@@ -14,6 +14,7 @@ stock's adjusted history must keep coming from the provider it already came from
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from typing import Any, NamedTuple
 
@@ -34,6 +35,10 @@ class Alignment(NamedTuple):
 
 class AdjustmentSourceChanged(DataUnavailableError):
     """Every incoming row would continue a stored history with another provider's method."""
+
+    def __init__(self, changed: dict[str, tuple[str, str]], display: Callable[[str], str] = str) -> None:
+        self.changed = dict(changed)
+        super().__init__(source_changed_message(self.changed, display))
 
 
 def align_adjustment_basis(
@@ -129,7 +134,7 @@ class ContinuousAdjustmentRepository:
         self.source_changed.update(aligned.source_changed)
         if aligned.bars.empty:
             if aligned.source_changed and not aligned.unaligned:
-                raise AdjustmentSourceChanged(source_changed_message(aligned.source_changed))
+                raise AdjustmentSourceChanged(aligned.source_changed)
             raise DataUnavailableError(unaligned_message(aligned.unaligned, history))
         self._repository.save_table(name, aligned.bars)
 
@@ -149,11 +154,14 @@ def unaligned_message(symbols: list[str], history: dict[str, date]) -> str:
     )
 
 
-def source_changed_message(changed: dict[str, tuple[str, str]]) -> str:
-    """Explain why another provider's rows were not appended to a stored history."""
+def source_changed_message(changed: dict[str, tuple[str, str]], display: Callable[[str], str] = str) -> str:
+    """Explain why another provider's rows were not appended to a stored history.
 
-    stored = "、".join(sorted({pair[0] for pair in changed.values()}))
-    incoming = "、".join(sorted({pair[1] for pair in changed.values()}))
+    ``display`` turns a provider's internal name into the one shown to users.
+    """
+
+    stored = "、".join(sorted({display(pair[0]) for pair in changed.values()}))
+    incoming = "、".join(sorted({display(pair[1]) for pair in changed.values()}))
     return (
         f"{len(changed)} 只股票的历史行情来自 {stored}，不能用 {incoming} 的数据续接"
         f"（两个数据源计算前复权价格的方法不同），未写入（{_preview(sorted(changed))}）。"
