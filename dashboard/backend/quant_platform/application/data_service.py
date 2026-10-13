@@ -21,7 +21,7 @@ from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
     DataUnavailableError,
 )
-from quant_platform.data.adjustment import ContinuousAdjustmentRepository
+from quant_platform.data.adjustment import AdjustmentSourceChanged, ContinuousAdjustmentRepository
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
@@ -292,7 +292,7 @@ class DataCenterService:
         try:
             fetch_start = self._continuity_start(selected, start_date)
             parameters["fetch_start_date"] = fetch_start.isoformat()
-            source, report, attempts, unaligned = self._run_market_backfill(
+            source, report, attempts, withheld = self._run_market_backfill(
                 selected,
                 fetch_start,
                 end_date,
@@ -300,6 +300,7 @@ class DataCenterService:
                 allow_fallback=fallback_enabled,
             )
             parameters["provider_attempts"] = attempts
+            unaligned, source_changed = withheld.unaligned, withheld.source_changed
             manifest = DataManifest.start("daily_bars", source, parameters)
             if not existing_master.empty:
                 self.repository.save_table("security_master", existing_master)
@@ -314,15 +315,25 @@ class DataCenterService:
                     "status_counts": report.status_counts,
                     "missing_by_column": report.missing_by_column,
                     "unaligned_symbols": unaligned,
+                    "source_changed_symbols": sorted(source_changed),
                 },
             )
             save_manifest(self.repository, completed)
-            message = f"行情更新完成（来源：{self.sources.source_display_name(source)}）"
+            name = self.sources.source_display_name
+            message = f"行情更新完成（来源：{name(source)}）"
             if unaligned:
                 preview = "、".join(unaligned[:5]) + (" 等" if len(unaligned) > 5 else "")
                 message += (
                     f"；{len(unaligned)} 只股票的新行情与已有行情没有重叠的交易日，"
                     f"复权因子无法对齐，未更新（{preview}），请提前开始日期后重试"
+                )
+            if source_changed:
+                kept = "、".join(sorted({name(pair[0]) for pair in source_changed.values()}))
+                changed = sorted(source_changed)
+                preview = "、".join(changed[:5]) + (" 等" if len(changed) > 5 else "")
+                message += (
+                    f"；{len(changed)} 只股票的历史行情来自 {kept}，本次没有用 {name(source)} 续接，"
+                    f"未更新（{preview}），请等 {kept} 恢复后重试"
                 )
             return self._result(completed, message)
         except Exception as exc:
@@ -562,9 +573,10 @@ class DataCenterService:
         *,
         source_order: list[str] | None = None,
         allow_fallback: bool | None = None,
-    ) -> tuple[str, Any, list[dict[str, str]], list[str]]:
+    ) -> tuple[str, Any, list[dict[str, str]], ContinuousAdjustmentRepository]:
         attempts: list[dict[str, str]] = []
         failures: list[str] = []
+        refused: tuple[str, AdjustmentSourceChanged] | None = None
         sources = self.sources.resolve_market_sources(source_order)
         fallback_enabled = self.sources.fallback_enabled(allow_fallback)
         for source in sources:
@@ -608,7 +620,7 @@ class DataCenterService:
                 if source == "pytdx":
                     success.update({key: str(value) for key, value in backfill.metadata.items()})
                 attempts.append(success)
-                return source, report, attempts, repository.unaligned
+                return source, report, attempts, repository
             except Exception as exc:
                 from quant_platform.core.diagnostics import redact_text
 
@@ -616,8 +628,20 @@ class DataCenterService:
                 attempts.append({"source": source, "status": "failed", "error": message})
                 failures.append(f"{source}: {message}")
                 logger.warning("Market-data provider %s failed: %s", source, message)
+                if isinstance(exc, AdjustmentSourceChanged):
+                    refused = (source, exc)
                 if not fallback_enabled:
                     raise
+        if refused is not None:
+            refusing_source, reason = refused
+            if refusing_source == sources[0]:
+                # The provider the user asked for is itself the mismatch; nothing was unreachable.
+                raise reason
+            # An earlier provider failed and a fallback answered, but its rows cannot continue
+            # the stored history. Say that plainly instead of listing every technical failure.
+            raise DataUnavailableError(
+                f"{self.sources.source_display_name(sources[0])} 暂时连不上。{reason} 请稍后重试。"
+            )
         raise DataUnavailableError(
             "All configured market-data sources failed; " + "; ".join(failures)
         )
