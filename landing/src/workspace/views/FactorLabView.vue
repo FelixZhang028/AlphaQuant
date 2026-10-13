@@ -1,6 +1,6 @@
 <script setup>
 import FormField from '../ui/FormField.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   compositeFactors,
   createCustomFactor,
@@ -13,8 +13,8 @@ import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
-import FactorGroup from '../ui/FactorGroup.vue'
-import { factorGroups, selectedInGroup } from '../factorGroups.js'
+import FactorFilter from '../ui/FactorFilter.vue'
+import { factorsBySource, filterFactors } from '../factorFilters.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -92,17 +92,19 @@ async function loadFactors() {
   }
 }
 
-// 因子分两组显示：常用因子，和默认折叠的 Alpha101 公式因子（主要用来学习）。
-// 折叠状态在因子库、组合研究里共用，并记在浏览器里。
-const ALPHA_KEY = 'fq-alpha101-open'
-const alphaOpen = ref((() => { try { return localStorage.getItem(ALPHA_KEY) === '1' } catch { return false } })())
-watch(alphaOpen, (value) => { try { localStorage.setItem(ALPHA_KEY, value ? '1' : '0') } catch { /* 记不住也不影响使用 */ } })
-const groups = computed(() => factorGroups(factors.value))
+// 因子库的筛选条件（来源、类型），因子库和组合研究里选因子的列表共用。
+const factorFilter = ref({ source: '', type: '' })
+const shownFactors = computed(() => filterFactors(factors.value, factorFilter.value))
+// 选因子的列表：已经选中的因子即使不符合筛选条件也留在列表里。
+const compListed = computed(() => filterFactors(factors.value, factorFilter.value, compForm.factor_names))
+const researchListed = computed(() => filterFactors(factors.value, factorFilter.value, researchForm.factor_names))
+const sourceGroups = computed(() => factorsBySource(factors.value))
 
 const factorCols = [
   { key: 'name', label: '因子名' },
   { key: 'display_name', label: '中文名' },
-  { key: 'category', label: '类别' },
+  { key: 'logical_category', label: '类型' },
+  { key: 'source', label: '来源' },
   { key: 'description', label: '说明' },
   { key: 'formula', label: '计算公式' },
   { key: 'direction', label: '方向' },
@@ -623,27 +625,24 @@ onBeforeUnmount(() => {
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
-      <SectionCard title="因子库" hint="内置因子与自定义因子，方向 1 表示正向、-1 表示反向">
+      <SectionCard title="因子库" hint="可以按来源和类型筛选；方向 1 表示正向、-1 表示反向">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
-        <template v-else>
-          <FactorGroup v-for="group in groups" :key="group.key" v-model:open="alphaOpen" :group="group">
-            <DataTable :columns="factorCols" :rows="group.factors" empty="暂无因子">
-              <template #cell-direction="{ value }">
-                <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
-                  {{ directionLabel(value) }}
-                </span>
-              </template>
-              <template #cell-actions="{ row }">
-                <button
-                  @click="showFactorDetail(row)"
-                  class="rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300 transition hover:bg-indigo-400/20"
-                >
-                  详情
-                </button>
-              </template>
-            </DataTable>
-          </FactorGroup>
-        </template>
+        <FactorFilter v-if="!factorsLoading && factors.length" v-model="factorFilter" :factors="factors" class="mb-4" />
+        <DataTable v-if="!factorsLoading" :columns="factorCols" :rows="shownFactors" :empty="factors.length ? '没有符合筛选条件的因子' : '暂无因子'">
+          <template #cell-direction="{ value }">
+            <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
+              {{ directionLabel(value) }}
+            </span>
+          </template>
+          <template #cell-actions="{ row }">
+            <button
+              @click="showFactorDetail(row)"
+              class="rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300 transition hover:bg-indigo-400/20"
+            >
+              详情
+            </button>
+          </template>
+        </DataTable>
       </SectionCard>
     </template>
 
@@ -655,7 +654,7 @@ onBeforeUnmount(() => {
             <span class="mb-1 block text-xs text-slate-400">因子</span>
             <select v-model="evalForm.factor_name" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
               <option value="" disabled>请选择因子</option>
-              <optgroup v-for="group in groups" :key="group.key" :label="group.title">
+              <optgroup v-for="group in sourceGroups" :key="group.label" :label="group.label">
                 <option v-for="f in group.factors" :key="f.name" :value="f.name">{{ f.display_name || f.name }}</option>
               </optgroup>
             </select>
@@ -727,28 +726,27 @@ onBeforeUnmount(() => {
         <div class="mb-1 flex items-center justify-between">
           <span class="text-xs text-slate-400">因子（已选 {{ compForm.factor_names.length }} 个，至少 2 个）</span>
         </div>
-        <FactorGroup v-for="group in groups" :key="group.key" v-model:open="alphaOpen" :group="group" :selected="selectedInGroup(group, compForm.factor_names)">
-          <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <label
-              v-for="f in group.factors"
-              :key="f.name"
-              class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
-              :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mb-3 mt-2" />
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <label
+            v-for="f in compListed"
+            :key="f.name"
+            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
+          >
+            <input type="checkbox" :checked="isSelected(f.name)" @change="toggleFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <button
+              type="button"
+              title="查看因子详情"
+              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/10 hover:text-indigo-300"
+              @click.stop.prevent="showFactorDetail(f)"
             >
-              <input type="checkbox" :checked="isSelected(f.name)" @change="toggleFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-              <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-              <span class="text-xs text-slate-500">{{ f.name }}</span>
-              <button
-                type="button"
-                title="查看因子详情"
-                class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/10 hover:text-indigo-300"
-                @click.stop.prevent="showFactorDetail(f)"
-              >
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
-              </button>
-            </label>
-          </div>
-        </FactorGroup>
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+            </button>
+          </label>
+        </div>
 
         <div class="mt-5 grid gap-5 lg:grid-cols-2">
           <div>
@@ -864,29 +862,26 @@ onBeforeUnmount(() => {
     <template v-else-if="activeTab === 'research'">
       <SectionCard title="研究配置" hint="先用训练期确定规则，再用独立测试期比较选股能力；实际收益与回撤请到回测页验证">
         <p class="text-xs text-slate-400">因子（已选 {{ researchForm.factor_names.length }} 个，至少 2 个）</p>
-        <div class="mt-2">
-          <FactorGroup v-for="group in groups" :key="group.key" v-model:open="alphaOpen" :group="group" :selected="selectedInGroup(group, researchForm.factor_names)">
-            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <label
-                v-for="f in group.factors"
-                :key="f.name"
-                class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
-                :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
-              >
-                <input type="checkbox" :checked="researchForm.factor_names.includes(f.name)" @change="toggleResearchFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-                <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-                <span class="text-xs text-slate-500">{{ f.name }}</span>
-                <button
-                  type="button"
-                  title="查看因子详情"
-                  class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/10 hover:text-indigo-300"
-                  @click.stop.prevent="showFactorDetail(f)"
-                >
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
-                </button>
-              </label>
-            </div>
-          </FactorGroup>
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mt-2" />
+        <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <label
+            v-for="f in researchListed"
+            :key="f.name"
+            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
+          >
+            <input type="checkbox" :checked="researchForm.factor_names.includes(f.name)" @change="toggleResearchFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <button
+              type="button"
+              title="查看因子详情"
+              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/10 hover:text-indigo-300"
+              @click.stop.prevent="showFactorDetail(f)"
+            >
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+            </button>
+          </label>
         </div>
 
         <div class="mt-5 grid gap-5 lg:grid-cols-2">
