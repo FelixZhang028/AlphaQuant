@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onActivated, reactive, ref, watch } from 'vue'
-import { getBacktestCatalog, getBacktest, getRunAudit, listBacktests, listPackages, submitBacktest } from '../../api.js'
+import { getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
+import { backtestId, runTime } from '../runRecords.js'
 import RiskSettings from '../ui/RiskSettings.vue'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
@@ -53,9 +54,8 @@ const form = reactive({
 const running = ref(false)
 const runError = ref('')
 
-// ---------- 历史回测 ----------
-const backtests = ref([])
-const listLoading = ref(false)
+// ---------- 回测结果 ----------
+// 这里只显示一次回测：刚运行的，或从研究记录打开的。以前的回测都在研究记录里。
 const selectedId = ref(null)
 const current = ref(null)
 const detailLoading = ref(false)
@@ -142,17 +142,6 @@ const positionCols = [
 ]
 
 // ---------- 逻辑 ----------
-async function loadBacktests() {
-  listLoading.value = true
-  try {
-    backtests.value = await listBacktests()
-  } catch (e) {
-    props.notify(e.message || '加载回测记录失败')
-  } finally {
-    listLoading.value = false
-  }
-}
-
 async function loadDetail() {
   if (selectedId.value === null || selectedId.value === '') return
   detailLoading.value = true
@@ -205,10 +194,9 @@ async function onSubmit() {
       strategy_parameters: { ...strategyParameters },
     })
     props.notify('回测已完成')
-    await loadBacktests()
-    selectedId.value = data.id
-    await loadDetail()
     activeTab.value = '概览'
+    // 把这次回测写进链接：刷新或后退仍然是这次结果，结果由下面对链接的监听加载。
+    openResearch('backtest-review', { run: data.id })
   } catch (e) {
     runError.value = e.message || '回测失败'
     props.notify(e.message || '回测失败')
@@ -240,9 +228,14 @@ async function loadCatalog() {
   finally { catalogLoading.value = false }
 }
 async function loadRouteRun() {
-  if (!props.routeContext.run) return
-  const id = Number(String(props.routeContext.run).replace(/^run-/, ''))
-  if (!Number.isInteger(id) || id < 1) return
+  const id = backtestId(props.routeContext.run)
+  if (id === null) {
+    selectedId.value = null
+    current.value = null
+    audit.value = null
+    return
+  }
+  if (id === selectedId.value && current.value && props.routeContext.mode !== 'reuse') return
   selectedId.value = id
   await loadDetail()
 }
@@ -254,12 +247,7 @@ watch(() => props.routeContext.strategy, (value) => {
 watch(() => props.routeContext.run, loadRouteRun)
 onActivated(async () => {
   await loadCatalog()
-  await loadBacktests()
-  if (props.routeContext.run) await loadRouteRun()
-  else if (backtests.value.length && !selectedId.value) {
-    selectedId.value = backtests.value[0].id
-    await loadDetail()
-  }
+  await loadRouteRun()
 })
 </script>
 
@@ -305,25 +293,14 @@ onActivated(async () => {
     </SectionCard>
 
     <!-- 回测结果 -->
-    <SectionCard title="回测结果" hint="选择一次历史回测，深入检查收益、风险、交易成本与持仓">
+    <SectionCard title="回测结果" hint="一次回测的收益、风险、交易成本与持仓">
       <template #actions>
-        <select
-          v-if="backtests.length"
-          v-model="selectedId"
-          @change="loadDetail"
-          class="w-full min-w-[220px] rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400/40"
-        >
-          <option v-for="b in backtests" :key="b.id" :value="b.id" class="bg-ink">
-            {{ b.strategy }}｜{{ b.from_date }} ~ {{ b.to_date }}
-          </option>
-        </select>
+        <button class="text-sm text-indigo-300 hover:text-indigo-200" @click="openResearch('run-library')">查看以前的回测 →</button>
       </template>
 
-      <EmptyState v-if="!listLoading && !backtests.length" text="暂无回测记录" />
+      <div v-if="detailLoading && !current" class="text-sm text-slate-400">加载中…</div>
 
-      <div v-else-if="listLoading" class="text-sm text-slate-400">加载中…</div>
-
-      <div v-else-if="!current" class="text-sm text-slate-500">请在上方选择一次回测查看详情。</div>
+      <EmptyState v-else-if="!current" text="运行回测后，结果显示在这里。以前的回测可以在「研究记录」里重新打开。" />
 
       <div v-else class="space-y-4">
         <!-- 元信息 -->
@@ -334,6 +311,8 @@ onActivated(async () => {
           <span class="text-white">{{ current.market }}</span>
           <span class="text-slate-400">区间</span>
           <span class="text-white">{{ current.from_date }} ~ {{ current.to_date }}</span>
+          <span class="text-slate-400">运行时间</span>
+          <span class="text-white">{{ runTime(current.created_at) }}</span>
           <StatusPill :value="current.status || '—'" />
         </div>
 
@@ -381,7 +360,6 @@ onActivated(async () => {
           <div class="flex flex-wrap gap-3 text-sm text-indigo-300">
             <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数验证 →</button>
             <button @click="openResearch('market-chart', { run: selectedId })">在K线上查看成交 →</button>
-            <button @click="openResearch('run-library')">查看研究记录 →</button>
           </div>
           <div class="rounded-xl border border-white/10 bg-white/5 p-4">
             <p class="text-xs text-slate-400">资金曲线</p>

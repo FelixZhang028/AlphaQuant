@@ -140,9 +140,6 @@ export function deleteStrategy(id) {
 export function submitBacktest(payload) {
   return request('/api/v1/backtests', { method: 'POST', body: payload, auth: true })
 }
-export function listBacktests() {
-  return request('/api/v1/backtests', { auth: true })
-}
 export function getBacktest(id) {
   return request(`/api/v1/backtests/${id}`, { auth: true })
 }

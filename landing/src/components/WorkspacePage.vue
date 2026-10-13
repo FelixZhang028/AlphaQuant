@@ -7,6 +7,7 @@ import { allItems, contentLayout, groups, itemLabel, navigationItem, overviewKey
 import { getLocalUser, logout, restoreSession } from '../api.js'
 import '../workspace/workspace.css'
 import { researchContext, researchUrl } from '../workspace/researchNavigation.js'
+import { backtestId } from '../workspace/runRecords.js'
 
 const user = ref(getLocalUser())
 const loading = ref(true)
@@ -33,9 +34,11 @@ function syncView() {
   routeContext.value = researchContext(new URL(window.location.href))
   activeKey.value = initialViewKey()
 }
+// 在「策略回测」和「参数验证」之间切换时，带上正在看的那次回测。
 function navigateResearchTab(key) {
-  const baseline = routeContext.value.baseline || (routeContext.value.run ? `run-${String(routeContext.value.run).replace(/^run-/, '')}` : '')
-  navigate(key === 'research' && baseline ? { view: key, baseline } : key)
+  const id = backtestId(routeContext.value.baseline || routeContext.value.run)
+  if (id === null) return navigate(key)
+  navigate(key === 'research' ? { view: key, baseline: `run-${id}` } : { view: key, run: id })
 }
 // 子视图可派发 `fq-navigate` 请求切换视图（如结果页深链审计页），与侧栏导航共用同一路径。
 function onNavigateEvent(e) { navigate(e.detail) }
