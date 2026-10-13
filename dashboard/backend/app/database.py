@@ -5,6 +5,7 @@
 - users          官网注册用户（含 is_admin 标记）
 - strategies     每个用户的策略
 - backtests      每个用户的回测任务与结果
+- chart_drawings 每个用户在每只股票 K 线上画的线
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -160,6 +161,14 @@ def init_db() -> None:
                 rows         INTEGER NOT NULL DEFAULT 0,
                 message      TEXT    NOT NULL DEFAULT '',
                 completed_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS chart_drawings (
+                user_id    INTEGER NOT NULL,
+                symbol     TEXT    NOT NULL,                -- 6 位裸码
+                drawings   TEXT    NOT NULL DEFAULT '[]',   -- JSON 数组
+                updated_at TEXT    NOT NULL,
+                PRIMARY KEY (user_id, symbol),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             """
