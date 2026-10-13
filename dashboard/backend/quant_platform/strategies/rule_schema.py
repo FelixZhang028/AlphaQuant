@@ -282,5 +282,11 @@ def _format_number(value: float | None) -> str:
     if value is None:
         return "未知值"
     if 0 < abs(value) < 1:
-        return f"{value:.2%}"
-    return f"{value:,.2f}"
+        return f"{_trim(f'{value * 100:.2f}')}%"
+    return _trim(f"{value:,.2f}")
+
+
+def _trim(text: str) -> str:
+    """Drop decimals that carry no information: 5.00 -> 5, 12.50 -> 12.5."""
+
+    return text.rstrip("0").rstrip(".") if "." in text else text

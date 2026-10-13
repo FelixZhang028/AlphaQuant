@@ -2,7 +2,7 @@
 import { computed, onActivated, reactive, ref, watch } from 'vue'
 import { getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
-import { backtestId, runTime } from '../runRecords.js'
+import { backtestId, runTime, strategyName, validityLabel } from '../runRecords.js'
 import RiskSettings from '../ui/RiskSettings.vue'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
@@ -61,6 +61,10 @@ const current = ref(null)
 const detailLoading = ref(false)
 
 const result = computed(() => current.value?.result || {})
+const shownStrategy = computed(() => {
+  const config = result.value.effective_config || {}
+  return strategyName(strategyOptions.value, config.strategy_reference || config.strategy_plugin, current.value?.strategy)
+})
 
 // ---------- 可信度审计（结果的属性，随详情一起加载） ----------
 const audit = ref(null)
@@ -306,7 +310,7 @@ onActivated(async () => {
         <!-- 元信息 -->
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
           <span class="text-slate-400">策略</span>
-          <span class="font-medium text-white">{{ current.strategy }}</span>
+          <span class="font-medium text-white">{{ shownStrategy }}</span>
           <span class="text-slate-400">市场</span>
           <span class="text-white">{{ current.market }}</span>
           <span class="text-slate-400">区间</span>
@@ -332,9 +336,9 @@ onActivated(async () => {
         <div v-if="detailLoading" class="text-sm text-slate-400">加载中…</div>
 
         <div v-if="current" class="rounded-xl border border-amber-400/20 bg-white/5 p-4 text-xs text-slate-300">
-          <p>数据状态：{{ result.legacy_unverified ? '旧版未验证' : result.validity_status }}；{{ result.metrics_reliable ? '指标可计算，请结合警告审阅' : '指标不可作为可信结论' }}</p>
-          <p v-if="result.effective_config" class="mt-2">实际配置：{{ result.effective_config.strategy_plugin }} · ¥{{ Number(result.effective_config.initial_capital).toLocaleString() }} · 最多 {{ result.effective_config.max_positions }} 只 · {{ rebalances.find(r => r.value === result.effective_config.rebalance)?.label }}调仓 · {{ result.effective_config.from_date }} 至 {{ result.effective_config.to_date }}</p>
-          <p v-for="(issue, index) in result.validity_issues || []" :key="index" class="mt-1 text-amber-300">{{ issue.code }}：{{ issue.message }}</p>
+          <p>数据状态：{{ validityLabel(result) }}；{{ result.metrics_reliable ? '指标可计算，请结合警告审阅' : '指标不可作为可信结论' }}</p>
+          <p v-if="result.effective_config" class="mt-2">实际配置：{{ shownStrategy }} · ¥{{ Number(result.effective_config.initial_capital).toLocaleString() }} · 最多 {{ result.effective_config.max_positions }} 只 · {{ rebalances.find(r => r.value === result.effective_config.rebalance)?.label }}调仓 · {{ result.effective_config.from_date }} 至 {{ result.effective_config.to_date }}</p>
+          <p v-for="(issue, index) in result.validity_issues || []" :key="index" class="mt-1 text-amber-300" :title="issue.code">{{ issue.message }}</p>
         </div>
         <!-- 概览 -->
         <div v-if="!detailLoading && activeTab === '概览'" class="space-y-4">

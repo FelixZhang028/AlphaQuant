@@ -207,26 +207,3 @@ def get_backtest(bid: int, user: dict = Depends(get_current_user)):
         "positions": result.get("positions") or [],
     }
 
-
-@router.get("", summary="我的回测历史")
-def list_backtests(user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT id, strategy, market, from_date, to_date, status, result, created_at FROM backtests WHERE user_id = ? ORDER BY id DESC",
-            (user["id"],),
-        ).fetchall()
-    out = []
-    for r in rows:
-        out.append(
-            {
-                "id": r["id"],
-                "strategy": r["strategy"],
-                "market": r["market"],
-                "from_date": r["from_date"],
-                "to_date": r["to_date"],
-                "status": r["status"],
-                "result": with_run_evidence(json.loads(r["result"]) if r["result"] else {}),
-                "created_at": r["created_at"],
-            }
-        )
-    return out

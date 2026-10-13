@@ -356,6 +356,9 @@ onMounted(() => {
   chart.setStyles(chartStyles())
   chart.createIndicator({ name: 'MA', calcParams: [5, 10, 20], paneId: 'candle_pane' }, true)
   chart.createIndicator({ name: 'VOL', calcParams: [5, 10] })
+  // 图表库自带的成交量图例写的是英文 VOLUME，换成中文。
+  const [volume] = chart.getIndicators({ name: 'VOL' })
+  chart.overrideIndicator({ name: 'VOL', figures: volume.figures.map((figure) => (figure.key === 'volume' ? { ...figure, title: '成交量: ' } : figure)) })
   setSub(sub.value)
   // 数据由本组件读取；图表只取当前已读到的全部 K 线，不再分页请求。
   chart.setDataLoader({ getBars: ({ callback }) => callback(toCandles(shown), false) })

@@ -111,7 +111,7 @@ def test_warning_and_legacy_labels_match_across_endpoints(api):
     assert detail["legacy_unverified"] and not detail["metrics_reliable"]
     comparison = client.post("/api/v1/runs/compare", json={"run_ids": ["run-1", "run-2"]}).json()["comparison"]
     library = {r["run_id"]: r for r in client.get("/api/v1/runs").json()["items"]}
-    history = {r["id"]: r["result"] for r in client.get("/api/v1/backtests").json()}
+    history = {number: client.get(f"/api/v1/backtests/{number}").json()["result"] for number in (1, 2)}
     for r in comparison:
         audited = client.get(f"/api/v1/runs/{r['run_id']}/audit").json()
         for key in ["metrics_reliable", "legacy_unverified", "validity_status", "validity_issues"]:

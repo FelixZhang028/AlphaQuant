@@ -13,6 +13,19 @@ export function toggleSelection(selected, runId, limit = MAX_COMPARED) {
   return selected.length >= limit ? null : [...selected, runId]
 }
 
+// 回测记录里保存的是策略的内部标识（如 a_share_momentum）。策略目录里还有这个策略时显示它的名称，
+// 已经删除时显示记录里保存的名字。options 是 [{ value, label }]。
+export function strategyName(options, reference, stored) {
+  return options.find((item) => item.value === reference)?.label || stored || '—'
+}
+
+const VALIDITY_LABELS = { VALID: '通过', WARNING: '需复核', INVALID: '不可用' }
+// 回测结果的数据状态，用和研究记录相同的说法。
+export function validityLabel(result) {
+  if (result?.legacy_unverified) return '旧版未验证'
+  return VALIDITY_LABELS[result?.validity_status] || '待验证'
+}
+
 // 后端保存的是带时区的时间戳，页面上显示成本地时间，到分钟。
 export function runTime(value) {
   const at = new Date(value || '')
