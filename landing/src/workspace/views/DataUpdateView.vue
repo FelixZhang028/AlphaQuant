@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
+import { indicatorSummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -162,6 +163,7 @@ async function runUpdate() {
 // 全市场回填任务（迁移自 AlphaQuant data_job_panel.py：detached 后台作业）
 // ===========================================================================
 const STAGES = {
+  daily_indicators: '估值与换手率',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -190,6 +192,7 @@ const DATASET_OPTIONS = [
   { value: 'bars', label: '日线行情' },
   { value: 'actions', label: '分红送配' },
   { value: 'derived', label: '历史股票池与退市结算' },
+  { value: 'indicators', label: '估值与换手率' },
 ]
 function toggleDataset(v) {
   const idx = jobForm.datasets.indexOf(v)
@@ -371,6 +374,16 @@ function toggleAdvanced(event) {
   advancedOpen.value = event.target.open
   if (advancedOpen.value && !loop.value) loadLoop()
 }
+
+// 估值与换手率：以后每次更新行情会自动带上，这里补的是以前下载的行情。
+const indicators = computed(() => loop.value?.indicators || null)
+const indicatorText = computed(() => indicatorSummary(indicators.value))
+async function fillIndicators() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['indicators'] })
+}
+// 后台任务结束后，重新读取落地情况。
+watch(activeJob, (job, previous) => { if (previous && !job) loadLoop() })
 function clearPoll() {
   viewActive = false
   if (pollTimer) clearInterval(pollTimer)
@@ -378,7 +391,7 @@ function clearPoll() {
 }
 onActivated(async () => {
   viewActive = true
-  await Promise.all([loadOverview(), loadJobs()])
+  await Promise.all([loadOverview(), loadJobs(), loadLoop()])
   schedulePoll()
 })
 onDeactivated(clearPoll)
@@ -487,6 +500,18 @@ onBeforeUnmount(clearPoll)
         </DataTable>
       </div>
     </SectionCard>
+    <section v-if="indicators" class="glass rounded-2xl p-5" aria-label="估值与换手率">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">估值与换手率</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ indicatorText }}</p>
+        </div>
+        <button v-if="indicators.missing_symbols > 0" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="fillIndicators">{{ activeJob ? '后台任务运行中…' : '补全历史数据' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">市盈率、市净率、市销率、市现率和换手率，价值类和换手类因子要用到。以后每次更新行情会自动带上；这里补的是以前下载的行情，在后台运行，每只股票一次请求，不会改动已有的行情。</p>
+    </section>
     <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
     <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">
       <h2 class="mb-4 text-sm font-semibold text-white">全市场回填正在后台运行</h2>

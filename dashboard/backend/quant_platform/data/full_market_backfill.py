@@ -26,6 +26,7 @@ from quant_platform.data.baostock_backfill import (
     BaoStockRangeBackfill,
     normalize_baostock_master,
 )
+from quant_platform.data.indicators import INDICATOR_TABLE, split_daily_indicators
 from quant_platform.data.normalizers import canonical_symbol
 from quant_platform.data.quality import inspect_daily_bars
 from quant_platform.data.repositories.parquet_repository import (
@@ -765,6 +766,7 @@ class FullMarketBackfill:
         if not frames:
             return 0
         daily = pd.concat(frames, ignore_index=True).sort_values(["trade_date", "symbol"])
+        daily, indicators = split_daily_indicators(daily, "baostock")
         report = inspect_daily_bars(daily)
         for key, value in report.status_counts.items():
             status_counts[key] = status_counts.get(key, 0) + int(value)
@@ -778,4 +780,5 @@ class FullMarketBackfill:
         )
         self.market_repository.save_table("trade_calendar", calendar)
         self.market_repository.save_table("daily_bars", daily)
+        self.market_repository.save_table(INDICATOR_TABLE, indicators)
         return len(daily)

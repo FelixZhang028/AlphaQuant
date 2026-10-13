@@ -17,6 +17,8 @@ _HISTORY_FIELDS = (
     "date,code,open,high,low,close,preclose,volume,amount,adjustflag,"
     "tradestatus,pctChg,isST"
 )
+# 估值与换手率：和不复权日线在同一次请求里返回，不需要另外请求。
+_INDICATOR_FIELDS = "peTTM,pbMRQ,psTTM,pcfNcfTTM,turn"
 
 
 def _ensure_baostock_pandas_compat() -> None:
@@ -121,15 +123,32 @@ class BaoStockDataProvider(DataProvider):
         """Fetch one symbol range; adjustflag 3 is raw and 2 is forward-adjusted."""
 
         self.login()
+        fields = f"{_HISTORY_FIELDS},{_INDICATOR_FIELDS}" if adjustflag == "3" else _HISTORY_FIELDS
         return self._query_frame(
             "query_history_k_data_plus",
             lambda: self._client.query_history_k_data_plus(
                 self.to_baostock_symbol(symbol),
-                _HISTORY_FIELDS,
+                fields,
                 start_date=start_date.isoformat(),
                 end_date=end_date.isoformat(),
                 frequency="d",
                 adjustflag=adjustflag,
+            ),
+        )
+
+    def get_indicator_range(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """Valuation and turnover only, to fill indicators in without re-reading prices."""
+
+        self.login()
+        return self._query_frame(
+            "query_history_k_data_plus",
+            lambda: self._client.query_history_k_data_plus(
+                self.to_baostock_symbol(symbol),
+                f"date,code,{_INDICATOR_FIELDS}",
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                frequency="d",
+                adjustflag="3",
             ),
         )
 

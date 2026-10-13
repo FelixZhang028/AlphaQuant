@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 from threading import RLock
@@ -11,11 +12,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from quant_platform.data.indicators import INDICATOR_COLUMNS, INDICATOR_TABLE
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
 
 _TABLE_KEYS: dict[str, list[str]] = {
     "daily_bars": ["symbol", "trade_date"],
+    INDICATOR_TABLE: ["symbol", "trade_date"],
     "trade_calendar": ["cal_date"],
     "security_master": ["symbol"],
     "corporate_actions": ["symbol", "ex_date"],
@@ -24,9 +27,9 @@ _TABLE_KEYS: dict[str, list[str]] = {
     "delisting_settlements": ["symbol"],
 }
 
-# ``daily_bars`` is the only table that grows to millions of rows, so it is
-# partitioned by calendar year. Every other canonical table stays in one file.
-_PARTITIONED_TABLES = frozenset({"daily_bars"})
+# ``daily_bars`` and the daily indicators that go with it grow to millions of rows, so
+# they are partitioned by calendar year. Every other canonical table stays in one file.
+_PARTITIONED_TABLES = frozenset({"daily_bars", INDICATOR_TABLE})
 _PARTITION_COLUMN = "year"
 
 
@@ -62,6 +65,68 @@ class ParquetMarketDataRepository(MarketDataRepository):
         return self._read_flat(name)
 
     def get_daily_bars(
+        self,
+        symbols: list[str] | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        *,
+        indicators: Iterable[str] = (),
+    ) -> pd.DataFrame:
+        """Daily bars; ``indicators`` names valuation/turnover columns to attach to each bar.
+
+        A bar without a stored indicator keeps the bar and gets a missing value.
+        """
+
+        bars = self._get_daily_bars(symbols, start_date, end_date)
+        wanted = [column for column in INDICATOR_COLUMNS if column in set(indicators)]
+        if not wanted:
+            return bars
+        if bars.empty:
+            return bars.reindex(columns=[*bars.columns, *wanted])
+        stored = self.get_daily_indicators(symbols, start_date, end_date, columns=wanted)
+        return bars.merge(stored, on=["symbol", "trade_date"], how="left")
+
+    def get_daily_indicators(
+        self,
+        symbols: list[str] | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        *,
+        columns: Iterable[str] | None = None,
+    ) -> pd.DataFrame:
+        """Stored valuation and turnover indicators: symbol, trade_date and the requested columns."""
+
+        wanted = [column for column in INDICATOR_COLUMNS if columns is None or column in set(columns)]
+        frame = self._read_range(
+            INDICATOR_TABLE, symbols=symbols, start_date=start_date, end_date=end_date,
+            columns=["symbol", "trade_date", *wanted],
+        )
+        if frame.empty:
+            return pd.DataFrame(columns=["symbol", "trade_date", *wanted])
+        frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
+        return frame.reindex(columns=["symbol", "trade_date", *wanted]).sort_values(["trade_date", "symbol"]).reset_index(drop=True)
+
+    def daily_indicator_spans(self) -> pd.DataFrame:
+        """Per symbol: how many indicator rows are stored and over which dates (``rows``, ``start``, ``end``)."""
+
+        directory, legacy = self._partition_path(INDICATOR_TABLE), self._flat_path(INDICATOR_TABLE)
+        files = sorted(directory.rglob("*.parquet")) if self._has_partitions(directory) else ([legacy] if legacy.exists() else [])
+        signature = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in files)
+        key = f"{self.root.resolve()}|{INDICATOR_TABLE}"
+        with _SUMMARY_LOCK:
+            cached = _SUMMARY_CACHE.get(key)
+            if cached is None or cached[0] != signature:
+                frame = self._read_range(INDICATOR_TABLE, columns=["symbol", "trade_date"])
+                if frame.empty:
+                    spans = pd.DataFrame(columns=["rows", "start", "end"], index=pd.Index([], name="symbol"))
+                else:
+                    frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
+                    spans = frame.groupby("symbol", sort=True)["trade_date"].agg(rows="size", start="min", end="max")
+                cached = (signature, spans)
+                _SUMMARY_CACHE[key] = cached
+            return cached[1].copy()
+
+    def _get_daily_bars(
         self,
         symbols: list[str] | None = None,
         start_date: date | None = None,
@@ -150,8 +215,16 @@ class ParquetMarketDataRepository(MarketDataRepository):
         self, start_date: date | None = None, end_date: date | None = None,
         symbols: list[str] | None = None,
     ) -> pd.DataFrame:
-        directory = self._partition_path("daily_bars")
-        legacy = self._flat_path("daily_bars")
+        return self._read_range("daily_bars", symbols=symbols, start_date=start_date, end_date=end_date)
+
+    def _read_range(
+        self, name: str, *, symbols: list[str] | None = None, start_date: date | None = None,
+        end_date: date | None = None, columns: list[str] | None = None,
+    ) -> pd.DataFrame:
+        """Rows of a year-partitioned table for some symbols and dates; ``columns`` limits what is read."""
+
+        directory = self._partition_path(name)
+        legacy = self._flat_path(name)
         filters = []
         if symbols:
             filters.append(("symbol", "in", symbols))
@@ -164,14 +237,10 @@ class ParquetMarketDataRepository(MarketDataRepository):
                 filters.append((_PARTITION_COLUMN, ">=", start_date.year))
             if end_date:
                 filters.append((_PARTITION_COLUMN, "<=", end_date.year))
-            frame = (
-                pd.read_parquet(directory, filters=filters)
-                if filters
-                else pd.read_parquet(directory)
-            )
+            frame = pd.read_parquet(directory, filters=filters or None, columns=columns)
             return self._drop_partition_column(frame)
         if legacy.exists():
-            return self._drop_partition_column(pd.read_parquet(legacy, filters=filters or None))
+            return self._drop_partition_column(pd.read_parquet(legacy, filters=filters or None, columns=columns))
         return pd.DataFrame()
 
     def _daily_bar_files(self) -> list[Path]:

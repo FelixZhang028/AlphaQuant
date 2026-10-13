@@ -134,7 +134,7 @@ class DataJobs:
     def start(self, start_date, end_date, datasets):
         if start_date > end_date or end_date > date.today():
             raise ValueError("日期范围无效，结束日期不能晚于今天。")
-        if not datasets or not set(datasets) <= {"bars", "actions", "derived"}:
+        if not datasets or not set(datasets) <= {"bars", "actions", "derived", "indicators"}:
             raise ValueError("请至少选择一个有效的数据集。")
         with exclusive(self.directory / ".launch.lock"):
             if self.active():
@@ -215,18 +215,26 @@ def attempt(folder, job):
     checkpoint_path = Path(str(service.app.get("app", {}).get("runtime_dir", "runtime"))) / (
         "full_market_backfill_state.json"
     )
-    result = service.run_closed_loop(
-        date.fromisoformat(job["start_date"]),
-        date.fromisoformat(job["end_date"]),
-        resume=True,
-        skip_bars="bars" not in job["datasets"],
-        skip_actions="actions" not in job["datasets"],
-        skip_derived="derived" not in job["datasets"],
-        progress=progress,
-        watchdog_timeout=600.0,
-    )
+    start, end = date.fromisoformat(job["start_date"]), date.fromisoformat(job["end_date"])
+    result = {}
+    if set(job["datasets"]) & {"bars", "actions", "derived"}:
+        result = service.run_closed_loop(
+            start,
+            end,
+            resume=True,
+            skip_bars="bars" not in job["datasets"],
+            skip_actions="actions" not in job["datasets"],
+            skip_derived="derived" not in job["datasets"],
+            progress=progress,
+            watchdog_timeout=600.0,
+        )
+    if "indicators" in job["datasets"]:
+        # 放在日线之后：这次任务里刚下载的行情，估值与换手率已经跟着存好了，这里只补以前的。
+        result["daily_indicators"] = service.backfill_daily_indicators(start, end, progress=progress)
     write_json(folder / "result.json", result)
-    failed = any(result.get(key, {}).get("failed") for key in ("daily_bars", "corporate_actions"))
+    failed = any(
+        result.get(key, {}).get("failed") for key in ("daily_bars", "corporate_actions", "daily_indicators")
+    )
     return 2 if failed else 0
 
 

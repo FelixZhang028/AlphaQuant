@@ -57,3 +57,14 @@ test('菜单收敛后，XTick的原直达链接仍能定位到正确分组，风
   assert.ok(!allItems.some((item) => item.key === 'risk-management'))
   assert.equal(resolveView('risk-management'), 'backtest-review')
 })
+
+test('估值与换手率的覆盖情况用一句话说明：没有、部分、全部', async () => {
+  const { indicatorSummary } = await import('../src/workspace/dataPresentation.js')
+  assert.equal(indicatorSummary(null), '')
+  assert.equal(indicatorSummary({ symbols: 0, missing_symbols: 5478, rows: 0, start_date: null, end_date: null }),
+    '还没有下载。本地有行情的 5,478 只股票都可以补全。')
+  assert.equal(indicatorSummary({ symbols: 1200, missing_symbols: 4278, start_date: '2015-01-05', end_date: '2026-10-09' }),
+    '已有 1,200 只股票（2015-01-05 至 2026-10-09），还有 4,278 只没有。')
+  assert.equal(indicatorSummary({ symbols: 5478, missing_symbols: 0, start_date: '2015-01-05', end_date: '2026-10-09' }),
+    '本地有行情的 5,478 只股票都已覆盖（2015-01-05 至 2026-10-09）。')
+})

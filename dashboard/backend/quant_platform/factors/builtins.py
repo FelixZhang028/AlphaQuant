@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from quant_platform.data.indicators import require_indicator_data
 from quant_platform.factors.base import (
     FACTOR_COLUMNS,
     FactorDefinition,
@@ -119,6 +120,33 @@ def _amplitude_20(bars: pd.DataFrame) -> pd.DataFrame:
     )
     amplitude = (high - low) / pre_close.replace(0.0, np.nan)
     return melt_wide(amplitude.rolling(20, min_periods=20).mean())
+
+
+def _indicator(bars: pd.DataFrame, name: str) -> pd.DataFrame:
+    """估值或换手率宽表；本地还没有这项数据时给出可以照着做的提示。"""
+
+    require_indicator_data(bars, [name])
+    return pivot_field(bars, name)
+
+
+def _yield_of(name: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """估值倍数的倒数（收益率形式）：亏损时为负、排在最后，不像市盈率那样在 0 附近跳变。"""
+
+    def compute(bars: pd.DataFrame) -> pd.DataFrame:
+        ratio = _indicator(bars, name)
+        return melt_wide(1.0 / ratio.where(ratio != 0))
+
+    return compute
+
+
+def _turnover_20(bars: pd.DataFrame) -> pd.DataFrame:
+    return melt_wide(_indicator(bars, "turnover_rate").rolling(20, min_periods=20).mean())
+
+
+def _turnover_change_20(bars: pd.DataFrame) -> pd.DataFrame:
+    turnover = _indicator(bars, "turnover_rate")
+    baseline = turnover.rolling(20, min_periods=20).mean()
+    return melt_wide(turnover.rolling(5, min_periods=5).mean() / baseline.where(baseline > 0) - 1.0)
 
 
 @dataclass(frozen=True)
@@ -251,5 +279,71 @@ def builtin_factors() -> list[FactorDefinition]:
             direction=-1,
             category="波动",
             func=_amplitude_20,
+        ),
+        BuiltinFactor(
+            name="ep_ttm",
+            display_name="盈利收益率",
+            description="市盈率（TTM）的倒数：每 1 元股价对应的过去十二个月净利润，越高越便宜；亏损的公司为负。",
+            formula="1 / pe_ttm",
+            required_fields=("pe_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pe_ttm"),
+        ),
+        BuiltinFactor(
+            name="bp_mrq",
+            display_name="账面市值比",
+            description="市净率（最近一季）的倒数：每 1 元股价对应的净资产，越高越便宜。",
+            formula="1 / pb_mrq",
+            required_fields=("pb_mrq",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pb_mrq"),
+        ),
+        BuiltinFactor(
+            name="sp_ttm",
+            display_name="营收市值比",
+            description="市销率（TTM）的倒数：每 1 元股价对应的过去十二个月营业收入，越高越便宜。",
+            formula="1 / ps_ttm",
+            required_fields=("ps_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("ps_ttm"),
+        ),
+        BuiltinFactor(
+            name="cfp_ttm",
+            display_name="现金流市值比",
+            description="市现率（TTM）的倒数：每 1 元股价对应的过去十二个月经营现金流净额，越高越便宜；现金流为负的公司为负。",
+            formula="1 / pcf_ttm",
+            required_fields=("pcf_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pcf_ttm"),
+        ),
+        BuiltinFactor(
+            name="turnover_20",
+            display_name="20日平均换手率",
+            description="过去 20 日换手率（成交量 / 流通股本）的均值，交易越不拥挤的股票预期收益越高，反向使用。",
+            formula="mean(turnover_rate, 20)（反向使用）",
+            required_fields=("turnover_rate",),
+            min_history=20,
+            direction=-1,
+            category="换手",
+            func=_turnover_20,
+        ),
+        BuiltinFactor(
+            name="turnover_change_20",
+            display_name="换手率变化",
+            description="近 5 日平均换手率相对近 20 日平均换手率的变化，刻画交易热度突然升温，反向使用。",
+            formula="mean(turnover_rate, 5) / mean(turnover_rate, 20) - 1（反向使用）",
+            required_fields=("turnover_rate",),
+            min_history=20,
+            direction=-1,
+            category="换手",
+            func=_turnover_change_20,
         ),
     ]

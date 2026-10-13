@@ -111,6 +111,8 @@ _FACTOR_LOGICAL_CATEGORIES = {
     "波动": "波动与风险",
     "量价": "K线与量价关系",
     "K线": "K线与量价关系",
+    "估值": "价值与估值",
+    "换手": "成交与流动性",
     "技术": "反转与价格位置",
 }
 _FACTOR_CATEGORY_OVERRIDES = {

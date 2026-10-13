@@ -30,6 +30,7 @@ from quant_platform.risk.basic_rules import (
 )
 from quant_platform.risk.config import RiskLimits
 from quant_platform.signals.models import Signal
+from quant_platform.data.indicators import indicator_columns, require_indicator_data
 from quant_platform.strategies.base import Strategy
 from quant_platform.strategies.context import StrategyContext
 from quant_platform.universe.base import Universe
@@ -108,13 +109,19 @@ class BacktestEngine:
             if not universe_symbols:
                 raise BacktestValidityError("回测区间内没有可验证的历史成分")
         load_start = self._warmup_start_date(start_date)
+        # 策略用到估值或换手率时，把这几列接到行情上。
+        extra = indicator_columns(
+            set(self.strategy.required_fields) | set(getattr(self.strategy, "data_fields", ()))
+        )
         bars = self.repository.get_daily_bars(
             symbols=list(universe_symbols) if universe_symbols else None,
             start_date=load_start,
             end_date=end_date,
+            **({"indicators": extra} if extra else {}),
         )
         if bars.empty:
             raise ValueError("No daily bars available for backtest")
+        require_indicator_data(bars, extra)
         bars["trade_date"] = pd.to_datetime(bars["trade_date"]).dt.normalize()
         bars = bars.sort_values("trade_date").reset_index(drop=True)
         master = self.repository.read_table("security_master")

@@ -9,6 +9,12 @@ from typing import Any
 import pandas as pd
 
 from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.data.indicators import (
+    INDICATOR_COLUMNS,
+    INDICATOR_TABLE,
+    normalize_baostock_indicators,
+    split_daily_indicators,
+)
 from quant_platform.data.normalizers import normalize_baostock_daily
 from quant_platform.data.price_limits import derive_cn_price_limits
 from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
@@ -106,6 +112,7 @@ class BaoStockRangeBackfill:
             raise DataUnavailableError("BaoStock returned no bars for the requested universe")
 
         daily = pd.concat(frames, ignore_index=True).sort_values(["trade_date", "symbol"])
+        daily, indicators = split_daily_indicators(daily, "baostock")
         report = inspect_daily_bars(daily)
         if not report.is_usable:
             raise DataUnavailableError(
@@ -124,6 +131,7 @@ class BaoStockRangeBackfill:
         self.market_repository.save_table("trade_calendar", calendar)
         self.market_repository.save_table("security_master", master)
         self.market_repository.save_table("daily_bars", daily)
+        self.market_repository.save_table(INDICATOR_TABLE, indicators)
         return report
 
     def fetch_symbol(
@@ -198,4 +206,8 @@ class BaoStockRangeBackfill:
         bars.loc[unknown_status, "quality_status"] = "UNKNOWN_STATUS"
         bars.loc[missing_adjustment, "quality_status"] = "MISSING_ADJ_FACTOR"
         bars.loc[missing_price, "quality_status"] = "MISSING_PRICE"
+        # 估值与换手率和日线在同一次请求里：先跟着这批日线走，落库前由调用方分开保存。
+        indicators = normalize_baostock_indicators(raw)
+        if not indicators.empty:
+            bars = bars.merge(indicators[["symbol", "trade_date", *INDICATOR_COLUMNS]], on=["symbol", "trade_date"], how="left")
         return bars.drop(columns=["status_known"])

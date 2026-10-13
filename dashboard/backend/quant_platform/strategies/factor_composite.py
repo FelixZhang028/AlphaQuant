@@ -126,6 +126,12 @@ class FactorCompositeStrategy(Strategy):
         components = tuple(registry.get(item.name) for item in config.components)
         return cls(strategy_id, config, components)
 
+    @property
+    def data_fields(self) -> frozenset[str]:
+        """成分因子用到的行情字段；回测引擎据此决定要不要读取估值与换手率。"""
+
+        return frozenset(field for factor in self._components for field in factor.required_fields)
+
     def generate_signals(self, context: StrategyContext) -> list[Signal]:
         fields = sorted({field for factor in self._components for field in factor.required_fields})
         lookback = max(factor.min_history for factor in self._components) + 1
