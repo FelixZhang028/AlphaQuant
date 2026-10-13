@@ -17,6 +17,7 @@ from datetime import date
 
 import pandas as pd
 
+from quant_platform.data.extras import extra_columns
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.base import FactorDefinition, pivot_field
 from quant_platform.factors.statistics import annual_ic, ic_statistics, neutralize_exposures
@@ -76,7 +77,11 @@ class FactorEvaluator:
             raise ValueError("未知中性化方式")
 
         # 因子值严格只用 <= end_date 的行情；未来收益另取全量价格。
-        factor_bars = self.repository.get_daily_bars(symbols=symbols, end_date=end_date)
+        # 因子用到估值、换手率或财务数据时，把这几列接到行情上；用不到就不读那些表。
+        extra = extra_columns(factor.required_fields)
+        factor_bars = self.repository.get_daily_bars(
+            symbols=symbols, end_date=end_date, **({"extras": extra} if extra else {})
+        )
         if factor_bars.empty:
             raise ValueError("评估区间内没有行情数据")
         values = factor.compute(factor_bars)

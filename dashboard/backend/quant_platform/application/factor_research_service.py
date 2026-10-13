@@ -8,6 +8,7 @@ from math import isfinite
 
 import pandas as pd
 
+from quant_platform.data.extras import extra_columns
 from quant_platform.factors.base import FactorDefinition
 from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames, drop_highly_correlated
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
@@ -28,9 +29,11 @@ class BoundedRepository:
     def __init__(self, repository, end: date, symbols=None):
         self.repository, self.end, self.symbols = repository, end, symbols
 
-    def get_daily_bars(self, symbols=None, end_date=None):
+    def get_daily_bars(self, symbols=None, end_date=None, **options):
         cutoff = min(pd.Timestamp(end_date or self.end), pd.Timestamp(self.end)).date()
-        return self.repository.get_daily_bars(symbols=symbols if symbols is not None else self.symbols, end_date=cutoff)
+        return self.repository.get_daily_bars(
+            symbols=symbols if symbols is not None else self.symbols, end_date=cutoff, **options
+        )
 
 
 @dataclass
@@ -73,8 +76,10 @@ def research_combination(
     if missing not in {"drop", "median"}:
         raise ValueError("研究组合请选择剔除缺失或中位数填充。")
 
+    extra = extra_columns(field for factor in components for field in factor.required_fields)
+
     def frames_until(end):
-        bars = repository.get_daily_bars(symbols=symbols, end_date=end)
+        bars = repository.get_daily_bars(symbols=symbols, end_date=end, **({"extras": extra} if extra else {}))
         if bars.empty:
             raise ValueError("所选区间没有本地行情，请先更新数据。")
         universe = bars[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})

@@ -111,6 +111,11 @@ _FACTOR_LOGICAL_CATEGORIES = {
     "波动": "波动与风险",
     "量价": "K线与量价关系",
     "K线": "K线与量价关系",
+    "估值": "价值与估值",
+    "换手": "成交与流动性",
+    "质量": "盈利与质量",
+    "成长": "成长",
+    "规模": "规模",
     "技术": "反转与价格位置",
 }
 _FACTOR_CATEGORY_OVERRIDES = {
@@ -1746,8 +1751,12 @@ def data_jobs_start(body: dict[str, Any], user: dict = Depends(get_current_user)
     except ValueError:
         raise HTTPException(status_code=422, detail="请提供有效的开始/结束日期")
     datasets = body.get("datasets") or ["bars", "actions", "derived"]
+    # scope=universe：财务数据只下载这个用户股票池里的股票（全市场要十几个小时）。
+    symbols = [to_canonical(str(code)) for code in _load_universe_symbols(user["id"])] if body.get("scope") == "universe" else None
+    if body.get("scope") == "universe" and not symbols:
+        raise HTTPException(status_code=409, detail="股票池是空的，请先在股票池管理里添加股票")
     try:
-        job = _data_jobs().start(start, end, datasets)
+        job = _data_jobs().start(start, end, datasets, symbols=symbols)
     except (ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
     job["status_label"] = _DATA_JOB_STATUS_LABELS.get(job.get("status", ""), job.get("status", ""))

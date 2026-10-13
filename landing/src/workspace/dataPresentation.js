@@ -22,3 +22,23 @@ export function summarizeDataOverview(overview, { loading = false, error = '' } 
   if (unknown > 0) return result('warning', '有交易状态需要核对', '未知交易状态可能影响回测，请先查看数据详情。')
   return result('covered', '已保存区间的行情覆盖完整', '可以开始研究；回测日期需落在已有行情区间内，不代表行情已更新到最新交易日。')
 }
+
+// 估值与换手率的覆盖情况，一句话。status 来自闭环状态接口的 indicators。
+export function indicatorSummary(status) {
+  if (!status) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  if (!status.symbols) return `还没有下载。本地有行情的 ${number(status.missing_symbols)} 只股票都可以补全。`
+  const span = `${status.start_date} 至 ${status.end_date}`
+  if (!status.missing_symbols) return `本地有行情的 ${number(status.symbols)} 只股票都已覆盖（${span}）。`
+  return `已有 ${number(status.symbols)} 只股票（${span}），还有 ${number(status.missing_symbols)} 只没有。`
+}
+
+// 财务数据的覆盖情况，一句话。status 来自闭环状态接口的 fundamentals。
+export function fundamentalsSummary(status) {
+  if (!status) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  if (!status.symbols) return '还没有下载。'
+  const latest = `最新报告期 ${status.latest_stat_date}`
+  if (!status.missing_symbols) return `本地有行情的 ${number(status.symbols)} 只股票都有财报（${latest}）。`
+  return `已有 ${number(status.symbols)} 只股票的财报（${latest}）；本地有行情的股票里还有 ${number(status.missing_symbols)} 只没有。`
+}

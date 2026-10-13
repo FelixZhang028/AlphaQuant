@@ -29,6 +29,8 @@ from quant_platform.data.adjustment import (
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
+from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
+from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
 from quant_platform.data.coverage import (
     DatasetCoverage,
     calculate_daily_coverage,
@@ -520,6 +522,65 @@ class DataCenterService:
 
         return self.full_market_backfill().run_closed_loop(start_date, end_date, **kwargs)
 
+    @serialized_update
+    def backfill_daily_indicators(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        symbols: list[str] | None = None,
+        progress: Any = None,
+    ) -> dict[str, Any]:
+        """给已有行情的股票补上估值与换手率；只请求还没有的日期，不重新下载价格。"""
+
+        return BaoStockIndicatorBackfill(self.repository, self.sources.baostock_provider()).backfill(
+            start_date, end_date, symbols=symbols, progress=progress
+        )
+
+    @serialized_update
+    def backfill_fundamentals(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        symbols: list[str] | None = None,
+        progress: Any = None,
+    ) -> dict[str, Any]:
+        """下载季度财务数据；只请求还没有的报告期。不指定股票时是本地有行情的全部股票。"""
+
+        return BaoStockFundamentalsBackfill(self.repository, self.sources.baostock_provider()).backfill(
+            start_date, end_date, symbols=symbols, progress=progress
+        )
+
+    def fundamentals_status(self) -> dict[str, Any]:
+        """财务数据的落地情况：多少只股票有、多少只有行情却还没有、最新的报告期。"""
+
+        bars = self.repository.daily_bar_summary()
+        reports = self.repository.get_fundamentals()
+        reports = reports[reports["pub_date"].notna()]
+        covered = set(reports["symbol"].astype(str)) & set(bars.index)
+        return {
+            "symbols": len(covered),
+            "missing_symbols": int(len(bars)) - len(covered),
+            "reports": int(len(reports)),
+            "latest_stat_date": pd.to_datetime(reports["stat_date"]).max().date().isoformat() if len(reports) else None,
+            "latest_pub_date": pd.to_datetime(reports["pub_date"]).max().date().isoformat() if len(reports) else None,
+        }
+
+    def indicator_status(self) -> dict[str, Any]:
+        """估值与换手率的落地情况：多少只股票有、多少只有行情却还没有、覆盖到哪一天。"""
+
+        bars = self.repository.daily_bar_summary()
+        stored = self.repository.daily_indicator_spans()
+        covered = stored.index.intersection(bars.index)
+        return {
+            "symbols": int(len(covered)),
+            "missing_symbols": int(len(bars) - len(covered)),
+            "rows": int(stored["rows"].sum()) if not stored.empty else 0,
+            "start_date": stored["start"].min().date().isoformat() if not stored.empty else None,
+            "end_date": stored["end"].max().date().isoformat() if not stored.empty else None,
+        }
+
     def closed_loop_status(self) -> dict[str, Any]:
         """只读汇总闭环五张表的落地情况与断点进度（不访问外网）。"""
 
@@ -556,6 +617,8 @@ class DataCenterService:
             state_path=state_path,
         )
         status["checkpoint"] = backfill.state.snapshot()
+        status["indicators"] = self.indicator_status()
+        status["fundamentals"] = self.fundamentals_status()
         return status
 
     def _catalog(self) -> AkShareCatalogIngestor:

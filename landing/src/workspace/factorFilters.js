@@ -4,7 +4,7 @@ export const ALL = ''
 
 // 常见的值排在前面；没有列在这里的新值按出现的顺序排在后面。
 const SOURCE_ORDER = ['内置', 'Alpha101', '自定义']
-const TYPE_ORDER = ['动量与趋势', '反转与价格位置', '波动与风险', '成交与流动性', 'K线与量价关系', '基础行情特征']
+const TYPE_ORDER = ['价值与估值', '盈利与质量', '成长', '规模', '动量与趋势', '反转与价格位置', '波动与风险', '成交与流动性', 'K线与量价关系', '基础行情特征']
 
 export const sourceOf = (factor) => factor.source || '其他'
 export const typeOf = (factor) => factor.logical_category || factor.category || '未分类'
