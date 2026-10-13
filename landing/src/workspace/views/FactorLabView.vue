@@ -13,6 +13,8 @@ import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
+import FactorFilter from '../ui/FactorFilter.vue'
+import { factorsBySource, filterFactors } from '../factorFilters.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -90,14 +92,19 @@ async function loadFactors() {
   }
 }
 
-const factorOptions = computed(() =>
-  factors.value.map((f) => ({ value: f.name, label: f.display_name || f.name }))
-)
+// 因子库的筛选条件（来源、类型），因子库和组合研究里选因子的列表共用。
+const factorFilter = ref({ source: '', type: '' })
+const shownFactors = computed(() => filterFactors(factors.value, factorFilter.value))
+// 选因子的列表：已经选中的因子即使不符合筛选条件也留在列表里。
+const compListed = computed(() => filterFactors(factors.value, factorFilter.value, compForm.factor_names))
+const researchListed = computed(() => filterFactors(factors.value, factorFilter.value, researchForm.factor_names))
+const sourceGroups = computed(() => factorsBySource(factors.value))
 
 const factorCols = [
   { key: 'name', label: '因子名' },
   { key: 'display_name', label: '中文名' },
-  { key: 'category', label: '类别' },
+  { key: 'logical_category', label: '类型' },
+  { key: 'source', label: '来源' },
   { key: 'description', label: '说明' },
   { key: 'formula', label: '计算公式' },
   { key: 'direction', label: '方向' },
@@ -618,9 +625,10 @@ onBeforeUnmount(() => {
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
-      <SectionCard title="因子库" hint="内置因子与自定义因子，方向 1 表示正向、-1 表示反向">
+      <SectionCard title="因子库" hint="可以按来源和类型筛选；方向 1 表示正向、-1 表示反向">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
-        <DataTable v-else :columns="factorCols" :rows="factors" empty="暂无因子">
+        <FactorFilter v-if="!factorsLoading && factors.length" v-model="factorFilter" :factors="factors" class="mb-4" />
+        <DataTable v-if="!factorsLoading" :columns="factorCols" :rows="shownFactors" :empty="factors.length ? '没有符合筛选条件的因子' : '暂无因子'">
           <template #cell-direction="{ value }">
             <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
               {{ directionLabel(value) }}
@@ -646,7 +654,9 @@ onBeforeUnmount(() => {
             <span class="mb-1 block text-xs text-slate-400">因子</span>
             <select v-model="evalForm.factor_name" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
               <option value="" disabled>请选择因子</option>
-              <option v-for="o in factorOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+              <optgroup v-for="group in sourceGroups" :key="group.label" :label="group.label">
+                <option v-for="f in group.factors" :key="f.name" :value="f.name">{{ f.display_name || f.name }}</option>
+              </optgroup>
             </select>
           </label>
           <label class="block">
@@ -716,9 +726,10 @@ onBeforeUnmount(() => {
         <div class="mb-1 flex items-center justify-between">
           <span class="text-xs text-slate-400">因子（已选 {{ compForm.factor_names.length }} 个，至少 2 个）</span>
         </div>
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mb-3 mt-2" />
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in compListed"
             :key="f.name"
             class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
@@ -851,9 +862,10 @@ onBeforeUnmount(() => {
     <template v-else-if="activeTab === 'research'">
       <SectionCard title="研究配置" hint="先用训练期确定规则，再用独立测试期比较选股能力；实际收益与回撤请到回测页验证">
         <p class="text-xs text-slate-400">因子（已选 {{ researchForm.factor_names.length }} 个，至少 2 个）</p>
-        <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mt-2" />
+        <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in researchListed"
             :key="f.name"
             class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
