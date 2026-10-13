@@ -1,6 +1,6 @@
 <script setup>
 import FormField from '../ui/FormField.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   compositeFactors,
   createCustomFactor,
@@ -13,6 +13,7 @@ import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
+import { alpha101Count, visibleFactors } from '../factorVisibility.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -90,8 +91,16 @@ async function loadFactors() {
   }
 }
 
+// Alpha101 公式因子默认不列出；开关的状态记在浏览器里。
+const ALPHA_KEY = 'fq-show-alpha101'
+const showAlpha = ref((() => { try { return localStorage.getItem(ALPHA_KEY) === '1' } catch { return false } })())
+watch(showAlpha, (value) => { try { localStorage.setItem(ALPHA_KEY, value ? '1' : '0') } catch { /* 记不住也不影响使用 */ } })
+const alphaCount = computed(() => alpha101Count(factors.value))
+const listedFactors = computed(() => visibleFactors(factors.value, showAlpha.value,
+  [evalForm.factor_name, ...compForm.factor_names, ...researchForm.factor_names]))
+
 const factorOptions = computed(() =>
-  factors.value.map((f) => ({ value: f.name, label: f.display_name || f.name }))
+  listedFactors.value.map((f) => ({ value: f.name, label: f.display_name || f.name }))
 )
 
 const factorCols = [
@@ -602,7 +611,13 @@ onBeforeUnmount(() => {
           {{ t.label }}
         </button>
       </div>
-      <button class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:-translate-y-0.5 hover:bg-white/10" @click="activeTab = activeTab === 'custom' ? 'library' : 'custom'">{{ activeTab === 'custom' ? '返回因子库' : '新建因子' }}</button>
+      <div class="flex flex-wrap items-center gap-4">
+        <label v-if="alphaCount" class="flex cursor-pointer items-center gap-2 text-sm text-slate-400"
+          title="来自公开的 101 Formulaic Alphas 公式集。公式为美股设计，使用前请先做因子评估。">
+          <input v-model="showAlpha" type="checkbox" class="accent-indigo-500" />显示 Alpha101 公式因子（{{ alphaCount }} 个）
+        </label>
+        <button class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:-translate-y-0.5 hover:bg-white/10" @click="activeTab = activeTab === 'custom' ? 'library' : 'custom'">{{ activeTab === 'custom' ? '返回因子库' : '新建因子' }}</button>
+      </div>
     </div>
 
     <div v-if="activeTab === 'research'" class="flex flex-wrap items-center justify-between gap-3">
@@ -620,7 +635,7 @@ onBeforeUnmount(() => {
     <template v-if="activeTab === 'library'">
       <SectionCard title="因子库" hint="内置因子与自定义因子，方向 1 表示正向、-1 表示反向">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
-        <DataTable v-else :columns="factorCols" :rows="factors" empty="暂无因子">
+        <DataTable v-else :columns="factorCols" :rows="listedFactors" empty="暂无因子">
           <template #cell-direction="{ value }">
             <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
               {{ directionLabel(value) }}
@@ -718,7 +733,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in listedFactors"
             :key="f.name"
             class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
@@ -853,7 +868,7 @@ onBeforeUnmount(() => {
         <p class="text-xs text-slate-400">因子（已选 {{ researchForm.factor_names.length }} 个，至少 2 个）</p>
         <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in listedFactors"
             :key="f.name"
             class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
