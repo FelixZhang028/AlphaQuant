@@ -2,6 +2,7 @@
 import json
 import sqlite3
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -9,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.quant import run_evidence
-from app.quant.benchmark_view import benchmark_comparison
+from app.quant.benchmark_view import benchmark_comparison, benchmark_options
 from app.routes import backtests
 from app.routes.auth import get_current_user
 
@@ -64,9 +65,61 @@ def test_missing_or_broken_run_files_have_no_comparison(tmp_path):
     assert benchmark_comparison(directory) is None
 
 
+def index_bars(symbol, closes, start="2025-01-02"):
+    return pd.DataFrame({"symbol": symbol, "trade_date": pd.bdate_range(start, periods=len(closes)), "raw_close": closes})
+
+
+FULL_SUMMARY = {**SUMMARY, "initial_cash": 100.0, "cumulative_return": 0.15, "annualization": 252, "risk_free_rate": 0.0}
+
+
+def test_another_index_is_recomputed_from_local_bars_the_way_the_engine_anchors_its_own(tmp_path):
+    directory = save(tmp_path / "run", [100, 104, 110, 115], [100, 120, 90, 110], FULL_SUMMARY)
+    # 同样的走势换一个名字：数字应当和引擎保存的沪深 300 曲线一致。
+    bars = pd.concat([index_bars("000905.SH", [2000, 2400, 1800, 2200]), index_bars("000852.SH", [50, 51, 52, 53])])
+    other = benchmark_comparison(directory, "000905.SH", bars)
+    recorded = benchmark_comparison(directory)
+    assert (other["symbol"], other["name"]) == ("000905.SH", "中证 500")
+    assert other["benchmark_curve"] == recorded["benchmark_curve"] and other["strategy_curve"] == recorded["strategy_curve"]
+    assert (other["benchmark_return"], other["excess_return"], other["benchmark_max_drawdown"]) == (10.0, 5.0, 25.0)
+    assert other["beta"] is not None and other["tracking_error"] is not None
+    # 选回记录里的基准时，用的是引擎保存的数字。
+    assert benchmark_comparison(directory, "000300.SH", bars) == recorded
+
+
+def test_an_index_that_starts_late_or_stops_early_is_not_compared(tmp_path):
+    equity = [100 + step for step in range(12)]
+    directory = save(tmp_path / "run", equity, [100] * 12, FULL_SUMMARY)
+    late = benchmark_comparison(directory, "000905.SH", index_bars("000905.SH", [10] * 10, start="2025-01-06"))
+    assert late == {"symbol": "000905.SH", "name": "中证 500", "comparable": False, "benchmark_start": "2025-01-06"}
+    # 行情比回测早结束 6 个交易日：超过允许的 5 天。
+    stopped = benchmark_comparison(directory, "000905.SH", index_bars("000905.SH", [10, 11, 12, 13, 14, 15]))
+    assert stopped == {"symbol": "000905.SH", "name": "中证 500", "comparable": False, "benchmark_end": "2025-01-09"}
+    # 只晚一两天更新是常见情况，仍然比较，缺的那几天沿用最后一个值。
+    recent = benchmark_comparison(directory, "000905.SH", index_bars("000905.SH", [10 + step for step in range(10)]))
+    assert recent["comparable"] and recent["benchmark_curve"][-3:] == [90.0, 90.0, 90.0]
+
+
+def test_indices_without_usable_bars_cannot_be_chosen(tmp_path):
+    directory = save(tmp_path / "run", [100, 104, 110, 115], [100, 120, 90, 110], FULL_SUMMARY)
+    bars = index_bars("000905.SH", [10, 11, 12, 13], start="2030-01-01")
+    # 有行情但完全在回测之后（或之前）：说明行情从哪天开始、到哪天为止。
+    assert benchmark_comparison(directory, "000905.SH", bars) == {
+        "symbol": "000905.SH", "name": "中证 500", "comparable": False, "benchmark_start": "2030-01-01"}
+    assert benchmark_comparison(directory, "000905.SH", index_bars("000905.SH", [10, 11], start="2020-01-01")) == {
+        "symbol": "000905.SH", "name": "中证 500", "comparable": False, "benchmark_end": "2020-01-02"}
+    assert benchmark_comparison(directory, "000852.SH", bars) is None
+    assert benchmark_comparison(directory, "000905.SH") is None
+    listed = benchmark_options(pd.concat([index_bars("000852.SH", [1, 2]), index_bars("000300.SH", [1, 2, 3]), index_bars("999999.XX", [1])]))
+    assert listed == [{"symbol": "000300.SH", "name": "沪深 300", "start_date": "2025-01-02", "end_date": "2025-01-06"},
+                      {"symbol": "000852.SH", "name": "中证 1000", "start_date": "2025-01-02", "end_date": "2025-01-03"}]
+    assert benchmark_options(pd.DataFrame()) == []
+
+
 def test_the_result_endpoint_carries_the_comparison_for_runs_made_earlier(tmp_path, monkeypatch):
     monkeypatch.setattr(run_evidence, "RUNTIME_ROOT", tmp_path)
-    directory = save(tmp_path / "runs" / "1", [100, 104, 110, 115], [100, 120, 90, 110])
+    bars = pd.concat([index_bars("000300.SH", [3000, 3600, 2700, 3300]), index_bars("000905.SH", [2000, 2100, 2200, 2300])])
+    monkeypatch.setattr(backtests, "market_repository", lambda: SimpleNamespace(read_table=lambda name: bars))
+    directory = save(tmp_path / "runs" / "1", [100, 104, 110, 115], [100, 120, 90, 110], FULL_SUMMARY)
     db = tmp_path / "test.db"
 
     @contextmanager
@@ -86,5 +139,16 @@ def test_the_result_endpoint_carries_the_comparison_for_runs_made_earlier(tmp_pa
     app.include_router(backtests.router)
     app.dependency_overrides[get_current_user] = lambda: {"id": 1}
     client = TestClient(app)
-    assert client.get("/api/v1/backtests/1").json()["benchmark"]["excess_return"] == 5.0
-    assert client.get("/api/v1/backtests/2").json()["benchmark"] is None
+    detail = client.get("/api/v1/backtests/1").json()
+    assert detail["benchmark"]["excess_return"] == 5.0
+    assert [item["symbol"] for item in detail["benchmark_options"]] == ["000300.SH", "000905.SH"]
+    legacy = client.get("/api/v1/backtests/2").json()
+    assert legacy["benchmark"] is None and legacy["benchmark_options"] == []
+
+    # 换一个指数比较
+    other = client.get("/api/v1/backtests/1/benchmark", params={"symbol": "000905.SH"}).json()
+    assert (other["name"], other["benchmark_return"], other["excess_return"]) == ("中证 500", 15.0, 0.0)
+    assert client.get("/api/v1/backtests/1/benchmark", params={"symbol": "000852.SH"}).status_code == 404
+    assert client.get("/api/v1/backtests/1/benchmark", params={"symbol": "600519.SH"}).status_code == 422
+    assert client.get("/api/v1/backtests/2/benchmark", params={"symbol": "000905.SH"}).status_code == 404
+    assert client.get("/api/v1/backtests/9/benchmark", params={"symbol": "000905.SH"}).status_code == 404

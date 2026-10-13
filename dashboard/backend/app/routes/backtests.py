@@ -16,21 +16,23 @@ from dataclasses import asdict, replace as dc_replace
 from datetime import date
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Literal
 
 from ..database import _now, get_conn
-from ..quant.benchmark_view import benchmark_comparison
+from ..quant.benchmark_view import benchmark_comparison, benchmark_options
 from ..quant.result_adapter import backtest_run_to_result
 from ..quant.run_evidence import run_directory, with_run_evidence
 from ..quant.runtime import (
     build_backtest_service,
     local_data_bounds,
+    market_repository,
     security_names,
     user_risk_limits,
 )
 from ..routes.auth import get_current_user
+from quant_platform.application.benchmarks import BENCHMARK_NAMES
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
@@ -195,6 +197,7 @@ def get_backtest(bid: int, user: dict = Depends(get_current_user)):
     if not row:
         raise HTTPException(status_code=404, detail="回测不存在")
     result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
+    directory = run_directory(result)
     return {
         "id": row["id"],
         "strategy": row["strategy"],
@@ -207,6 +210,23 @@ def get_backtest(bid: int, user: dict = Depends(get_current_user)):
         "trades": result.get("trades") or [],
         "positions": result.get("positions") or [],
         # 和基准的对比在查看时从运行目录读出，所以以前的回测也有。
-        "benchmark": benchmark_comparison(run_directory(result)),
+        "benchmark": benchmark_comparison(directory),
+        # 本地有行情的常用指数：结果页可以换一个指数来比较。
+        "benchmark_options": benchmark_options(market_repository().read_table("benchmark_bars")) if directory else [],
     }
+
+
+@router.get("/{bid}/benchmark", summary="把一次回测和另一个指数比较")
+def backtest_benchmark(bid: int, symbol: str = Query(..., max_length=12), user: dict = Depends(get_current_user)):
+    if symbol not in BENCHMARK_NAMES:
+        raise HTTPException(status_code=422, detail="不支持的基准指数")
+    with get_conn() as conn:
+        row = conn.execute("SELECT result FROM backtests WHERE id = ? AND user_id = ?", (bid, user["id"])).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="回测不存在")
+    directory = run_directory(json.loads(row["result"]) if row["result"] else {})
+    comparison = benchmark_comparison(directory, symbol, market_repository().read_table("benchmark_bars"))
+    if comparison is None:
+        raise HTTPException(status_code=404, detail=f"本地没有{BENCHMARK_NAMES[symbol]}在这段时间的行情，请先在「数据更新」里更新基准指数。")
+    return comparison
 

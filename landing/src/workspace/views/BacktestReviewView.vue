@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, reactive, ref, watch } from 'vue'
-import { getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
+import { getBacktestBenchmark, getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { backtestId, runTime, strategyName, validityLabel } from '../runRecords.js'
 import RiskSettings from '../ui/RiskSettings.vue'
@@ -12,7 +12,7 @@ import FormField from '../ui/FormField.vue'
 import DataTable from '../ui/DataTable.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { pendingAuditRun } from '../auditLink.js'
-import { benchmarkCards, benchmarkNote, benchmarkSeries } from '../benchmarkPresentation.js'
+import { benchmarkCards, benchmarkChoices, benchmarkNote, benchmarkSeries } from '../benchmarkPresentation.js'
 
 const props = defineProps({
   routeContext: { type: Object, default: () => ({}) },
@@ -122,8 +122,33 @@ const metrics = computed(() => {
   ]
 })
 
-// 和基准（默认沪深 300）的对比；回测没有记录基准时为空。
-const benchmark = computed(() => current.value?.benchmark || null)
+// 和基准的对比。默认是回测时记录的基准（沪深 300），可以换成本地有行情的其他常用指数；
+// 换过一次后记住这个选择。回测没有记录基准时为空。
+const BENCHMARK_KEY = 'fq-benchmark'
+const benchmark = ref(null)
+const benchmarkLoading = ref(false)
+const benchmarkOptions = computed(() => benchmarkChoices(current.value?.benchmark_options, benchmark.value))
+function rememberedBenchmark() {
+  try { return localStorage.getItem(BENCHMARK_KEY) || '' } catch { return '' }
+}
+async function chooseBenchmark(symbol, remember = true, control = null) {
+  const id = selectedId.value
+  benchmarkLoading.value = true
+  try {
+    const next = await getBacktestBenchmark(id, symbol)
+    if (id !== selectedId.value) return
+    // 自动沿用上次的选择时，只有能比较才换；否则留在回测记录的基准上。
+    if (!remember && !next.comparable) return
+    benchmark.value = next
+    if (remember) { try { localStorage.setItem(BENCHMARK_KEY, symbol) } catch { /* 记不住也不影响比较 */ } }
+  } catch (e) {
+    if (remember) props.notify(e.message || '读取基准对比失败')
+    // 没换成：下拉框回到正在显示的那个指数。
+    if (control && benchmark.value) control.value = benchmark.value.symbol
+  } finally {
+    benchmarkLoading.value = false
+  }
+}
 const comparisonCards = computed(() => benchmarkCards(benchmark.value))
 const comparisonSeries = computed(() => benchmarkSeries(benchmark.value))
 const comparisonNote = computed(() => benchmarkNote(benchmark.value))
@@ -157,9 +182,15 @@ async function loadDetail() {
   if (selectedId.value === null || selectedId.value === '') return
   detailLoading.value = true
   current.value = null
+  benchmark.value = null
   audit.value = null
   try {
     current.value = await getBacktest(selectedId.value)
+    benchmark.value = current.value.benchmark || null
+    const preferred = rememberedBenchmark()
+    if (benchmark.value && preferred !== benchmark.value.symbol && (current.value.benchmark_options || []).some((item) => item.symbol === preferred)) {
+      chooseBenchmark(preferred, false)
+    }
     if (props.routeContext.mode === 'reuse') {
       const config = current.value.result?.effective_config
       const reference = config?.strategy_reference || config?.strategy_plugin
@@ -243,6 +274,7 @@ async function loadRouteRun() {
   if (id === null) {
     selectedId.value = null
     current.value = null
+    benchmark.value = null
     audit.value = null
     return
   }
@@ -373,8 +405,17 @@ onActivated(async () => {
             <button @click="openResearch('market-chart', { run: selectedId })">在K线上查看成交 →</button>
           </div>
           <!-- 和基准比较：有完整的基准行情时显示两条累计收益曲线，否则只显示资金曲线。 -->
-          <section v-if="comparisonSeries.length" class="space-y-4" :aria-label="`和 ${benchmark.name} 比较`">
-            <h3 class="text-sm font-semibold text-white">和 {{ benchmark.name }} 比较</h3>
+          <h3 v-if="benchmark" class="flex flex-wrap items-center gap-2 text-sm font-semibold text-white">
+            <span>和</span>
+            <select v-if="benchmarkOptions.length > 1" :value="benchmark.symbol" :disabled="benchmarkLoading" aria-label="基准指数"
+              class="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-sm font-semibold text-white outline-none focus:border-indigo-400/40 disabled:opacity-60"
+              @change="chooseBenchmark($event.target.value, true, $event.target)">
+              <option v-for="item in benchmarkOptions" :key="item.value" :value="item.value" class="bg-ink">{{ item.label }}</option>
+            </select>
+            <span v-else>{{ benchmark.name }}</span>
+            <span>比较</span>
+          </h3>
+          <section v-if="comparisonSeries.length" class="space-y-4" aria-label="和基准比较">
             <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard v-for="card in comparisonCards" :key="card.label" :label="card.label" :value="card.value" :sub="card.sub" :tone="card.tone" />
             </div>
