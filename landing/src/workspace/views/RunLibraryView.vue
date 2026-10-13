@@ -2,7 +2,7 @@
 import { computed, onActivated, ref } from 'vue'
 import { openResearch } from '../researchNavigation.js'
 import { listRuns, compareRuns } from '../../api.js'
-import MetricCard from '../ui/MetricCard.vue'
+import { MAX_COMPARED, recordsSummary, runTime, toggleSelection } from '../runRecords.js'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
@@ -22,16 +22,7 @@ const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
 
-const cards = computed(() => {
-  const s = stats.value || {}
-  return [
-    { label: '全部记录', value: s.all ?? '—', tone: 'text-white' },
-    { label: '成功', value: s.success ?? '—', tone: 'text-emerald-300' },
-    { label: '失败', value: s.failed ?? '—', tone: 'text-rose-300' },
-    { label: '旧版未验证', value: s.legacy_unverified ?? '—', tone: 'text-amber-300' },
-    { label: '实验子回测', value: s.experiment ?? '—', tone: 'text-indigo-300' },
-  ]
-})
+const summary = computed(() => recordsSummary(total.value, stats.value))
 
 const runKindLabel = {
   single: '单次',
@@ -84,6 +75,8 @@ async function loadRuns(kw = '') {
     runs.value = data?.items || []
     total.value = data?.total ?? runs.value.length
     stats.value = data?.stats || null
+    // 搜索后不在列表里的记录不再保持勾选。
+    selectedIds.value = selectedIds.value.filter((id) => runs.value.some((r) => r.run_id === id))
   } catch (e) {
     error.value = e.message || '加载失败'
     props.notify(e.message || '加载失败')
@@ -115,13 +108,9 @@ const runMap = computed(() => Object.fromEntries(runs.value.map((r) => [r.run_id
 const selectedCount = computed(() => selectedIds.value.length)
 
 function toggleSelect(runId) {
-  const i = selectedIds.value.indexOf(runId)
-  if (i >= 0) {
-    selectedIds.value.splice(i, 1)
-    return
-  }
-  if (selectedIds.value.length >= 5) return props.notify('最多选择 5 次回测')
-  selectedIds.value.push(runId)
+  const next = toggleSelection(selectedIds.value, runId)
+  if (next === null) return props.notify(`最多选择 ${MAX_COMPARED} 次回测`)
+  selectedIds.value = next
 }
 
 async function onCompare() {
@@ -163,7 +152,9 @@ const comparisonRows = computed(() => {
 
 // ---------- 表格列 ----------
 const showDetailedColumns = ref(false)
+const selectColumn = { key: 'select', label: '对比' }
 const fullRunColumns = [
+  selectColumn,
   { key: 'run_id', label: '运行' },
   { key: 'run_kind', label: '类型' },
   { key: 'status', label: '状态' },
@@ -179,6 +170,7 @@ const fullRunColumns = [
   { key: 'actions', label: '操作' },
 ]
 const runColumns = computed(() => showDetailedColumns.value ? fullRunColumns : [
+  selectColumn,
   { key: 'strategy', label: '策略 / 记录' },
   { key: 'period', label: '回测区间' },
   { key: 'cumulative_return', label: '累计收益', align: 'right' },
@@ -207,54 +199,45 @@ onActivated(() => loadRuns(keyword.value.trim()))
     <!-- 标题 -->
     <div class="glass glass-sheen rounded-2xl p-6">
       <h1 class="text-xl font-bold text-white">研究记录</h1>
-      <p class="mt-1 text-sm text-slate-400">统一管理回测记录，支持筛选与 2~5 次绩效对比</p>
+      <p class="mt-1 text-sm text-slate-400">每一次回测都保存在这里：重新打开结果、带入配置继续研究，或勾选 2~5 次做对比。</p>
     </div>
 
-    <!-- 统计卡片 -->
-    <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
-      <MetricCard
-        v-for="c in cards"
-        :key="c.label"
-        :label="c.label"
-        :value="c.value"
-        :tone="c.tone"
-      />
-    </section>
-
-    <!-- 筛选 -->
-    <SectionCard title="筛选" hint="按关键字匹配运行标签（策略｜区间｜日期）后重新加载记录。">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+    <!-- 回测记录：搜索、勾选对比、打开结果都在这一张表里 -->
+    <SectionCard title="回测记录" :hint="summary">
+      <template #actions>
+        <span class="text-xs text-slate-500">已选 {{ selectedCount }} / {{ MAX_COMPARED }}</span>
+        <button
+          @click="onCompare"
+          :disabled="comparing || selectedCount < 2"
+          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
+        >
+          {{ comparing ? '对比中…' : '对比所选' }}
+        </button>
+      </template>
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
         <input
           v-model="keyword"
           @keyup.enter="onSearch"
-          placeholder="输入策略名或关键字…"
+          placeholder="按策略名、日期搜索…"
+          aria-label="搜索回测记录"
           class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40 sm:max-w-sm"
         />
         <div class="flex items-center gap-2">
-          <button
-            @click="onSearch"
-            :disabled="loading"
-            class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-          >
+          <button @click="onSearch" :disabled="loading" class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/5 disabled:opacity-70">
             {{ loading ? '搜索中…' : '搜索' }}
           </button>
-          <button
-            @click="onReset"
-            class="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/5"
-          >
-            重置
-          </button>
+          <button v-if="keyword" @click="onReset" class="px-2 py-2 text-sm text-slate-400 hover:text-slate-200">清除</button>
         </div>
+        <label class="flex items-center gap-2 text-sm text-slate-400 sm:ml-auto"><input v-model="showDetailedColumns" type="checkbox" class="accent-indigo-500" />显示详细字段</label>
       </div>
-      <p v-if="error" class="mt-3 text-sm text-rose-300">{{ error }}</p>
-    </SectionCard>
-
-    <!-- 历史记录 -->
-    <SectionCard title="历史记录" :hint="`共 ${total} 条真实回测记录。`">
-      <template #actions><label class="flex items-center gap-2 text-sm text-slate-400"><input v-model="showDetailedColumns" type="checkbox" class="accent-indigo-500" />显示详细字段</label></template>
+      <p v-if="error" class="mb-3 text-sm text-rose-300">{{ error }}</p>
       <div v-if="loading" class="text-sm text-slate-400">加载中…</div>
-      <EmptyState v-else-if="!runs.length" text="暂无回测记录" />
+      <EmptyState v-else-if="!runs.length" :text="keyword ? '没有符合条件的回测记录' : '暂无回测记录'" />
       <DataTable v-else :columns="runColumns" :rows="runs" empty="暂无回测记录">
+        <template #cell-select="{ row }">
+          <input type="checkbox" class="h-4 w-4 rounded accent-indigo-500" :aria-label="`选择 ${row.run_id} 参加对比`"
+            :checked="selectedIds.includes(row.run_id)" @change="toggleSelect(row.run_id)" />
+        </template>
         <template #cell-actions="{ row }">
           <div class="flex flex-wrap gap-2 whitespace-nowrap text-sm text-indigo-300">
             <button @click="openResearch('backtest-review', { run: row.backtest_id || row.run_id })">查看结果</button>
@@ -281,7 +264,7 @@ onActivated(() => loadRuns(keyword.value.trim()))
         </template>
         <template #cell-strategy="{ row }">
           <span class="font-medium text-white">{{ row.strategy || '—' }}</span>
-          <span v-if="!showDetailedColumns" class="mt-1 block text-xs text-slate-400">{{ row.run_id }}</span>
+          <span v-if="!showDetailedColumns" class="mt-1 block text-xs text-slate-400">{{ row.run_id }} · {{ runTime(row.updated_at) }}</span>
         </template>
         <template #cell-period="{ row }"><span class="whitespace-nowrap text-slate-400">{{ row.start_date }}<br />至 {{ row.end_date }}</span></template>
         <template #cell-start_date="{ row }">
@@ -300,49 +283,14 @@ onActivated(() => loadRuns(keyword.value.trim()))
           <span class="text-slate-300">{{ fmtRatio(row.sharpe) }}</span>
         </template>
         <template #cell-updated_at="{ row }">
-          <span class="text-slate-400">{{ row.updated_at || '—' }}</span>
+          <span class="whitespace-nowrap text-slate-400">{{ runTime(row.updated_at) }}</span>
         </template>
       </DataTable>
     </SectionCard>
 
-    <!-- 结果对比 -->
-    <SectionCard title="结果对比" hint="勾选 2~5 次回测，对比累计收益、回撤与夏普等绩效指标。">
-      <template #actions>
-        <span class="text-xs text-slate-500">已选 {{ selectedCount }} / 5</span>
-        <button
-          @click="onCompare"
-          :disabled="comparing || selectedCount < 2"
-          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-        >
-          {{ comparing ? '对比中…' : '开始对比' }}
-        </button>
-      </template>
-
-      <EmptyState v-if="!runs.length" text="暂无可对比的回测记录" />
-      <div v-else class="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-        <label
-          v-for="r in runs"
-          :key="r.run_id"
-          class="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 transition hover:bg-white/10"
-        >
-          <input
-            type="checkbox"
-            :checked="selectedIds.includes(r.run_id)"
-            @change="toggleSelect(r.run_id)"
-            class="h-4 w-4 rounded accent-indigo-500"
-          />
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="font-mono text-xs text-indigo-300">{{ r.run_id }}</span>
-              <span class="text-sm text-white">{{ r.strategy || '—' }}</span>
-            </div>
-            <p class="mt-0.5 truncate text-xs text-slate-500">{{ r.run_label || `${r.start_date || '—'} ~ ${r.end_date || '—'}` }}</p>
-          </div>
-          <span class="text-sm font-semibold" :class="pctClass(r.cumulative_return)">{{ fmtPct(r.cumulative_return) }}</span>
-        </label>
-      </div>
-
-      <div v-if="comparison && comparison.length" class="mt-6 space-y-6">
+    <!-- 对比结果 -->
+    <SectionCard v-if="comparison && comparison.length" title="对比结果" hint="所选回测的净值与绩效指标。">
+      <div class="space-y-6">
         <div>
           <div class="flex items-center justify-between text-xs text-slate-400">
             <span>净值对比 · {{ comparisonScope?.start_date }} 至 {{ comparisonScope?.end_date }}</span>
