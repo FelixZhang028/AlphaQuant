@@ -21,8 +21,9 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Literal
 
 from ..database import _now, get_conn
+from ..quant.benchmark_view import benchmark_comparison
 from ..quant.result_adapter import backtest_run_to_result
-from ..quant.run_evidence import with_run_evidence
+from ..quant.run_evidence import run_directory, with_run_evidence
 from ..quant.runtime import (
     build_backtest_service,
     local_data_bounds,
@@ -205,5 +206,7 @@ def get_backtest(bid: int, user: dict = Depends(get_current_user)):
         "result": result,
         "trades": result.get("trades") or [],
         "positions": result.get("positions") or [],
+        # 和基准的对比在查看时从运行目录读出，所以以前的回测也有。
+        "benchmark": benchmark_comparison(run_directory(result)),
     }
 

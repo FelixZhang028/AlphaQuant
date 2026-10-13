@@ -12,6 +12,7 @@ import FormField from '../ui/FormField.vue'
 import DataTable from '../ui/DataTable.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { pendingAuditRun } from '../auditLink.js'
+import { benchmarkCards, benchmarkNote, benchmarkSeries } from '../benchmarkPresentation.js'
 
 const props = defineProps({
   routeContext: { type: Object, default: () => ({}) },
@@ -120,6 +121,12 @@ const metrics = computed(() => {
     { label: '卡玛比率', value: fmtNum(result.value.calmar), tone: '' },
   ]
 })
+
+// 和基准（默认沪深 300）的对比；回测没有记录基准时为空。
+const benchmark = computed(() => current.value?.benchmark || null)
+const comparisonCards = computed(() => benchmarkCards(benchmark.value))
+const comparisonSeries = computed(() => benchmarkSeries(benchmark.value))
+const comparisonNote = computed(() => benchmarkNote(benchmark.value))
 
 const equitySeries = computed(() => [
   { label: '资金曲线', color: '#818cf8', points: Array.isArray(result.value.equity) ? result.value.equity : [] },
@@ -365,10 +372,30 @@ onActivated(async () => {
             <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数验证 →</button>
             <button @click="openResearch('market-chart', { run: selectedId })">在K线上查看成交 →</button>
           </div>
-          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p class="text-xs text-slate-400">资金曲线</p>
-            <LineChart :series="equitySeries" :height="220" />
-          </div>
+          <!-- 和基准比较：有完整的基准行情时显示两条累计收益曲线，否则只显示资金曲线。 -->
+          <section v-if="comparisonSeries.length" class="space-y-4" :aria-label="`和 ${benchmark.name} 比较`">
+            <h3 class="text-sm font-semibold text-white">和 {{ benchmark.name }} 比较</h3>
+            <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard v-for="card in comparisonCards" :key="card.label" :label="card.label" :value="card.value" :sub="card.sub" :tone="card.tone" />
+            </div>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-400">
+                <span>累计收益</span>
+                <span v-for="line in comparisonSeries" :key="line.label" class="inline-flex items-center gap-1.5">
+                  <span class="inline-block h-0.5 w-4" :style="{ backgroundColor: line.color }" />{{ line.label }} {{ line.end }}
+                </span>
+              </div>
+              <LineChart class="mt-2" :series="comparisonSeries" :height="220" :fill="false" />
+            </div>
+            <p class="text-xs text-slate-400">{{ comparisonNote }}</p>
+          </section>
+          <template v-else>
+            <div class="rounded-xl border border-white/10 bg-white/5 p-4">
+              <p class="text-xs text-slate-400">资金曲线</p>
+              <LineChart :series="equitySeries" :height="220" />
+            </div>
+            <p v-if="comparisonNote" class="text-xs text-slate-400">{{ comparisonNote }}</p>
+          </template>
         </div>
 
         <!-- 交易与成本 -->
