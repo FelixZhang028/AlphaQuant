@@ -32,3 +32,13 @@ export function indicatorSummary(status) {
   if (!status.missing_symbols) return `本地有行情的 ${number(status.symbols)} 只股票都已覆盖（${span}）。`
   return `已有 ${number(status.symbols)} 只股票（${span}），还有 ${number(status.missing_symbols)} 只没有。`
 }
+
+// 财务数据的覆盖情况，一句话。status 来自闭环状态接口的 fundamentals。
+export function fundamentalsSummary(status) {
+  if (!status) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  if (!status.symbols) return '还没有下载。'
+  const latest = `最新报告期 ${status.latest_stat_date}`
+  if (!status.missing_symbols) return `本地有行情的 ${number(status.symbols)} 只股票都有财报（${latest}）。`
+  return `已有 ${number(status.symbols)} 只股票的财报（${latest}）；本地有行情的股票里还有 ${number(status.missing_symbols)} 只没有。`
+}

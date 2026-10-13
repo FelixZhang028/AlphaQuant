@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
-import { indicatorSummary } from '../dataPresentation.js'
+import { fundamentalsSummary, indicatorSummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -164,6 +164,7 @@ async function runUpdate() {
 // ===========================================================================
 const STAGES = {
   daily_indicators: '估值与换手率',
+  quarterly_fundamentals: '财务数据',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -193,6 +194,7 @@ const DATASET_OPTIONS = [
   { value: 'actions', label: '分红送配' },
   { value: 'derived', label: '历史股票池与退市结算' },
   { value: 'indicators', label: '估值与换手率' },
+  { value: 'fundamentals', label: '财务数据' },
 ]
 function toggleDataset(v) {
   const idx = jobForm.datasets.indexOf(v)
@@ -382,6 +384,13 @@ async function fillIndicators() {
   if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
   await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['indicators'] })
 }
+// 财务数据：一只股票、一个季度地取，所以默认只下载股票池；全市场在高级更新里选择。
+const fundamentals = computed(() => loop.value?.fundamentals || null)
+const fundamentalsText = computed(() => fundamentalsSummary(fundamentals.value))
+async function downloadPoolFundamentals() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['fundamentals'], scope: 'universe' })
+}
 // 后台任务结束后，重新读取落地情况。
 watch(activeJob, (job, previous) => { if (previous && !job) loadLoop() })
 function clearPoll() {
@@ -511,6 +520,18 @@ onBeforeUnmount(clearPoll)
           @click="fillIndicators">{{ activeJob ? '后台任务运行中…' : '补全历史数据' }}</button>
       </div>
       <p class="mt-2 text-xs text-slate-500">市盈率、市净率、市销率、市现率和换手率，价值类和换手类因子要用到。以后每次更新行情会自动带上；这里补的是以前下载的行情，在后台运行，每只股票一次请求，不会改动已有的行情。</p>
+    </section>
+    <section v-if="fundamentals" class="glass rounded-2xl p-5" aria-label="财务数据">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">财务数据</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ fundamentalsText }}</p>
+        </div>
+        <button type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadPoolFundamentals">{{ activeJob ? '后台任务运行中…' : '下载股票池的财务数据' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">季度财报里的毛利率、同比增长、负债率和总股本，质量、成长和规模类因子要用到；每份财报从公告日起才会被使用。每只股票约 15 秒，已有的报告期不会重复下载。全市场大约需要 20 多个小时，可以在「高级更新」里选择「财务数据」后台下载，中断后可以继续。</p>
     </section>
     <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
     <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">

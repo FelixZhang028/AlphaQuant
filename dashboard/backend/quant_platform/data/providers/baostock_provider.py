@@ -19,6 +19,12 @@ _HISTORY_FIELDS = (
 )
 # 估值与换手率：和不复权日线在同一次请求里返回，不需要另外请求。
 _INDICATOR_FIELDS = "peTTM,pbMRQ,psTTM,pcfNcfTTM,turn"
+# 季度财务数据：每次请求一只股票的一个季度。
+_QUARTERLY_QUERIES = {
+    "profit": "query_profit_data",
+    "growth": "query_growth_data",
+    "balance": "query_balance_data",
+}
 
 
 def _ensure_baostock_pandas_compat() -> None:
@@ -134,6 +140,16 @@ class BaoStockDataProvider(DataProvider):
                 frequency="d",
                 adjustflag=adjustflag,
             ),
+        )
+
+    def get_quarterly_report(self, kind: str, symbol: str, year: int, quarter: int) -> pd.DataFrame:
+        """One quarterly report section (profit, growth or balance); empty when not published."""
+
+        self.login()
+        name = _QUARTERLY_QUERIES[kind]
+        return self._query_frame(
+            name,
+            lambda: getattr(self._client, name)(code=self.to_baostock_symbol(symbol), year=year, quarter=quarter),
         )
 
     def get_indicator_range(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:

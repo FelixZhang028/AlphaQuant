@@ -122,11 +122,11 @@ def test_a_range_update_saves_indicators_beside_the_bars_without_changing_the_ba
 def test_bars_can_be_read_with_indicator_columns_attached(repo):
     repo.save_table(INDICATOR_TABLE, normalize_baostock_indicators(vendor_rows("000001.SZ", DAYS[:10])))
     plain = repo.get_daily_bars(["000001.SZ"])
-    joined = repo.get_daily_bars(["000001.SZ"], indicators=["pe_ttm", "turnover_rate", "raw_close"])
+    joined = repo.get_daily_bars(["000001.SZ"], extras=["pe_ttm", "turnover_rate", "raw_close"])
     assert list(joined.columns) == [*plain.columns, "pe_ttm", "turnover_rate"] and len(joined) == len(plain) == 30
     assert joined["pe_ttm"].notna().sum() == 10 and joined.loc[0, "turnover_rate"] == 1.5
     # 没有指标的股票：行情照常返回，指标是空值。
-    other = repo.get_daily_bars(["600519.SH"], indicators=["pe_ttm"])
+    other = repo.get_daily_bars(["600519.SH"], extras=["pe_ttm"])
     assert len(other) == 20 and other["pe_ttm"].isna().all()
     window = repo.get_daily_indicators(["000001.SZ"], DAYS[2].date(), DAYS[4].date(), columns=["pb_mrq"])
     assert list(window.columns) == ["symbol", "trade_date", "pb_mrq"] and len(window) == 3
@@ -238,7 +238,7 @@ def test_value_factors_are_the_inverse_of_the_stored_ratios(repo):
     stored = normalize_baostock_indicators(vendor_rows("000001.SZ", DAYS))
     stored.loc[3, "pe_ttm"] = -20.0                                   # 亏损：盈利收益率为负
     repo.save_table(INDICATOR_TABLE, stored)
-    loaded = repo.get_daily_bars(["000001.SZ"], indicators=INDICATOR_COLUMNS)
+    loaded = repo.get_daily_bars(["000001.SZ"], extras=INDICATOR_COLUMNS)
     ep = wide(factor("ep_ttm").compute(loaded))["000001.SZ"]
     assert ep.iloc[0] == pytest.approx(1 / 10.0) and ep.iloc[3] == pytest.approx(-1 / 20.0)
     assert wide(factor("bp_mrq").compute(loaded))["000001.SZ"].iloc[0] == pytest.approx(0.8)
@@ -251,7 +251,7 @@ def test_turnover_factors_use_rolling_averages(repo):
     stored = normalize_baostock_indicators(vendor_rows("000001.SZ", DAYS))
     stored["turnover_rate"] = [1.0] * 25 + [3.0] * 5
     repo.save_table(INDICATOR_TABLE, stored)
-    loaded = repo.get_daily_bars(["000001.SZ"], indicators=["turnover_rate"])
+    loaded = repo.get_daily_bars(["000001.SZ"], extras=["turnover_rate"])
     average = wide(factor("turnover_20").compute(loaded))["000001.SZ"]
     assert average.index[0] == DAYS[19] and average.iloc[0] == pytest.approx(1.0) and average.iloc[-1] == pytest.approx(1.5)
     change = wide(factor("turnover_change_20").compute(loaded))["000001.SZ"]
@@ -275,7 +275,7 @@ def test_evaluation_and_strategies_ask_for_the_indicator_columns_they_need(repo)
     original = repo.get_daily_bars
 
     def recording(*args, **options):
-        asked.append(tuple(options.get("indicators", ())))
+        asked.append(tuple(options.get("extras", ())))
         return original(*args, **options)
 
     repo.get_daily_bars = recording

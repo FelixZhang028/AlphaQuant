@@ -128,7 +128,7 @@ class FactorCompositeStrategy(Strategy):
 
     @property
     def data_fields(self) -> frozenset[str]:
-        """成分因子用到的行情字段；回测引擎据此决定要不要读取估值与换手率。"""
+        """成分因子用到的行情字段；回测引擎据此决定要不要读取估值、换手率和财务数据。"""
 
         return frozenset(field for factor in self._components for field in factor.required_fields)
 

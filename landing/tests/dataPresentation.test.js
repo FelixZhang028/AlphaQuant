@@ -68,3 +68,13 @@ test('估值与换手率的覆盖情况用一句话说明：没有、部分、�
   assert.equal(indicatorSummary({ symbols: 5478, missing_symbols: 0, start_date: '2015-01-05', end_date: '2026-10-09' }),
     '本地有行情的 5,478 只股票都已覆盖（2015-01-05 至 2026-10-09）。')
 })
+
+test('财务数据的覆盖情况用一句话说明：没有、部分、全部', async () => {
+  const { fundamentalsSummary } = await import('../src/workspace/dataPresentation.js')
+  assert.equal(fundamentalsSummary(null), '')
+  assert.equal(fundamentalsSummary({ symbols: 0, missing_symbols: 5478, reports: 0, latest_stat_date: null }), '还没有下载。')
+  assert.equal(fundamentalsSummary({ symbols: 9, missing_symbols: 5469, reports: 420, latest_stat_date: '2026-06-30' }),
+    '已有 9 只股票的财报（最新报告期 2026-06-30）；本地有行情的股票里还有 5,469 只没有。')
+  assert.equal(fundamentalsSummary({ symbols: 5478, missing_symbols: 0, reports: 250000, latest_stat_date: '2026-06-30' }),
+    '本地有行情的 5,478 只股票都有财报（最新报告期 2026-06-30）。')
+})

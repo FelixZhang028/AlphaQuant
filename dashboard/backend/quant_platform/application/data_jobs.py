@@ -131,10 +131,12 @@ class DataJobs:
             (r for r in self.records() if r["status"] in ("RUNNING", "RETRYING", "STARTING")), None
         )
 
-    def start(self, start_date, end_date, datasets):
+    def start(self, start_date, end_date, datasets, symbols=None):
+        """启动后台任务。``symbols`` 只对财务数据生效：限定下载哪些股票，不给就是全部。"""
+
         if start_date > end_date or end_date > date.today():
             raise ValueError("日期范围无效，结束日期不能晚于今天。")
-        if not datasets or not set(datasets) <= {"bars", "actions", "derived", "indicators"}:
+        if not datasets or not set(datasets) <= {"bars", "actions", "derived", "indicators", "fundamentals"}:
             raise ValueError("请至少选择一个有效的数据集。")
         with exclusive(self.directory / ".launch.lock"):
             if self.active():
@@ -147,6 +149,7 @@ class DataJobs:
                 start_date=str(start_date),
                 end_date=str(end_date),
                 datasets=list(datasets),
+                symbols=list(symbols) if symbols else None,
                 config=self.config,
                 cwd=self.cwd,
                 status="STARTING",
@@ -231,9 +234,14 @@ def attempt(folder, job):
     if "indicators" in job["datasets"]:
         # 放在日线之后：这次任务里刚下载的行情，估值与换手率已经跟着存好了，这里只补以前的。
         result["daily_indicators"] = service.backfill_daily_indicators(start, end, progress=progress)
+    if "fundamentals" in job["datasets"]:
+        result["quarterly_fundamentals"] = service.backfill_fundamentals(
+            start, end, symbols=job.get("symbols"), progress=progress
+        )
     write_json(folder / "result.json", result)
     failed = any(
-        result.get(key, {}).get("failed") for key in ("daily_bars", "corporate_actions", "daily_indicators")
+        result.get(key, {}).get("failed")
+        for key in ("daily_bars", "corporate_actions", "daily_indicators", "quarterly_fundamentals")
     )
     return 2 if failed else 0
 

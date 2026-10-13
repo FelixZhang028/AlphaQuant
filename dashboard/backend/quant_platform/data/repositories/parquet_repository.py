@@ -12,6 +12,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from quant_platform.data.fundamentals import (
+    FUNDAMENTAL_COLUMNS,
+    FUNDAMENTALS_TABLE,
+    STORED_COLUMNS,
+    point_in_time,
+)
 from quant_platform.data.indicators import INDICATOR_COLUMNS, INDICATOR_TABLE
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
@@ -19,6 +25,7 @@ from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
 _TABLE_KEYS: dict[str, list[str]] = {
     "daily_bars": ["symbol", "trade_date"],
     INDICATOR_TABLE: ["symbol", "trade_date"],
+    FUNDAMENTALS_TABLE: ["symbol", "stat_date"],
     "trade_calendar": ["cal_date"],
     "security_master": ["symbol"],
     "corporate_actions": ["symbol", "ex_date"],
@@ -70,21 +77,42 @@ class ParquetMarketDataRepository(MarketDataRepository):
         start_date: date | None = None,
         end_date: date | None = None,
         *,
-        indicators: Iterable[str] = (),
+        extras: Iterable[str] = (),
     ) -> pd.DataFrame:
-        """Daily bars; ``indicators`` names valuation/turnover columns to attach to each bar.
+        """Daily bars; ``extras`` names further columns to attach to each bar.
 
-        A bar without a stored indicator keeps the bar and gets a missing value.
+        Valuation and turnover indicators are matched on the day. Financial-report columns are
+        matched point in time: each bar gets the newest report already published that day.
+        A bar without a value keeps the bar and gets a missing value.
         """
 
         bars = self._get_daily_bars(symbols, start_date, end_date)
-        wanted = [column for column in INDICATOR_COLUMNS if column in set(indicators)]
-        if not wanted:
+        asked = set(extras)
+        daily = [column for column in INDICATOR_COLUMNS if column in asked]
+        quarterly = [column for column in FUNDAMENTAL_COLUMNS if column in asked]
+        if not daily and not quarterly:
             return bars
         if bars.empty:
-            return bars.reindex(columns=[*bars.columns, *wanted])
-        stored = self.get_daily_indicators(symbols, start_date, end_date, columns=wanted)
-        return bars.merge(stored, on=["symbol", "trade_date"], how="left")
+            return bars.reindex(columns=[*bars.columns, *daily, *quarterly])
+        if daily:
+            stored = self.get_daily_indicators(symbols, start_date, end_date, columns=daily)
+            bars = bars.merge(stored, on=["symbol", "trade_date"], how="left")
+        if quarterly:
+            reports = self.get_fundamentals(symbols)
+            matched = point_in_time(bars, reports, quarterly)
+            for column in quarterly:
+                bars[column] = matched[column].to_numpy()
+        return bars
+
+    def get_fundamentals(self, symbols: list[str] | None = None) -> pd.DataFrame:
+        """Stored quarterly reports (one row per symbol and period), including checked-empty markers."""
+
+        frame = self.read_table(FUNDAMENTALS_TABLE)
+        if frame.empty:
+            return pd.DataFrame(columns=STORED_COLUMNS)
+        if symbols:
+            frame = frame[frame["symbol"].isin(symbols)]
+        return frame.sort_values(["symbol", "stat_date"]).reset_index(drop=True)
 
     def get_daily_indicators(
         self,

@@ -8,7 +8,7 @@ from math import isfinite
 
 import pandas as pd
 
-from quant_platform.data.indicators import indicator_columns
+from quant_platform.data.extras import extra_columns
 from quant_platform.factors.base import FactorDefinition
 from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames, drop_highly_correlated
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
@@ -76,10 +76,10 @@ def research_combination(
     if missing not in {"drop", "median"}:
         raise ValueError("研究组合请选择剔除缺失或中位数填充。")
 
-    extra = indicator_columns(field for factor in components for field in factor.required_fields)
+    extra = extra_columns(field for factor in components for field in factor.required_fields)
 
     def frames_until(end):
-        bars = repository.get_daily_bars(symbols=symbols, end_date=end, **({"indicators": extra} if extra else {}))
+        bars = repository.get_daily_bars(symbols=symbols, end_date=end, **({"extras": extra} if extra else {}))
         if bars.empty:
             raise ValueError("所选区间没有本地行情，请先更新数据。")
         universe = bars[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})

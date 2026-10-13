@@ -114,7 +114,7 @@ const props = defineProps({
 - 回测与验证分为策略回测、参数验证两页；参数验证在同一页先做参数优化、再做样本外验证，共用基准回测与候选参数。风控设置只在回测表单里折叠出现这一处（独立的风险管理页已删除），未保存修改会阻止运行。回测结果的概览包含全部收益与风险指标。完整审计附于结果，外部成交核查位于高级工具。旧链接 `walk-forward`、`risk-management` 分别落到参数验证页和策略回测页。
 - 模板的规则在表单里可见、可改，副本保持规则一致。统一回测记录保存策略引用与实际执行配置；Python 资产使用独立身份，名称相同或代码装饰器相同也不会覆盖另一个资产。
 - 因子研究默认三个栏目：因子库、单因子评估、组合研究。组合页完成选因子、权重/区间配置和评估；原合成评估作为高级方式保留。
-- 因子库可以筛选（`ui/FactorFilter.vue`、`factorFilters.js`）：按来源（内置、Alpha101、自定义……）和类型（动量与趋势、反转与价格位置、波动与风险、成交与流动性、K线与量价关系……）两排，每一项后面是点下去以后的因子数。筛选项来自因子自己的 `source` 和 `logical_category` 字段，以后增加新的来源或类型时会自动出现。组合研究里选因子的列表共用同一个筛选条件，已经选中的因子即使不符合条件也留在列表里；单因子评估的下拉框按来源分组。目前有 16 个内置因子（含 4 个价值类、2 个换手类，它们需要先下载估值与换手率）和 28 个 Alpha101 因子。
+- 因子库可以筛选（`ui/FactorFilter.vue`、`factorFilters.js`）：按来源（内置、Alpha101、自定义……）和类型（动量与趋势、反转与价格位置、波动与风险、成交与流动性、K线与量价关系……）两排，每一项后面是点下去以后的因子数。筛选项来自因子自己的 `source` 和 `logical_category` 字段，以后增加新的来源或类型时会自动出现。组合研究里选因子的列表共用同一个筛选条件，已经选中的因子即使不符合条件也留在列表里；单因子评估的下拉框按来源分组。目前有 23 个内置因子和 28 个 Alpha101 因子。内置因子里，价值与估值 4 个、换手类 2 个、净资产收益率（TTM）和净利率（TTM）需要先下载估值与换手率；毛利率、资产负债率、两个同比增长因子和总市值需要先下载财务数据。
 - 历史回测只在研究记录里列出。策略回测页的结果区只显示一次回测：刚运行的，或从研究记录打开的（链接里的 `run`）；没有 `run` 时显示一句说明。运行完成后把 `run` 写进链接，刷新和后退可恢复；在「策略回测」与「参数验证」两个标签之间切换时带着这次回测。
 - 研究记录是一张表：搜索、勾选 2~5 次做对比、查看结果、带入历史配置继续研究、回到原策略都在表里；默认显示关键指标，可开启详细字段。日期、资金、持仓与策略参数可以复用，股票池与风险使用当前设置。运行时间按本地时间显示到分钟。
 - 策略、记录、基准与股票代码通过白名单 URL 参数传递，支持刷新/后退；常规导航清除旧上下文。参数优化与滚动验证运行真实回测：同步执行，上限 24 种组合、100 次回测。
@@ -142,6 +142,7 @@ const props = defineProps({
 - `updateLocalStock(symbol,{start_date,end_date})` → `{status,message,rows,version_id,symbol}`；仅下载所选单股，不修改股票池。先展示日期表单，再明确执行。
 - `dataUpdate({start_date,end_date,include_security_master,include_market,include_benchmark,source_choice,allow_fallback})` → `{ results:[{dataset,version_id,status,rows,message,error}] }`
 - 估值与换手率（每日指标）：市盈率、市净率、市销率、市现率（TTM/最近一季）和换手率，单独存在 `daily_indicators` 表里，不改动行情表。用 BaoStock 更新行情时在同一次请求里取回并保存；以前下载的行情通过后台任务补全（`startDataJob({start_date,end_date,datasets:['indicators']})`，每只股票一次请求，只请求还没有的日期，可中断后继续）。`closedLoopStatus()` 的返回值增加 `indicators:{symbols,missing_symbols,rows,start_date,end_date}`；数据更新页据此显示覆盖情况和「补全历史数据」按钮。还没有下载时使用相关因子会提示去数据更新页补全。
+- 财务数据（季度财报）：净资产收益率、净利率、毛利率、净利润、同比增长（净资产、总资产、净利润、每股收益）、流动比率、速动比率、权益乘数、总股本和流通股本，存在 `quarterly_fundamentals` 表里，每行是一只股票的一个报告期，带公告日。**每份财报从公告日起才会被使用**（同一天公告两期时用较新的一期；超过 370 天的财报不再使用）。BaoStock 一次只能取一只股票的一个季度，所以默认只下载股票池：`startDataJob({start_date,end_date,datasets:['fundamentals'],scope:'universe'})`；不带 `scope` 时是本地有行情的全部股票（约 20 多个小时，可续传）。`closedLoopStatus()` 的返回值增加 `fundamentals:{symbols,missing_symbols,reports,latest_stat_date,latest_pub_date}`；数据更新页据此显示覆盖情况和「下载股票池的财务数据」按钮。
 
 ### XTick 数据服务
 - `xtickCatalog()` → `{ catalog:[{id,name,apis:[{id,name,url,description,inputs:[{name,label,type,default,range}]}]}] }`（type 为 'String'|'date'|'range'，range 形如 `"1-沪深京A股，2-沪深指数"`）
