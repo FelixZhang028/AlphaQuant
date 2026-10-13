@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, AliasChoices, ConfigDict
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict, model_validator
 
 from ..database import _now, get_conn
 from ..quant.result_adapter import backtest_run_to_result, factor_report_to_dict
@@ -1617,6 +1617,64 @@ def local_market_bars(symbol: str, adjust: str = Query("forward", pattern="^(for
         return _local_market_catalog().kline(symbol, adjust=adjust)
     except KeyError:
         raise HTTPException(status_code=404, detail="本地没有该股票的行情，请先更新行情")
+
+
+# 画线工具 -> 需要的点数。名称与前端图表库的图形名称一致。
+DRAWING_TOOLS = {"segment": 2, "rayLine": 2, "horizontalStraightLine": 1, "fibonacciLine": 2}
+MAX_DRAWINGS = 50
+
+
+class DrawingPoint(BaseModel):
+    date: date
+    # 不复权价格：换复权方式、以后再有分红，线仍然落在同一根 K 线的同一个位置。
+    price: float = Field(gt=0, allow_inf_nan=False)
+
+
+class Drawing(BaseModel):
+    name: str
+    points: list[DrawingPoint]
+
+    @model_validator(mode="after")
+    def _known_tool_with_all_points(self):
+        if self.name not in DRAWING_TOOLS:
+            raise ValueError("不支持的画线类型")
+        if len(self.points) != DRAWING_TOOLS[self.name]:
+            raise ValueError("画线的点数不对")
+        return self
+
+
+class DrawingsIn(BaseModel):
+    drawings: list[Drawing] = Field(max_length=MAX_DRAWINGS)
+
+
+def _drawing_symbol(symbol: str) -> str:
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="股票代码格式不正确")
+    return to_bare(symbol)
+
+
+@router.get("/data-center/market/{symbol}/drawings", summary="当前用户在这只股票 K 线上画的线")
+def chart_drawings(symbol: str, user: dict = Depends(get_current_user)):
+    code = _drawing_symbol(symbol)
+    with get_conn() as conn:
+        row = conn.execute("SELECT drawings FROM chart_drawings WHERE user_id = ? AND symbol = ?",
+                           (user["id"], code)).fetchone()
+    return {"symbol": code, "drawings": json.loads(row["drawings"]) if row else [], "max_drawings": MAX_DRAWINGS}
+
+
+@router.put("/data-center/market/{symbol}/drawings", summary="保存这只股票上的全部画线（整体替换）")
+def save_chart_drawings(symbol: str, body: DrawingsIn, user: dict = Depends(get_current_user)):
+    code = _drawing_symbol(symbol)
+    drawings = [item.model_dump(mode="json") for item in body.drawings]
+    with get_conn() as conn:
+        if drawings:
+            conn.execute(
+                "INSERT INTO chart_drawings (user_id, symbol, drawings, updated_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(user_id, symbol) DO UPDATE SET drawings = excluded.drawings, updated_at = excluded.updated_at",
+                (user["id"], code, json.dumps(drawings), _now()))
+        else:
+            conn.execute("DELETE FROM chart_drawings WHERE user_id = ? AND symbol = ?", (user["id"], code))
+    return {"symbol": code, "drawings": drawings, "max_drawings": MAX_DRAWINGS}
 
 
 class SingleStockUpdateIn(BaseModel):

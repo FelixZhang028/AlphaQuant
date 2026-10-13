@@ -151,6 +151,8 @@ const props = defineProps({
 - 左侧股票列表、中间 K 线（日/周/月、MACD/KDJ/RSI、前复权/不复权）、右侧行情摘要；周线与月线由日线在前端合并。
 - `listAuditRuns()` 提供可叠加的回测；`runTradedSymbols(runId)` → `{ run_id,run_label,start_date,end_date,symbols:[{symbol,name,buys,sells,rejected}] }`
 - `runSymbolTrades(runId,symbol)` → `{ symbol,fills:[{date,side,quantity,price,reference_price,fees,slippage_cost}],rejected:[{date,side,quantity,reason,reason_label}],holdings:[{start_date,end_date}] }`；成交价为不复权价格，前端按当天 `factor` 换算后标在 K 线上。
+- 画线：线段、射线、水平线、斐波那契四种。画完自动保存到账户，按股票分开；点一条线选中后可以拖动或删除（右键也可以删除），「清除全部」要点两次。每只股票最多 50 条。
+- `chartDrawings(symbol)` / `saveChartDrawings(symbol,drawings)` → `{ symbol,drawings:[{name:'segment'|'rayLine'|'horizontalStraightLine'|'fibonacciLine',points:[{date,price}]}],max_drawings }`；保存是整体替换。`price` 是不复权价格，前端按当天 `factor` 换算，所以换周期、换复权方式、以后再有分红，线都落在同一根 K 线的同一个位置。
 
 ### 模拟交易
 - `paperAccounts()` → `{ accounts:[{account_id,display_name,status,strategy,start_date,initial_cash,top_n,last_date}] }`

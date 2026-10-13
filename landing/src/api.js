@@ -301,6 +301,12 @@ export function localMarketDetail(symbol) {
 export function localMarketBars(symbol, adjust = 'forward') {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/bars?${new URLSearchParams({ adjust })}`, { auth: true })
 }
+export function chartDrawings(symbol) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/drawings`, { auth: true })
+}
+export function saveChartDrawings(symbol, drawings) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/drawings`, { method: 'PUT', body: { drawings }, auth: true })
+}
 export function updateLocalStock(symbol, payload) {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/update`, { method: 'POST', body: payload, auth: true })
 }
