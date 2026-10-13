@@ -7,7 +7,12 @@ import pytest
 
 from quant_platform.application.data_service import CONTINUITY_LOOKBACK_DAYS, DataCenterService
 from quant_platform.core.exceptions import DataUnavailableError
-from quant_platform.data.adjustment import ContinuousAdjustmentRepository, align_adjustment_basis
+from quant_platform.application import data_service
+from quant_platform.data.adjustment import (
+    AdjustmentSourceChanged,
+    ContinuousAdjustmentRepository,
+    align_adjustment_basis,
+)
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.data.repositories.raw_repository import RawDataRepository
@@ -20,9 +25,10 @@ EX_DATE = "2026-09-24"
 STEP = 11.35 / 11.60  # the price ratio the dividend removes
 
 
-def bars(rows, symbol=SYMBOL, source="baostock:qfq/raw"):
+def bars(rows, symbol=SYMBOL, source="baostock:qfq/raw", provider="baostock"):
     return pd.DataFrame([{"symbol": symbol, "trade_date": pd.Timestamp(day), "raw_close": 10.0, "adj_factor": factor,
-                          "adjusted_close": None if factor is None else 10.0 * factor, "adjustment_source": source}
+                          "adjusted_close": None if factor is None else 10.0 * factor, "adjustment_source": source,
+                          "source": provider}
                          for day, factor in rows])
 
 
@@ -34,8 +40,8 @@ def test_new_rows_are_rescaled_to_the_history_before_the_window():
     stored = bars([("2026-09-23", 1.0)])
     # The provider's new basis is 1.0 on the last day, so earlier days come back smaller.
     incoming = bars([("2026-09-23", STEP), ("2026-09-24", 1.0), ("2026-10-08", 1.0)])
-    aligned, unaligned = align_adjustment_basis(incoming, stored, {SYMBOL})
-    assert unaligned == []
+    aligned, unaligned, source_changed = align_adjustment_basis(incoming, stored, {SYMBOL})
+    assert unaligned == [] and source_changed == {}
     assert factors(aligned) == {"2026-09-23": 1.0, "2026-09-24": round(1 / STEP, 6), "2026-10-08": round(1 / STEP, 6)}
     assert aligned["adjusted_close"].round(6).tolist() == [10.0, round(10 / STEP, 6), round(10 / STEP, 6)]
     assert set(aligned["adjustment_source"]) == {"baostock:qfq/raw;continuity_anchor=2026-09-23"}
@@ -45,7 +51,7 @@ def test_the_earliest_shared_day_anchors_even_when_later_stored_rows_are_broken(
     # 10-08 was saved on the wrong basis earlier; replaying the window from 09-23 must repair it.
     stored = bars([("2026-09-23", 1.0), ("2026-09-24", 1 / STEP), ("2026-10-08", 1.0)])
     incoming = bars([("2026-09-23", STEP), ("2026-09-24", 1.0), ("2026-10-08", 1.0)])
-    aligned, _ = align_adjustment_basis(incoming, stored, {SYMBOL})
+    aligned, *_ = align_adjustment_basis(incoming, stored, {SYMBOL})
     assert factors(aligned)["2026-10-08"] == round(1 / STEP, 6)
 
 
@@ -53,7 +59,7 @@ def test_rows_without_a_shared_day_are_withheld_instead_of_saved_on_a_guess():
     incoming = pd.concat([bars([("2026-10-08", 1.0)]), bars([("2026-10-08", 1.0)], symbol="600519.SH"),
                           bars([("2026-10-08", 1.0)], symbol="300750.SZ")], ignore_index=True)
     stored = bars([("2026-10-08", 2.0)], symbol="600519.SH")
-    aligned, unaligned = align_adjustment_basis(incoming, stored, {SYMBOL, "600519.SH"})
+    aligned, unaligned, _ = align_adjustment_basis(incoming, stored, {SYMBOL, "600519.SH"})
     assert unaligned == [SYMBOL]
     assert sorted(aligned["symbol"]) == ["300750.SZ", "600519.SH"]
     by_symbol = aligned.set_index("symbol")
@@ -65,7 +71,7 @@ def test_rows_without_a_shared_day_are_withheld_instead_of_saved_on_a_guess():
 
 def test_rows_that_carry_no_factor_pass_through():
     incoming = bars([("2026-10-08", None)], source="pytdx:unavailable")
-    aligned, unaligned = align_adjustment_basis(incoming, bars([]), {SYMBOL})
+    aligned, unaligned, _ = align_adjustment_basis(incoming, bars([]), {SYMBOL})
     assert unaligned == [] and len(aligned) == 1 and aligned["adjustment_source"].iloc[0] == "pytdx:unavailable"
     without_column = incoming.drop(columns=["adj_factor"])
     assert align_adjustment_basis(without_column, bars([]), {SYMBOL})[0] is without_column
@@ -158,3 +164,83 @@ def test_other_tables_and_factorless_bars_are_saved_unchanged(tmp_path):
     view.save_table("trade_calendar", pd.DataFrame({"cal_date": [pd.Timestamp("2026-10-08")], "is_open": 1}))
     view.save_table("daily_bars", bars([("2026-10-08", 1.0)]).drop(columns=["adj_factor"]))
     assert len(view.read_table("trade_calendar")) == 1 and len(view.get_daily_bars([SYMBOL])) == 1
+
+
+def test_another_providers_rows_never_continue_a_stored_history():
+    stored = bars([("2026-09-23", 1.0)])
+    # AkShare subtracts the dividend instead of scaling, so its ratio drifts day by day.
+    incoming = pd.concat([
+        bars([("2026-09-23", 0.978448), ("2026-09-24", 1.0)], provider="akshare"),
+        bars([("2026-09-24", 1.0)], symbol="300750.SZ", provider="akshare"),
+    ], ignore_index=True)
+    aligned, unaligned, source_changed = align_adjustment_basis(incoming, stored, {SYMBOL})
+    assert source_changed == {SYMBOL: ("baostock", "akshare")} and unaligned == []
+    # A stock with nothing stored may still be downloaded from the other provider.
+    assert aligned["symbol"].tolist() == ["300750.SZ"]
+    same = align_adjustment_basis(bars([("2026-09-23", 0.5), ("2026-09-24", 0.6)]), stored, {SYMBOL})
+    assert same.source_changed == {} and len(same.bars) == 2
+
+
+def test_the_repository_view_refuses_a_save_made_only_of_another_providers_rows(tmp_path):
+    repo = ParquetMarketDataRepository(tmp_path / "market")
+    repo.save_table("daily_bars", bars([("2026-09-22", 1.0), ("2026-09-23", 1.0)]))
+    view = ContinuousAdjustmentRepository(repo)
+    with pytest.raises(AdjustmentSourceChanged, match="历史行情来自 baostock，不能用 akshare 的数据续接"):
+        view.save_table("daily_bars", bars([("2026-09-23", 0.978448), ("2026-09-24", 1.0)], provider="akshare"))
+    assert view.source_changed == {SYMBOL: ("baostock", "akshare")}
+    stored = repo.get_daily_bars([SYMBOL])
+    assert stored["source"].eq("baostock").all() and len(stored) == 2
+
+
+class Unreachable:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def backfill(self, symbols, start_date, end_date):
+        raise DataUnavailableError("BaoStock login failed")
+
+
+class Fallback:
+    """Stands in for the AkShare backfill: saves its own rows through the repository it is given."""
+
+    def __init__(self, raw_repository, market_repository, **kwargs):
+        self.repository = market_repository
+
+    def backfill(self, symbols, start_date, end_date):
+        self.repository.save_table("daily_bars", pd.concat(
+            [bars([("2026-09-23", 0.978448), ("2026-09-24", 1.0)], symbol=symbol, provider="akshare") for symbol in symbols],
+            ignore_index=True))
+        return "report"
+
+
+def service_with(repo, order):
+    names = {"baostock": "BaoStock", "akshare": "AkShare"}
+    return SimpleNamespace(
+        repository=repo, raw_repository=None, _akshare_client=lambda: None,
+        sources=SimpleNamespace(resolve_market_sources=lambda requested: order, fallback_enabled=lambda allowed: True,
+                                baostock_provider=lambda: None, source_display_name=names.get))
+
+
+def test_when_the_usual_provider_is_down_the_fallback_cannot_overwrite_its_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_service, "BaoStockRangeBackfill", Unreachable)
+    monkeypatch.setattr(data_service, "AkShareRangeBackfill", Fallback)
+    repo = ParquetMarketDataRepository(tmp_path / "market")
+    repo.save_table("daily_bars", bars([("2026-09-22", 1.0), ("2026-09-23", 1.0)]))
+    run = DataCenterService._run_market_backfill
+    window = (date(2026, 9, 23), date(2026, 9, 24))
+
+    with pytest.raises(DataUnavailableError, match="BaoStock 暂时连不上.*不能用 akshare 的数据续接.*请稍后重试"):
+        run(service_with(repo, ["baostock", "akshare"]), [SYMBOL], *window)
+    assert repo.get_daily_bars([SYMBOL])["source"].eq("baostock").all()
+
+    # Asking for the other provider directly is refused for what it is, not as an outage.
+    with pytest.raises(AdjustmentSourceChanged) as refused:
+        run(service_with(repo, ["akshare"]), [SYMBOL], *window)
+    assert "暂时连不上" not in str(refused.value)
+
+    # Stocks with nothing stored still get the fallback; the others are reported, not written.
+    source, _, attempts, withheld = run(service_with(repo, ["baostock", "akshare"]), [SYMBOL, "300750.SZ"], *window)
+    assert source == "akshare" and [item["status"] for item in attempts] == ["failed", "success"]
+    assert withheld.source_changed == {SYMBOL: ("baostock", "akshare")} and withheld.unaligned == []
+    assert repo.get_daily_bars(["300750.SZ"])["source"].eq("akshare").all()
+    assert len(repo.get_daily_bars([SYMBOL])) == 2
