@@ -53,6 +53,16 @@ export function industrySummary(status) {
   return `已有 ${number(status.symbols)} 只股票的行业分类（${span}，${number(status.snapshots)} 个时点）${missing}。`
 }
 
+// 行情不完整的股票，一句话；没有时返回空串（页面不显示这一栏）。status 来自闭环状态接口的 bar_gaps。
+export function barGapSummary(status) {
+  if (!status?.symbols) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  const late = (status.examples || []).find((item) => item.first_bar)
+  const example = late ? `例如${late.name || late.symbol}（${late.symbol}）应该从 ${late.expected_start} 开始，本地从 ${late.first_bar} 才开始。` : ''
+  const absent = status.without_bars ? `其中 ${number(status.without_bars)} 只完全没有行情。` : ''
+  return `有 ${number(status.symbols)} 只股票的行情不完整：开始得比上市日期晚，或者完全没有。${example}${absent}`
+}
+
 // 指数历史成分股的覆盖情况，每个指数一句话。status 来自闭环状态接口的 index_constituents。
 export function indexConstituentsSummary(status) {
   return (status || []).map((item) => {

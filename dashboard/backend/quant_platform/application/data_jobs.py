@@ -136,7 +136,7 @@ class DataJobs:
 
         if start_date > end_date or end_date > date.today():
             raise ValueError("日期范围无效，结束日期不能晚于今天。")
-        if not datasets or not set(datasets) <= {"bars", "actions", "derived", "indicators", "fundamentals", "industry", "index_constituents"}:
+        if not datasets or not set(datasets) <= {"bars", "actions", "derived", "indicators", "fundamentals", "industry", "index_constituents", "bar_gaps"}:
             raise ValueError("请至少选择一个有效的数据集。")
         with exclusive(self.directory / ".launch.lock"):
             if self.active():
@@ -231,6 +231,8 @@ def attempt(folder, job):
             progress=progress,
             watchdog_timeout=600.0,
         )
+    if "bar_gaps" in job["datasets"]:
+        result["bar_gaps"] = service.repair_bar_gaps(start, end, progress=progress)
     if "indicators" in job["datasets"]:
         # 放在日线之后：这次任务里刚下载的行情，估值与换手率已经跟着存好了，这里只补以前的。
         result["daily_indicators"] = service.backfill_daily_indicators(start, end, progress=progress)
@@ -245,7 +247,7 @@ def attempt(folder, job):
     write_json(folder / "result.json", result)
     failed = any(
         result.get(key, {}).get("failed")
-        for key in ("daily_bars", "corporate_actions", "daily_indicators", "quarterly_fundamentals", "industry", "index_constituents")
+        for key in ("daily_bars", "corporate_actions", "daily_indicators", "quarterly_fundamentals", "industry", "index_constituents", "bar_gaps")
     )
     return 2 if failed else 0
 
