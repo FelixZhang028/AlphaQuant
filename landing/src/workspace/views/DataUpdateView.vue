@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
-import { barGapSummary, fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
+import { actionGapSummary, barGapSummary, fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -168,6 +168,7 @@ const STAGES = {
   industry: '行业分类',
   index_constituents: '指数成分股',
   bar_gaps: '补全行情',
+  corporate_action_gaps: '补全分红送转记录',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -408,6 +409,12 @@ const barGapText = computed(() => barGapSummary(loop.value?.bar_gaps))
 async function repairBarGaps() {
   await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['bar_gaps'] })
 }
+// 找不到分红送转记录的复权因子变化：先向 BaoStock 补查，剩下的（多半是配股）回测时推算。
+const actionGaps = computed(() => loop.value?.action_gaps || null)
+const actionGapText = computed(() => actionGapSummary(actionGaps.value))
+async function fillActionGaps() {
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['action_gaps'] })
+}
 // 指数历史成分股：找出名单发生变化的每一周，保存当时的完整名单。
 const indexConstituents = computed(() => loop.value?.index_constituents || null)
 const indexConstituentsLines = computed(() => indexConstituentsSummary(indexConstituents.value))
@@ -581,6 +588,18 @@ onBeforeUnmount(clearPoll)
           @click="repairBarGaps">{{ activeJob ? '后台任务运行中…' : '补全这些股票的行情' }}</button>
       </div>
       <p class="mt-2 text-xs text-slate-500">缺的那几年里，这些股票不会出现在回测、因子评估和指数成分股里，结果会不完整。补全时每只股票整段重新下载，通常每只几秒钟，数据源慢的时候会更久；在后台运行，每补完 10 只保存一次，中断后再点一次只补剩下的。补完后这一栏会消失。如果数据源确实没有某只股票更早的行情，它会一直留在这里。</p>
+    </section>
+    <section v-if="actionGapText" class="glass rounded-2xl p-5" aria-label="分红送转记录">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-base font-semibold text-white">分红送转记录</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ actionGapText }}</p>
+        </div>
+        <button v-if="actionGaps.to_check" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="fillActionGaps">{{ activeJob ? '后台任务运行中…' : '补全分红送转记录' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">回测持有的股票分红、送股时，按这些记录把现金和新股计入账户。日常更新用的数据源对已经退市的股票不返回记录，这里改用 BaoStock 补查，只查有缺口的股票和年份，通常几分钟；查过的年份不再重复查。配股不在这两个数据源里，回测会按复权因子推算成现金，并在结果的数据状态里列出。</p>
     </section>
     <section v-if="indexConstituents" class="glass rounded-2xl p-5" aria-label="指数成分股">
       <div class="flex flex-wrap items-center justify-between gap-3">

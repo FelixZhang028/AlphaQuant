@@ -34,6 +34,7 @@ _TABLE_KEYS: dict[str, list[str]] = {
     "industry_snapshots": ["requested_date"],
     "index_constituents": ["index_symbol", "effective_date", "symbol"],
     "index_constituent_checks": ["index_symbol"],
+    "corporate_action_checks": ["symbol", "year"],
     "delisting_settlements": ["symbol"],
 }
 
@@ -299,6 +300,32 @@ class ParquetMarketDataRepository(MarketDataRepository):
             cached = _SUMMARY_CACHE.get(key)
             if cached is None or cached[0] != signature:
                 cached = (signature, _summarize_daily_bars(files))
+                _SUMMARY_CACHE[key] = cached
+            return cached[1].copy()
+
+    def adj_factor_changes(self) -> pd.DataFrame:
+        """Every day a stock's adjustment factor changed: ``symbol, trade_date, previous_date, ratio``.
+
+        Reads three columns of the bars and is kept until a bar file changes, like the summary.
+        """
+
+        from quant_platform.data.corporate_action_gaps import factor_changes
+
+        files = self._daily_bar_files()
+        signature = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in files)
+        key = "factors:" + str(self.root.resolve())
+        with _SUMMARY_LOCK:
+            cached = _SUMMARY_CACHE.get(key)
+            if cached is None or cached[0] != signature:
+                parts = []
+                for path in files:
+                    names = pq.read_schema(path).names
+                    if {"symbol", "trade_date", "adj_factor"} <= set(names):
+                        parts.append(pq.ParquetFile(path, read_dictionary=["symbol"]).read(
+                            columns=["symbol", "trade_date", "adj_factor"]).to_pandas())
+                bars = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["symbol", "trade_date", "adj_factor"])
+                bars["symbol"] = bars["symbol"].astype(str)
+                cached = (signature, factor_changes(bars.drop_duplicates(["symbol", "trade_date"], keep="last")))
                 _SUMMARY_CACHE[key] = cached
             return cached[1].copy()
 

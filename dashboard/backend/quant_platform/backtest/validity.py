@@ -97,6 +97,7 @@ def assess_backtest_validity(
     evaluation_mode: str = "in_sample",
     fixed_universe: bool = True,
     members_missing_bars: Sequence[str] = (),
+    implied_actions: Sequence[dict[str, Any]] = (),
     maximum_allowed_gap_days: int = 20,
     endpoint_tolerance_days: int = 15,
 ) -> BacktestValidityReport:
@@ -196,6 +197,17 @@ def assess_backtest_validity(
                 IssueSeverity.WARNING,
                 f"有 {len(members_missing_bars)} 只成分股在成分期间缺少一部分本地行情（{names}），"
                 "缺行情的那段时间它们没有参与选股。补全这些股票的行情后重新回测，结果才完整。",
+            )
+        )
+    if implied_actions:
+        shown = "、".join(f"{item['symbol']} {item['ex_date']}" for item in list(implied_actions)[:5])
+        more = f"等 {len(implied_actions)} 次" if len(implied_actions) > 5 else ""
+        issues.append(
+            ValidityIssue(
+                "IMPLIED_CORPORATE_ACTIONS",
+                IssueSeverity.WARNING,
+                f"持仓有 {len(implied_actions)} 次复权因子变化找不到分红送转记录（{shown}{more}），多半是配股。"
+                "这几次按复权因子推算成现金计入账户，相当于把配股权按理论价值卖出；没有模拟真实的认购。",
             )
         )
     if evaluation_mode == "in_sample":

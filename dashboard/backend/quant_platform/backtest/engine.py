@@ -10,6 +10,7 @@ from uuid import uuid4
 import pandas as pd
 
 from quant_platform.accounts.account import Account
+from quant_platform.accounts.models import CorporateAction
 from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import assess_backtest_validity
@@ -206,6 +207,7 @@ class BacktestEngine:
         risk_rows: list[dict[str, object]] = []
 
         missing_adj_factor_events = 0
+        implied_actions: list[dict[str, object]] = []
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
             account.start_day(trade_date)
@@ -237,9 +239,19 @@ class BacktestEngine:
                     and not isclose(previous, current, rel_tol=1e-7)
                     and symbol not in unobserved_action_symbols
                 ):
-                    raise BacktestValidityError(
-                        f"MISSING_CORPORATE_ACTION: {symbol} {trade_date} 复权因子变化，"
-                        "缺少分红/送转明细，不能用复权价格代替现金结算"
+                    # 没有分红送转记录（多半是配股）：按复权因子推算成现金，并在结果里写明。
+                    # 因子变大 r 倍，相当于除权前的价格里有 1 - 1/r 是派给股东的价值。
+                    close = last_closing_prices.get(symbol)
+                    ratio = current / previous
+                    if ratio <= 1 or close is None or not isfinite(close) or close <= 0:
+                        raise BacktestValidityError(
+                            f"MISSING_CORPORATE_ACTION: {symbol} {trade_date} 复权因子变小或缺少前一天的收盘价，"
+                            "又没有分红送转记录，无法推算持仓的变化，所以没有继续回测。"
+                        )
+                    cash = close * (1 - 1 / ratio)
+                    day_actions = [*day_actions, CorporateAction(symbol=symbol, ex_date=trade_date, cash_per_share=cash)]
+                    implied_actions.append(
+                        {"symbol": symbol, "ex_date": trade_date, "ratio": ratio, "cash_per_share": cash}
                     )
             unobserved_action_symbols.difference_update(day_factors)
             todays_orders = pending.pop(trade_date, [])
@@ -459,6 +471,7 @@ class BacktestEngine:
             evaluation_mode=self.evaluation_mode,
             fixed_universe=self.fixed_universe,
             members_missing_bars=members_missing_bars,
+            implied_actions=implied_actions,
         )
         if validity.blocks_completion:
             errors = "；".join(
@@ -515,7 +528,11 @@ class BacktestEngine:
             risk_events=risk_frame,
             summary=analytics.summary,
             validity=validity.to_dict(),
-            corporate_actions=pd.DataFrame([asdict(action) for action in corporate_actions]),
+            # 推算出来的那几次也写进运行明细，标明来源，方便核对。
+            corporate_actions=pd.DataFrame(
+                [{**asdict(action), "source": "record"} for action in corporate_actions]
+                + [{**item, "source": "implied_from_adj_factor"} for item in implied_actions]
+            ),
         )
 
     @staticmethod
