@@ -101,10 +101,12 @@ const props = defineProps({
 - `createCustomFactor({name,display_name,description,field,operator,window,window2,direction})` → `{ created:{...} }`
 - `deleteCustomFactor(name)`
 
-### 智能体分析台
-- `agentConfig()` → `{ providers:[],stock_sources:[],news_sources:[],proxy_settings:{enabled,address},prior_knowledge:[] }`
-- `runAgent({symbol,trade_date,lookback_days,debate_rounds,provider})` → `{ run_id,symbol,name,decision:{status,final_action,final_position_pct,confidence,rejection_reason,conditions:[],rationale_chain:[]},state:{analysts:[{dimension,score,confidence,summary,key_findings:[],risks:[]}],debate:[{round,bull,bear,bull_reply,bull_summary,bear_summary}],proposal:{action,position_pct,confidence,stop_loss,target_price,holding_period,reason},risk:{vetoed,volatility,est_max_drawdown,veto_reason,conditions,comment},fill:{action,quantity,price,benchmark_price,fee,settle}},trace_log:[] }`
-- `battleAgent({message})` → `{ reply }`
+### AI 研究员
+- `aiStatus()` → `{ ai:{available,model},usage:{brief:{limit,used,remaining},question:{...}},experience_count,latest_date }`；管理员的 `limit`、`remaining` 为 null（不限次数）
+- `createBrief({symbol,trade_date,use_experience})` → 一次分析：`{ id,symbol,name,trade_date,created_at,model,facts:{symbol,name,trade_date,facts:[{key,group,label,text,value,as_of}],missing:[{group,reason}],notes:[]},brief:{tilt,confidence,summary,bull_points:[{text,evidence:[fact]}],risk_points,watch_points,removed}|null,ai_note,use_experience,questions:[{question,answer,at}] }`
+- `getBrief(id)` / `listBriefs()` → 同上 / `{ items:[{id,symbol,name,trade_date,created_at,tilt}] }`
+- `askBrief(id, message)` → `{ questions:[...],usage }`
+- `listPriorKnowledge()` → `{ entries:[{id,content,source}] }`
 
 ### 策略研究导航与统一回测流程（2026-10-10）
 
@@ -180,7 +182,10 @@ const props = defineProps({
 
 ### AI 智能投研导航与页面
 - 侧栏为 AI研究员、投研知识库、决策辅助。知识库页内分研究经验与文档问答，前者仍使用账户先验记录，后者仍使用独立文档服务，两者不自动同步。旧 `prior-knowledge` 链接进入研究经验，原 `knowledge-base` 链接进入文档问答；`mode=experience|documents` 支持刷新与前进后退。
-- AI研究员默认展示股票、研究日期、当前配置摘要与开始分析；模型、行情/新闻来源、经验选择及分析参数放在常驻展开的高级设置中，不提供该区块的折叠操作。经验增删统一到知识库。研究结论与依据先展示，报告、辩论、交易提案、风控、模拟成交及日志放入研究过程；有结果后展示继续追问。
+- AI研究员只有股票代码、分析日期（留空为本地最近的交易日）和“参考我的研究经验”。模型由平台统一提供（服务器环境变量），页面不填密钥；每人每天有分析和追问次数，管理员不限。
+- 每次分析先从本地数据整理出当天已知的数据（价格走势按复权价、成交、全市场与同行业比较、估值、财报、行业、指数、分红），不需要 AI、不限次数；当天只更新了一部分股票时不做全市场比较并说明原因；本地没有的数据列在“本地缺少的数据”。
+- 有模型时显示 AI 解读：倾向（偏多/中性/偏空）、信心、一段话和三组要点（看多的理由、风险、接下来留意），每条要点下面列出它引用的本地数据。没有依据、数字和数据对不上、或给出买卖建议（买入、仓位、目标价等）的要点会被去掉并写明条数。不显示交易提案、目标价、止损和模拟成交。
+- 分析编号写进链接（`brief=`），刷新或后退可以打开同一次分析；有 AI 解读时可以继续追问，追问只用这次的数据。
 - 决策辅助的三个标签为方案比较、条件判断、等级评分。WeKnora、Jev 仅出现在服务配置内；保留演示模式、真实服务错误与结果来源提示，不改变原有调用接口。
 
 ## 五、交互细节

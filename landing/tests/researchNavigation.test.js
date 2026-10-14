@@ -38,10 +38,10 @@ test('带策略和历史记录的链接刷新后仍能恢复，普通导航清�
   const url = researchUrl('http://localhost/app.html?view=overview&theme=dark&run=9', {
     view: 'backtest-review', strategy: 'package:alpha', run: 12, mode: 'reuse', ignored: 'value',
   })
-  assert.deepEqual(researchContext(url), { strategy: 'package:alpha', run: '12', baseline: '', mode: 'reuse', symbol: '' })
+  assert.deepEqual(researchContext(url), { strategy: 'package:alpha', run: '12', baseline: '', mode: 'reuse', symbol: '', brief: '' })
   assert.equal(url.searchParams.get('ignored'), null)
   assert.equal(url.searchParams.get('theme'), 'dark')
-  assert.deepEqual(researchContext(researchUrl(url, 'factor-lab')), { strategy: '', run: '', baseline: '', mode: '', symbol: '' })
+  assert.deepEqual(researchContext(researchUrl(url, 'factor-lab')), { strategy: '', run: '', baseline: '', mode: '', symbol: '', brief: '' })
 })
 test('行情图表的股票代码写入链接，离开该页后清除', () => {
   const url = researchUrl('http://localhost/app.html?view=data-management', { view: 'market-chart', symbol: '000001' })

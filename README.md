@@ -94,14 +94,16 @@ npm run dev -- --host 127.0.0.1
 | --- | --- |
 | `APP_SECRET` | 登录令牌签名；留空时自动生成并持久化本机随机密钥 |
 | `FELLOWQUANT_ADMIN_EMAIL` / `FELLOWQUANT_ADMIN_PASSWORD` | 首次创建管理员，初始密码至少 12 位；不提供公共默认密码 |
-| `OPENROUTER_API_KEY` | Jev 决策服务，也可在「系统 → 设置」填写 |
+| `OPENROUTER_API_KEY` | 平台统一提供的 AI 模型（AI研究员、用一句话生成规则），也用于 Jev 决策服务；用户不需要自己填写密钥 |
+| `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
+| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` | 可选：每人每天的 AI 分析、追问、生成规则次数（默认 5 / 20 / 10），管理员不限 |
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可在页面配置 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_FROM` | 密码重置邮件服务，采用 STARTTLS；默认端口 587 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP 登录凭据（邮件服务需要时填写） |
 
 未配置 SMTP 时密码重置不可用；验证码只发送至注册邮箱，不返回到浏览器。重置密码后旧登录令牌失效。本机账户、行情、运行记录和密钥保存在后端 `data/` 中，不进入 Git。
 
-WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。Jev 提供 Choice、Noul、Score 三种决策，可输入文本或 JSON 上下文；真实调用可能消耗服务额度。自然语言策略和 AI研究员使用聊天模型，Jev 在「决策辅助」中使用。
+WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。Jev 提供 Choice、Noul、Score 三种决策，可输入文本或 JSON 上下文；真实调用可能消耗服务额度。AI研究员和“用一句话生成规则”使用平台的聊天模型；没有配置时，AI研究员只显示本地数据，生成规则改用离线规则识别。Jev 在「决策辅助」中使用。
 
 ## 🧩 项目结构
 

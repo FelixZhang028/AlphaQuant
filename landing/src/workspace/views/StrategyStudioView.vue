@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { createPackage, nlGenerate, nlProviders, preflightPackage, studioOptions } from '../../api.js'
+import { createPackage, nlGenerate, nlStatus, preflightPackage, studioOptions } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { blankForm, blankRule, chooseIndicator, formFromDefinition, packagePayload } from '../ruleForm.js'
 import FormField from '../ui/FormField.vue'
@@ -64,42 +64,37 @@ function chooseStart(key) {
 }
 
 // ---------- 用一句话描述 ----------
-const providers = ref([])
-const nl = reactive({ description: '', provider: '', baseUrl: '', apiKey: '', model: '', generating: false, explanation: '' })
-const currentProvider = computed(() => providers.value.find((p) => p.key === nl.provider))
-function onProviderChange(key) {
-  const provider = providers.value.find((p) => p.key === key)
-  if (!provider) return
-  nl.baseUrl = provider.default_base_url || ''
-  nl.model = provider.default_model || provider.models?.[0] || ''
+const nlModel = ref({ ai: { available: false, model: null }, usage: null })
+const nl = reactive({ description: '', generating: false, explanation: '', note: '' })
+async function loadNlModel() {
+  try { nlModel.value = await nlStatus() } catch (e) { props.notify(e.message || '加载模型状态失败') }
 }
-async function loadProviders() {
-  try {
-    const data = await nlProviders()
-    providers.value = data.providers || []
-    nl.provider = providers.value.some((p) => p.key === data.default_provider) ? data.default_provider : providers.value[0]?.key || ''
-    onProviderChange(nl.provider)
-  } catch (e) {
-    props.notify(e.message || '加载模型配置失败')
-  }
-}
+const nlModelText = computed(() => {
+  const { ai, usage } = nlModel.value
+  if (!ai.available) return '使用离线规则识别'
+  const left = usage?.remaining == null ? '' : `，今天还可以用 ${usage.remaining} 次`
+  return `使用 AI 模型 ${ai.model}${left}`
+})
 async function generate() {
   if (!nl.description.trim()) return props.notify('请先写下策略的想法')
   nl.generating = true
   nl.explanation = ''
+  nl.note = ''
   try {
     const result = await nlGenerate({
-      description: nl.description, provider: nl.provider, base_url: nl.baseUrl, api_key: nl.apiKey, model: nl.model,
+      description: nl.description,
       top_n: Number(form.value.top_n), rebalance: form.value.rebalance,
     })
     form.value = formFromDefinition(result.definition, form.value, options.value)
     origin.value = { kind: 'describe' }
     nl.explanation = result.explanation || ''
+    nl.note = result.note || ''
     props.notify('规则已填进表单，请核对')
   } catch (e) {
     props.notify(e.message || '生成失败')
   } finally {
     nl.generating = false
+    loadNlModel()
   }
 }
 
@@ -162,7 +157,7 @@ onMounted(async () => {
   } catch (e) {
     loadError.value = e.message || '加载选项失败'
   }
-  loadProviders()
+  loadNlModel()
 })
 </script>
 
@@ -211,29 +206,11 @@ onMounted(async () => {
             <button type="button" :disabled="nl.generating" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white transition hover:-translate-y-0.5 disabled:opacity-70" @click="generate">
               {{ nl.generating ? '生成中…' : '生成规则' }}
             </button>
-            <span class="text-xs text-slate-400">使用模型：{{ currentProvider?.display_name || '未选择' }}。生成的规则会替换下面的表单，请核对后再保存。</span>
+            <span class="text-xs text-slate-400">{{ nlModelText }}。生成的规则会替换下面的表单，请核对后再保存。</span>
           </div>
-          <p v-if="nl.provider === 'mock'" class="text-xs text-amber-200">离线演示模型只能识别简单的句子，复杂的描述会漏掉条件。可以在下面的“模型设置”里换成真实的大模型。</p>
+          <p v-if="!nlModel.ai.available" class="text-xs text-amber-200">平台还没有配置 AI 模型，现在用离线规则识别，只能识别简单的句子，复杂的描述会漏掉条件。</p>
+          <p v-if="nl.note" class="text-xs text-amber-200">{{ nl.note }}</p>
           <p v-if="nl.explanation" class="whitespace-pre-wrap rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-relaxed text-slate-300">{{ nl.explanation }}</p>
-          <details class="rounded-xl border border-white/10 bg-white/5">
-            <summary class="cursor-pointer px-4 py-3 text-sm text-slate-300">模型设置</summary>
-            <div class="grid gap-4 p-4 pt-0 sm:grid-cols-2">
-              <FormField label="服务商" type="select" v-model="nl.provider" :options="providers.map((p) => ({ value: p.key, label: p.display_name }))" @update:model-value="onProviderChange" />
-              <FormField label="Base URL" v-model="nl.baseUrl" placeholder="https://api.example.com/v1" />
-              <label class="block">
-                <span class="mb-1 block text-xs text-slate-400">API Key</span>
-                <input v-model="nl.apiKey" type="password" autocomplete="off" :disabled="currentProvider?.requires_key === false" placeholder="留空则使用已保存的密钥"
-                  class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40 disabled:opacity-50" />
-                <span v-if="currentProvider?.requires_key === false" class="mt-1 block text-xs text-slate-500">该服务商无需 API Key</span>
-              </label>
-              <label class="block">
-                <span class="mb-1 block text-xs text-slate-400">模型</span>
-                <input v-model="nl.model" list="rule-strategy-models" placeholder="模型名称（可下拉或手填）"
-                  class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
-                <datalist id="rule-strategy-models"><option v-for="m in currentProvider?.models || []" :key="m" :value="m" /></datalist>
-              </label>
-            </div>
-          </details>
         </div>
 
         <p v-else class="mt-5 text-sm text-slate-400">下面的表单已经重置为一条空白条件，直接填写即可。</p>

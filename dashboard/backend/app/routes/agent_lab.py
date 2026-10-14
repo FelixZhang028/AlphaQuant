@@ -1,23 +1,24 @@
-"""智能体分析台路由（真实 LLM 多智能体流水线，迁移自 AlphaQuant）。
+"""AI 研究员路由：用本地数据读懂一只股票。
 
-以 vendored trading_agents 框架为核心：本地行情（Parquet）喂给
-DataFrameProvider，先验知识注入各 Agent 提示词；默认 mock provider
-可离线跑通全流程，也可配置 OpenAI 兼容的真实模型。
+每次分析先从本地数据整理出这只股票当天的数据（价格走势、成交、全市场比较、估值、财报、
+行业、指数、分红），这一步不需要 AI，也不限次数。平台配置了 AI 模型时，再让模型只根据这些
+数据写出倾向和要点；检查不通过的要点会被去掉。每次结果都保存，可以打开和继续追问。
 
-每个用户的运行时数据（LLM 设置 / 先验知识 / 流水线运行目录 / 决策缓存）
-相互隔离，存放于 data/runtime/agent_lab/user_{id}/。
+研究经验（先验知识）按用户隔离，存放于 data/runtime/agent_lab/user_{id}/。
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
-import threading
-from datetime import date
+import secrets
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, status
+import requests
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 
@@ -38,46 +39,31 @@ def _sanitize_detail(exc: Exception) -> str:
         return "操作失败，请检查输入或稍后重试"
     return text
 
-from quant_platform.agents_bridge.llm_settings import (
-    PROVIDER_CATALOG,
-    LLMSettingsStore,
-)
+from quant_platform.agents_bridge.llm_settings import LLMSettingsStore
 from quant_platform.agents_bridge.prior_knowledge import PriorKnowledgeStore
-from quant_platform.agents_bridge.runner import AgentRunner
-from quant_platform.agents_bridge.sources import NEWS_SOURCES, STOCK_SOURCES
-from trading_agents.orchestrator.events import EventBus
+from quant_platform.ai_research.brief import (
+    BriefFormatError,
+    ask_messages,
+    brief_messages,
+    check_answer,
+    check_brief,
+    parse_json,
+    retry_messages,
+)
+from quant_platform.ai_research.facts import StockFacts, stock_facts
 
+from ..database import get_conn
+from ..quant import platform_ai
 from ..quant.runtime import BACKEND_ROOT, market_repository, security_names
 from ..quant.symbols import to_bare, to_canonical
 from ..routes.auth import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/agent-lab", tags=["agent-lab"])
 
 _AGENT_ROOT = BACKEND_ROOT / "data" / "runtime" / "agent_lab"
-
-_NODE_LABELS = {
-    "resolve_identity": "标的识别",
-    "fetch_data": "数据获取",
-    "analyst_team": "分析师团队",
-    "debate": "多空辩论",
-    "trader_proposal": "交易员提案",
-    "risk_review": "风控审核",
-    "pm_approval": "组合经理审批",
-    "execute": "模拟成交",
-    "record_memory": "记忆归档",
-}
-_STATUS_LABELS = {"approved": "批准", "rejected": "拒绝", "conditional": "有条件批准"}
-_ACTION_LABELS = {"buy": "买入", "sell": "卖出", "hold": "持有"}
-_ANALYST_LABELS = {
-    "fundamental": "基本面",
-    "sentiment": "情绪面",
-    "news": "新闻舆情",
-    "technical": "技术面",
-}
-
-# 每用户最近一次分析的运行器与上下文（供「与 AI 对话交锋」复用）。
-_RUN_LOCK = threading.Lock()
-_LAST_RUN: dict[int, dict[str, Any]] = {}
+# 追问时带上最近几轮对话，太早的不再发给模型。
+MAX_HISTORY = 6
 
 
 def _user_dir(user_id: int) -> Path:
@@ -94,75 +80,45 @@ def _prior_store(user_id: int) -> PriorKnowledgeStore:
     return PriorKnowledgeStore(_user_dir(user_id) / "prior_knowledge.json")
 
 
-def _provider_payload(store: LLMSettingsStore, provider: str) -> dict[str, Any]:
-    spec = PROVIDER_CATALOG.get(provider)
-    if spec is None:
-        return {}
-    resolved = store.resolve(provider)
+def _ai_failure(exc: Exception) -> str:
+    """模型调用失败时给用户看的原因。"""
+    if isinstance(exc, requests.Timeout):
+        return "AI 服务响应超时"
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        if code in (401, 403):
+            return "平台的 AI 密钥无效，请联系管理员"
+        if code == 402:
+            return "平台的 AI 账户余额不足，请联系管理员"
+        if code == 429:
+            return "AI 服务繁忙，请稍后再试"
+        return f"AI 服务返回错误（{code}）"
+    if isinstance(exc, requests.RequestException):
+        return "连接不上 AI 服务"
+    if isinstance(exc, BriefFormatError):
+        return f"AI 的回答格式不对：{exc}"
+    return _sanitize_detail(exc)
+
+
+# --------------------------------------------------------------------------- #
+# 状态
+# --------------------------------------------------------------------------- #
+
+
+@router.get("/status", summary="AI 研究员：模型是否可用、今天还剩几次")
+def agent_status(user: dict = Depends(get_current_user)):
+    model = platform_ai.platform_model()
+    bounds = market_repository().daily_bar_bounds()
     return {
-        "key": spec.key,
-        "display_name": spec.display_name,
-        "requires_key": spec.requires_key,
-        "default_base_url": spec.default_base_url,
-        "models": list(spec.models),
-        "default_model": spec.default_model,
-        "base_url": resolved["base_url"],
-        "api_key": bool(resolved["api_key"]),
-        "model": resolved["model"],
+        "ai": {"available": model is not None, "model": model.label if model else None},
+        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question")},
+        "experience_count": len(_prior_store(user["id"]).list()),
+        "latest_date": bounds[1].isoformat() if bounds else None,
     }
 
 
 # --------------------------------------------------------------------------- #
-# 配置
-# --------------------------------------------------------------------------- #
-
-
-@router.get("/config", summary="智能体分析台配置")
-def agent_config(user: dict = Depends(get_current_user)):
-    store = _llm_store(user["id"])
-    provider = store.get_default_provider()
-    if provider == "openrouter":
-        provider = "mock"
-    entries = _prior_store(user["id"]).list()
-    return {
-        "default_provider": provider,
-        "providers": [
-            _provider_payload(store, key) for key in PROVIDER_CATALOG if key != "openrouter"
-        ],
-        "stock_sources": [
-            {"key": key, "label": label} for key, label in STOCK_SOURCES.items()
-        ],
-        "news_sources": [
-            {"key": key, "label": label} for key, label in NEWS_SOURCES.items()
-        ],
-        "prior_knowledge": [entry.to_dict() for entry in entries],
-    }
-
-
-class ProviderSaveIn(BaseModel):
-    provider: str
-    base_url: str = ""
-    api_key: str = ""
-    model: str = ""
-
-
-@router.post("/config", summary="保存 LLM Provider 配置（仅存本地）")
-def agent_config_save(body: ProviderSaveIn, user: dict = Depends(get_current_user)):
-    if body.provider not in PROVIDER_CATALOG or body.provider == "openrouter":
-        raise HTTPException(status_code=422, detail="未知的 LLM 提供商")
-    store = _llm_store(user["id"])
-    store.save(
-        body.provider,
-        base_url=body.base_url.strip(),
-        api_key=body.api_key.strip() or store.get(body.provider)["api_key"],
-        model=body.model.strip(),
-    )
-    store.save_default_provider(body.provider)
-    return {"ok": True, "message": "已保存到本地配置（仅保存在本机，不会上传）"}
-
-
-# --------------------------------------------------------------------------- #
-# 先验知识库
+# 研究经验
 # --------------------------------------------------------------------------- #
 
 
@@ -196,289 +152,144 @@ def prior_delete(entry_id: str, user: dict = Depends(get_current_user)):
 
 
 # --------------------------------------------------------------------------- #
-# 运行分析（真实流水线）
+# 个股分析
 # --------------------------------------------------------------------------- #
 
 
-class AgentRunIn(BaseModel):
+class BriefIn(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=12)
-    trade_date: str = ""
-    lookback_days: int = Field(60, ge=20, le=250)
-    debate_rounds: int = Field(1, ge=0, le=4)
-    provider: str = "mock"
-    stock_source: str = "local"
-    news_sources: list[str] = Field(default_factory=list)
-    prior_ids: list[str] | None = None  # None = 注入全部
-    use_cache: bool = True
+    trade_date: str = ""  # 空表示本地最新的交易日
+    use_experience: bool = True
 
 
-def _enum_text(value: object) -> str:
-    return str(getattr(value, "value", value))
+class QuestionIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=500)
 
 
-def _history_frame(symbol: str, end: date, lookback: int) -> pd.DataFrame:
-    frame = market_repository().get_daily_bars(symbols=[symbol], end_date=end)
-    if frame.empty:
-        return frame
-    return frame.sort_values("trade_date").tail(lookback).reset_index(drop=True)
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _state_to_json(state, decision) -> dict[str, Any]:
-    """把 PipelineState / Decision 压成前端展示结构。"""
-
-    proposal = state.proposal if state is not None else None
-    if proposal is None and decision.proposal is not None:
-        proposal = decision.proposal
-
-    analysts = []
-    if state is not None and state.reports:
-        for dimension, report in state.reports.items():
-            analysts.append(
-                {
-                    "dimension": _ANALYST_LABELS.get(dimension, dimension),
-                    "score": report.score,
-                    "confidence": report.confidence,
-                    "summary": report.summary,
-                    "key_findings": [f.claim for f in report.key_findings],
-                    "risks": list(report.red_flags),
-                }
-            )
-
-    debate = []
-    if state is not None and state.debate is not None:
-        by_round: dict[int, dict[str, str]] = {}
-        for turn in state.debate.turns:
-            slot = by_round.setdefault(turn.round, {"round": turn.round})
-            if turn.stance == "bull":
-                slot["bull"] = turn.argument
-                if turn.response_to_opponent:
-                    slot["bull_reply"] = turn.response_to_opponent
-            else:
-                slot["bear"] = turn.argument
-                if turn.response_to_opponent:
-                    slot["bear_reply"] = turn.response_to_opponent
-        debate = sorted(by_round.values(), key=lambda item: item["round"])
-        if debate:
-            if state.debate.bull_summary:
-                debate[-1]["bull_summary"] = state.debate.bull_summary
-            if state.debate.bear_summary:
-                debate[-1]["bear_summary"] = state.debate.bear_summary
-
-    proposal_json = {}
-    if proposal is not None:
-        proposal_json = {
-            "action": _ACTION_LABELS.get(_enum_text(proposal.action), _enum_text(proposal.action)),
-            "position_pct": round(float(proposal.position_pct) * 100, 1),
-            "confidence": proposal.confidence,
-            "stop_loss": proposal.stop_loss,
-            "target_price": proposal.target_price,
-            "holding_period": proposal.holding_horizon,
-            "reason": proposal.rationale,
-        }
-
-    risk = state.risk if state is not None else decision.risk
-    risk_json = {}
-    if risk is not None:
-        risk_json = {
-            "vetoed": risk.veto,
-            "volatility": risk.volatility_level,
-            "est_max_drawdown": f"-{round(float(risk.max_drawdown_est) * 100, 1)}%",
-            "veto_reason": risk.veto_reason or None,
-            "conditions": list(risk.conditions),
-            "comment": risk.commentary,
-        }
-
-    fill_json = {}
-    if state is not None and state.fill is not None:
-        fill_json = {
-            "action": _ACTION_LABELS.get(_enum_text(state.fill.action), _enum_text(state.fill.action)),
-            "quantity": round(float(state.fill.quantity)),
-            "price": state.fill.price,
-            "benchmark_price": state.fill.reference_price,
-            "fee": state.fill.commission,
-            "settle": str(state.fill.settlement_date),
-        }
-
+def _record(row) -> dict[str, Any]:
+    stored = json.loads(row["brief"]) if row["brief"] else {}
     return {
-        "decision": {
-            "status": _STATUS_LABELS.get(_enum_text(decision.status), _enum_text(decision.status)),
-            "final_action": _ACTION_LABELS.get(
-                _enum_text(decision.final_action), _enum_text(decision.final_action)
-            ),
-            "final_position_pct": round(float(decision.final_position_pct) * 100, 1),
-            "confidence": proposal.confidence if proposal is not None else None,
-            "rejection_reason": decision.rejection_reason or None,
-            "conditions": list(decision.conditions),
-            "rationale_chain": list(decision.rationale_chain),
-        },
-        "state": {
-            "analysts": analysts,
-            "debate": debate,
-            "proposal": proposal_json,
-            "risk": risk_json,
-            "fill": fill_json,
-            "error": state.error if state is not None else "",
-        },
+        "id": row["id"],
+        "symbol": row["symbol"],
+        "name": row["name"],
+        "trade_date": row["trade_date"],
+        "created_at": row["created_at"],
+        "model": row["model"] or None,
+        "facts": json.loads(row["facts"]),
+        "brief": stored.get("reading"),
+        "ai_note": stored.get("note", ""),
+        "use_experience": bool(stored.get("experience", False)),
+        "questions": json.loads(row["questions"] or "[]"),
     }
 
 
-def _battle_context(state, decision, prior_text: str, name: str) -> str:
-    lines = [
-        f"标的: {decision.ticker}（{name}）",
-        f"分析日期: {decision.trade_date}",
-        "最终决策: "
-        f"{_enum_text(decision.status)} / {_enum_text(decision.final_action)} / "
-        f"仓位 {float(decision.final_position_pct):.1%}",
-    ]
-    if decision.rationale_chain:
-        lines.append("理由链: " + "；".join(str(item) for item in decision.rationale_chain))
-    if decision.rejection_reason:
-        lines.append(f"拒绝原因: {decision.rejection_reason}")
-    if prior_text.strip():
-        lines.append(f"用户设定的先验知识（分析时的约束边界）:\n{prior_text}")
-    if state is not None:
-        if state.reports:
-            for dimension, report in state.reports.items():
-                label = _ANALYST_LABELS.get(dimension, dimension)
-                lines.append(f"[{label}] 评分 {float(report.score):+.2f}：{report.summary}")
-        if state.debate is not None:
-            if state.debate.bull_summary:
-                lines.append(f"多方总结: {state.debate.bull_summary}")
-            if state.debate.bear_summary:
-                lines.append(f"空方总结: {state.debate.bear_summary}")
-        if state.proposal is not None and state.proposal.rationale:
-            lines.append(f"提案理由: {state.proposal.rationale}")
-    return "\n".join(lines)
+def _load(brief_id: str, user: dict):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM stock_briefs WHERE id = ? AND user_id = ?", (brief_id, user["id"])).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="没有找到这次分析")
+    return row
 
 
-@router.post("/run", summary="运行多智能体分析流水线（真实引擎）")
-def agent_run(body: AgentRunIn, user: dict = Depends(get_current_user)):
-    if body.provider not in PROVIDER_CATALOG or body.provider == "openrouter":
-        raise HTTPException(status_code=422, detail="未知的 LLM 提供商")
-    store = _llm_store(user["id"])
-    resolved = store.resolve(body.provider)
-    spec = PROVIDER_CATALOG[body.provider]
-    if spec.requires_key and not resolved["api_key"]:
-        raise HTTPException(
-            status_code=422,
-            detail=f"{spec.display_name} 未配置 API Key，请先在配置中填写，或改用 Mock 离线运行。",
-        )
-    if body.provider == "custom" and not resolved["base_url"]:
-        raise HTTPException(status_code=422, detail="自定义端点需要填写 Base URL")
-
-    symbol = to_canonical(body.symbol)
+def _read_brief(model: platform_ai.PlatformModel, stock: StockFacts, experience: str) -> dict[str, Any]:
+    """问一次模型；格式不对时把问题告诉它再问一次。"""
+    client = platform_ai.model_client(model)
+    messages = brief_messages(stock, experience)
+    answer = client.chat(messages, temperature=0.2, max_tokens=1500).text
     try:
-        trade_date = date.fromisoformat(body.trade_date) if body.trade_date else date.today()
+        return check_brief(parse_json(answer), stock)
+    except BriefFormatError as exc:
+        answer = client.chat(retry_messages(messages, answer, str(exc)), temperature=0.2, max_tokens=1500).text
+        return check_brief(parse_json(answer), stock)
+
+
+@router.post("/briefs", status_code=status.HTTP_201_CREATED, summary="分析一只股票：本地数据 + AI 解读")
+def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
+    symbol = to_canonical(body.symbol.strip())
+    try:
+        day = date.fromisoformat(body.trade_date) if body.trade_date else None
     except ValueError:
         raise HTTPException(status_code=422, detail="分析日期格式无效") from None
-
-    user_dir = _user_dir(user["id"])
-    try:
-        history = _history_frame(symbol, trade_date, int(body.lookback_days))
-    except Exception as exc:  # noqa: BLE001 - 仓库读取异常统一转 422
-        raise HTTPException(status_code=422, detail=f"读取行情数据失败：{_sanitize_detail(exc)}") from exc
-    if history.empty:
-        if body.stock_source == "local":
-            raise HTTPException(
-                status_code=422,
-                detail=f"{symbol} 在 {trade_date} 及之前没有本地行情数据，请先在数据管理中下载行情，或改用在线行情源。",
-            )
-        history = history.iloc[0:0]
-
-    prior_store = _prior_store(user["id"])
-    prior_text = prior_store.render(body.prior_ids)
-
-    runner = AgentRunner(
-        llm_provider=body.provider,
-        debate_rounds=int(body.debate_rounds),
-        use_cache=body.use_cache,
-        base_url=resolved["base_url"] or None,
-        model=resolved["model"] or None,
-        api_key=resolved["api_key"] or None,
-        prior_knowledge=prior_text,
-        stock_source=body.stock_source,
-        news_sources=tuple(body.news_sources),
-        base_dir=user_dir / "agent_runs",
-        cache_dir=user_dir / "agent_cache",
-    )
-
-    trace_log: list[str] = []
-    state = None
-    try:
-        if body.use_cache:
-            decision = runner.decide(symbol, trade_date, history)
-            trace_log = ["命中缓存或已完成流水线（勾选缓存时不记录中间过程）"]
-        else:
-            bus = EventBus()
-            node_labels = dict(_NODE_LABELS)
-
-            def _on_node(event, _state=None) -> None:
-                label = node_labels.get(event.node, event.node)
-                if event.kind == "started":
-                    trace_log.append(f"{label} …")
-                elif event.status == "error":
-                    trace_log.append(f"{label} 失败：{event.error or '未知错误'}")
-                else:
-                    suffix = f"（{event.summary}）" if event.summary else ""
-                    trace_log.append(f"{label} 完成{suffix}")
-
-            bus.subscribe(_on_node)
-            state = runner.decide_full(symbol, trade_date, history, event_bus=bus)
-            decision = state.decision
-    except Exception as exc:  # noqa: BLE001 - 流水线异常统一转 422
-        raise HTTPException(status_code=422, detail=f"智能体分析运行失败：{_sanitize_detail(exc)}") from exc
-
-    if decision is None:
-        raise HTTPException(status_code=422, detail="流水线未产出决策")
-
     names = security_names()
-    name = names.get(symbol) or names.get(to_bare(symbol)) or "名称未知"
-    payload = _state_to_json(state, decision)
-    context = _battle_context(state, decision, prior_text, name)
-    with _RUN_LOCK:
-        _LAST_RUN[user["id"]] = {
-            "runner": runner,
-            "context": context,
-            "symbol": symbol,
-            "name": name,
-        }
-
-    return {
-        "run_id": state.run_id if state is not None else decision.ticker,
-        "symbol": symbol,
-        "name": name,
-        "cached": state is None,
-        **payload,
-        "trace_log": trace_log,
-    }
-
-
-# --------------------------------------------------------------------------- #
-# 与 AI 对话交锋
-# --------------------------------------------------------------------------- #
-
-
-class BattleIn(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
-    history: list[dict[str, str]] = Field(default_factory=list)
-
-
-@router.post("/battle", summary="与 AI 对话交锋（带分析上下文）")
-def agent_battle(body: BattleIn, user: dict = Depends(get_current_user)):
-    with _RUN_LOCK:
-        last = _LAST_RUN.get(user["id"])
-    if last is None:
-        return {
-            "reply": "还没有可引用的分析结果。请先在上方「运行分析」完成一次智能体分析，"
-            "再回来与 AI 交锋讨论。"
-        }
-    history = [
-        (str(item.get("role", "user")), str(item.get("text", "")))
-        for item in body.history
-        if item.get("text")
-    ]
+    name = names.get(symbol) or names.get(to_bare(symbol)) or symbol
     try:
-        reply = last["runner"].battle(last["context"], body.message, history)
-    except Exception as exc:  # noqa: BLE001 - LLM 异常统一转 422
-        raise HTTPException(status_code=422, detail=f"对话失败：{_sanitize_detail(exc)}") from exc
-    return {"reply": reply}
+        stock = stock_facts(market_repository(), symbol, day, name=name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+
+    experience = _prior_store(user["id"]).render(None) if body.use_experience else ""
+    reading, model_label, note = None, "", ""
+    model = platform_ai.platform_model()
+    if model is None:
+        note = "平台还没有配置 AI 模型，这次只显示数据。"
+    else:
+        try:
+            platform_ai.require_quota(user, "brief")
+            reading = _read_brief(model, stock, experience)
+            platform_ai.record_use(user, "brief")
+            model_label = model.label
+        except platform_ai.QuotaExceeded as exc:
+            note = f"{exc}下面的数据不受次数限制。"
+        except Exception as exc:  # noqa: BLE001 - 模型失败时仍然给出数据
+            logger.warning("AI brief failed for %s: %s", symbol, exc)
+            note = f"AI 解读没有完成（{_ai_failure(exc)}），这次不计入次数。下面的数据仍然可以参考。"
+
+    brief_id = secrets.token_hex(8)
+    stored = json.dumps({"reading": reading, "note": note, "experience": bool(experience)}, ensure_ascii=False)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO stock_briefs (id, user_id, symbol, name, trade_date, model, facts, brief, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (brief_id, user["id"], stock.symbol, stock.name, stock.trade_date.isoformat(), model_label,
+             json.dumps(stock.to_dict(), ensure_ascii=False), stored, _now()),
+        )
+    return _record(_load(brief_id, user))
+
+
+@router.get("/briefs", summary="以前的分析")
+def brief_list(limit: int = Query(20, ge=1, le=100), user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, symbol, name, trade_date, model, brief, created_at FROM stock_briefs WHERE user_id = ? "
+            "ORDER BY created_at DESC LIMIT ?", (user["id"], limit),
+        ).fetchall()
+    items = []
+    for row in rows:
+        reading = (json.loads(row["brief"]) if row["brief"] else {}).get("reading") or {}
+        items.append({"id": row["id"], "symbol": row["symbol"], "name": row["name"], "trade_date": row["trade_date"],
+                      "created_at": row["created_at"], "tilt": reading.get("tilt")})
+    return {"items": items}
+
+
+@router.get("/briefs/{brief_id}", summary="打开一次分析")
+def brief_get(brief_id: str, user: dict = Depends(get_current_user)):
+    return _record(_load(brief_id, user))
+
+
+@router.post("/briefs/{brief_id}/questions", summary="针对一次分析继续追问")
+def brief_ask(brief_id: str, body: QuestionIn, user: dict = Depends(get_current_user)):
+    record = _record(_load(brief_id, user))
+    model = platform_ai.platform_model()
+    if model is None:
+        raise HTTPException(status_code=422, detail="平台还没有配置 AI 模型，暂时不能追问。")
+    try:
+        platform_ai.require_quota(user, "question")
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    stock = StockFacts.from_dict(record["facts"])
+    experience = _prior_store(user["id"]).render(None) if record["use_experience"] else ""
+    messages = ask_messages(stock, record["brief"], record["questions"][-MAX_HISTORY:], body.message.strip(), experience)
+    try:
+        answer = platform_ai.model_client(model).chat(messages, temperature=0.3, max_tokens=600).text
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI question failed for %s: %s", brief_id, exc)
+        raise HTTPException(status_code=422, detail=f"回答没有完成（{_ai_failure(exc)}），这次不计入次数。") from exc
+    platform_ai.record_use(user, "question")
+    questions = [*record["questions"], {"question": body.message.strip(), "answer": check_answer(answer), "at": _now()}]
+    with get_conn() as conn:
+        conn.execute("UPDATE stock_briefs SET questions = ? WHERE id = ? AND user_id = ?",
+                     (json.dumps(questions, ensure_ascii=False), brief_id, user["id"]))
+    return {"questions": questions, "usage": platform_ai.usage(user, "question")}

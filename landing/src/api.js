@@ -150,8 +150,8 @@ export function studioOptions() {
 }
 
 // ---- 自然语言建策略 ----
-export function nlProviders() {
-  return request('/api/v1/nl/providers', { auth: true })
+export function nlStatus() {
+  return request('/api/v1/nl/status', { auth: true })
 }
 export function nlGenerate(payload) {
   return request('/api/v1/nl/generate', { method: 'POST', body: payload, auth: true })
@@ -194,18 +194,24 @@ export function deleteCustomFactor(name) {
   return request(`/api/v1/factors/custom/${name}`, { method: 'DELETE', auth: true })
 }
 
-// ---- 智能体分析台 ----
-export function agentConfig() {
-  return request('/api/v1/agent-lab/config', { auth: true })
+// ---- AI 研究员 ----
+export function aiStatus() {
+  return request('/api/v1/agent-lab/status', { auth: true })
 }
-export function saveAgentConfig(payload) {
-  return request('/api/v1/agent-lab/config', { method: 'POST', body: payload, auth: true })
+export function createBrief(payload) {
+  return request('/api/v1/agent-lab/briefs', { method: 'POST', body: payload, auth: true })
 }
-export function runAgent(payload) {
-  return request('/api/v1/agent-lab/run', { method: 'POST', body: payload, auth: true })
+export function getBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}`, { auth: true })
 }
-export function battleAgent(payload) {
-  return request('/api/v1/agent-lab/battle', { method: 'POST', body: payload, auth: true })
+export function listBriefs() {
+  return request('/api/v1/agent-lab/briefs', { auth: true })
+}
+export function askBrief(id, message) {
+  return request(`/api/v1/agent-lab/briefs/${id}/questions`, { method: 'POST', body: { message }, auth: true })
+}
+export function listPriorKnowledge() {
+  return request('/api/v1/agent-lab/prior-knowledge', { auth: true })
 }
 export function addPriorKnowledge(payload) {
   return request('/api/v1/agent-lab/prior-knowledge', { method: 'POST', body: payload, auth: true })
