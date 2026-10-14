@@ -31,6 +31,7 @@ from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
 from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
+from quant_platform.data.bar_gaps import stocks_missing_history
 from quant_platform.data.index_constituents import (
     CHECKS_TABLE,
     CONSTITUENTS_TABLE,
@@ -533,6 +534,34 @@ class DataCenterService:
         return self.full_market_backfill().run_closed_loop(start_date, end_date, **kwargs)
 
     @serialized_update
+    def repair_bar_gaps(self, start_date: date, end_date: date, *, progress: Any = None) -> dict[str, Any]:
+        """重新下载行情不完整的股票（开始得比上市晚，或完全没有行情）。"""
+
+        return self.full_market_backfill().repair_bar_gaps(start_date, end_date, progress=progress)
+
+    def bar_gap_status(self) -> dict[str, Any]:
+        """本地行情不完整的股票：多少只、其中多少只完全没有行情、举几个例子。"""
+
+        bars = self.repository.daily_bar_summary()
+        master = self.repository.read_table("security_master")
+        if bars.empty or master.empty:
+            return {"symbols": 0, "without_bars": 0, "examples": []}
+        gaps = stocks_missing_history(bars, master, bars["start"].min().date(), bars["end"].max().date())
+        return {
+            "symbols": int(len(gaps)),
+            "without_bars": int(gaps["first_bar"].isna().sum()),
+            "examples": [
+                {
+                    "symbol": row.symbol,
+                    "name": row.name if isinstance(row.name, str) else "",
+                    "expected_start": pd.Timestamp(row.expected_start).date().isoformat(),
+                    "first_bar": None if pd.isna(row.first_bar) else pd.Timestamp(row.first_bar).date().isoformat(),
+                }
+                for row in gaps.head(5).itertuples(index=False)
+            ],
+        }
+
+    @serialized_update
     def backfill_daily_indicators(
         self,
         start_date: date,
@@ -682,6 +711,7 @@ class DataCenterService:
         status["fundamentals"] = self.fundamentals_status()
         status["industry"] = self.industry_status()
         status["index_constituents"] = self.index_constituents_status()
+        status["bar_gaps"] = self.bar_gap_status()
         return status
 
     def _catalog(self) -> AkShareCatalogIngestor:

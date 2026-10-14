@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
-import { fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
+import { barGapSummary, fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -167,6 +167,7 @@ const STAGES = {
   quarterly_fundamentals: '财务数据',
   industry: '行业分类',
   index_constituents: '指数成分股',
+  bar_gaps: '补全行情',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -402,6 +403,11 @@ async function downloadIndustry() {
   if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
   await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['industry'] })
 }
+// 行情不完整的股票：以前的下载中途失败留下的，整只重新下载。
+const barGapText = computed(() => barGapSummary(loop.value?.bar_gaps))
+async function repairBarGaps() {
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['bar_gaps'] })
+}
 // 指数历史成分股：找出名单发生变化的每一周，保存当时的完整名单。
 const indexConstituents = computed(() => loop.value?.index_constituents || null)
 const indexConstituentsLines = computed(() => indexConstituentsSummary(indexConstituents.value))
@@ -563,6 +569,18 @@ onBeforeUnmount(clearPoll)
           @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
       </div>
       <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
+    </section>
+    <section v-if="barGapText" class="glass rounded-2xl border border-amber-400/30 p-5" aria-label="行情不完整的股票">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-base font-semibold text-amber-200">有股票的行情不完整</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ barGapText }}</p>
+        </div>
+        <button type="button" :disabled="!!activeJob"
+          class="rounded-full border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-50"
+          @click="repairBarGaps">{{ activeJob ? '后台任务运行中…' : '补全这些股票的行情' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">缺的那几年里，这些股票不会出现在回测、因子评估和指数成分股里，结果会不完整。补全时每只股票整段重新下载，通常每只几秒钟，数据源慢的时候会更久；在后台运行，每补完 10 只保存一次，中断后再点一次只补剩下的。补完后这一栏会消失。如果数据源确实没有某只股票更早的行情，它会一直留在这里。</p>
     </section>
     <section v-if="indexConstituents" class="glass rounded-2xl p-5" aria-label="指数成分股">
       <div class="flex flex-wrap items-center justify-between gap-3">

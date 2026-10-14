@@ -98,3 +98,18 @@ test('指数成分股的覆盖情况每个指数一句话', async () => {
     { symbol: '000016.SH', name: '上证50', start_date: null, end_date: null, changes: 0, members: 0 },
   ]), ['沪深300：2015-01-05 至 2026-10-12，名单变化过 27 次，现在 300 只。', '上证50：还没有下载。'])
 })
+
+test('行情不完整的股票用一句话说明；没有时不显示', async () => {
+  const { barGapSummary } = await import('../src/workspace/dataPresentation.js')
+  assert.equal(barGapSummary(null), '')
+  assert.equal(barGapSummary({ symbols: 0, without_bars: 0, examples: [] }), '')
+  assert.equal(barGapSummary({
+    symbols: 143, without_bars: 1,
+    examples: [
+      { symbol: '002450.SZ', name: '康得退', expected_start: '2015-01-05', first_bar: null },
+      { symbol: '002314.SZ', name: '南山控股', expected_start: '2015-01-05', first_bar: '2022-06-01' },
+    ],
+  }), '有 143 只股票的行情不完整：开始得比上市日期晚，或者完全没有。例如南山控股（002314.SZ）应该从 2015-01-05 开始，本地从 2022-06-01 才开始。其中 1 只完全没有行情。')
+  assert.equal(barGapSummary({ symbols: 1, without_bars: 1, examples: [{ symbol: '002450.SZ', name: '', expected_start: '2015-01-05', first_bar: null }] }),
+    '有 1 只股票的行情不完整：开始得比上市日期晚，或者完全没有。其中 1 只完全没有行情。')
+})
