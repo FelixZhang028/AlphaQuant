@@ -201,6 +201,12 @@ export function aiStatus() {
 export function createBrief(payload) {
   return request('/api/v1/agent-lab/briefs', { method: 'POST', body: payload, auth: true })
 }
+export function readBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}/reading`, { method: 'POST', auth: true })
+}
+export function deleteBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}`, { method: 'DELETE', auth: true })
+}
 export function getBrief(id) {
   return request(`/api/v1/agent-lab/briefs/${id}`, { auth: true })
 }

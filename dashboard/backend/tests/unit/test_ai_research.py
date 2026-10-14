@@ -17,6 +17,7 @@ from app.routes import agent_lab
 from app.routes.auth import get_current_user
 from quant_platform.ai_research.brief import BriefFormatError, REFUSAL, check_answer, check_brief, parse_json
 from quant_platform.ai_research.facts import report_in_force, stock_facts
+from quant_platform.ai_research.outcome import later_moves
 from trading_agents.llm.base import LLMResponse
 
 SYMBOLS = [f"{600000 + i}.SH" for i in range(40)]
@@ -235,6 +236,11 @@ def api(tmp_path, monkeypatch):
     return TestClient(app), current
 
 
+def analyse(client, symbol, **extra):
+    created = client.post("/api/v1/agent-lab/briefs", json={"symbol": symbol, **extra}).json()
+    return client.post(f"/api/v1/agent-lab/briefs/{created['id']}/reading").json()
+
+
 def use_model(monkeypatch, answers):
     monkeypatch.setenv("OPENROUTER_API_KEY", "platform-key")
     client = FakeClient(answers)
@@ -247,6 +253,7 @@ def test_without_a_model_the_data_is_still_shown(api):
     assert client.get("/api/v1/agent-lab/status").json()["ai"] == {"available": False, "model": None}
     result = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000"}).json()
     assert result["brief"] is None and "还没有配置" in result["ai_note"]
+    assert client.post(f"/api/v1/agent-lab/briefs/{result['id']}/reading").json()["brief"] is None
     assert result["name"] == "测试股份" and result["facts"]["facts"]
     assert client.get(f"/api/v1/agent-lab/briefs/{result['id']}").json()["facts"] == result["facts"]
     assert client.post("/api/v1/agent-lab/briefs", json={"symbol": "000001"}).status_code == 422  # 本地没有这只股票
@@ -257,12 +264,16 @@ def test_brief_retries_a_bad_answer_counts_use_and_stops_at_the_limit(api, monke
     stock = small_stock()
     model = use_model(monkeypatch, ["不是 JSON", good_answer(stock)])
     monkeypatch.setenv("FELLOWQUANT_AI_DAILY_BRIEFS", "1")
-    result = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
+    data = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
+    assert data["brief"] is None and data["ai_note"] == "" and not model.calls  # 第一步只整理数据
+    result = client.post(f"/api/v1/agent-lab/briefs/{data['id']}/reading").json()
     assert result["brief"]["tilt"] == "偏多" and result["model"] == "deepseek-v4-pro" and len(model.calls) == 2
+    assert client.post(f"/api/v1/agent-lab/briefs/{data['id']}/reading").json()["brief"] == result["brief"]
+    assert len(model.calls) == 2  # 已经解读过：不再调用，也不再计数
     assert "数据表" in model.calls[0][1]["content"] and "ret_20d" in model.calls[0][1]["content"]
     status = client.get("/api/v1/agent-lab/status").json()
     assert status["usage"]["brief"] == {"limit": 1, "used": 1, "remaining": 0}
-    again = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
+    again = analyse(client, "600000.SH")
     assert again["brief"] is None and "用完" in again["ai_note"] and again["facts"]["facts"]
     items = client.get("/api/v1/agent-lab/briefs").json()["items"]
     assert [item["tilt"] for item in items] == [None, "偏多"]
@@ -273,7 +284,7 @@ def test_a_failed_call_is_not_counted(api, monkeypatch):
     response = requests.Response()
     response.status_code = 402
     use_model(monkeypatch, [requests.HTTPError(response=response)])
-    result = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
+    result = analyse(client, "600000.SH")
     assert result["brief"] is None and "余额不足" in result["ai_note"]
     assert client.get("/api/v1/agent-lab/status").json()["usage"]["brief"]["used"] == 0
 
@@ -282,7 +293,7 @@ def test_questions_use_the_saved_data_and_stay_private(api, monkeypatch):
     client, current = api
     stock = small_stock()
     model = use_model(monkeypatch, [good_answer(stock), "近 20 个交易日走势平稳。", "可以加仓"])
-    brief = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
+    brief = analyse(client, "600000.SH")
     first = client.post(f"/api/v1/agent-lab/briefs/{brief['id']}/questions", json={"message": "走势怎样？"}).json()
     assert first["questions"][-1]["answer"] == "近 20 个交易日走势平稳。"
     assert "ret_20d" in model.calls[1][1]["content"] and "倾向偏多" in model.calls[1][1]["content"]
@@ -294,3 +305,32 @@ def test_questions_use_the_saved_data_and_stay_private(api, monkeypatch):
     assert client.get(f"/api/v1/agent-lab/briefs/{brief['id']}").status_code == 404
     current["user"] = {"id": 2, "is_admin": True}
     assert client.get("/api/v1/agent-lab/status").json()["usage"]["question"]["limit"] is None
+
+
+def test_later_moves_compare_with_the_index():
+    bars = make_bars()
+    index = pd.DataFrame({"symbol": "000300.SH", "trade_date": DATES, "raw_close": np.linspace(100, 110, len(DATES))})
+    repository = FakeRepository(bars, {"benchmark_bars": index})
+    day = DATES[-11].date()
+    moves = later_moves(repository, [("600000.SH", day), ("600001.SH", DATES[-1].date())])
+    one = bars[bars["symbol"] == "600000.SH"].set_index("trade_date")["adjusted_close"]
+    move = moves[("600000.SH", day)]
+    assert move["end_date"] == DATES[-1].date().isoformat() and move["days"] == 10
+    assert move["change"] == pytest.approx(one.iloc[-1] / one.iloc[-11] - 1)
+    assert move["benchmark_change"] == pytest.approx(110 / np.linspace(100, 110, len(DATES))[-11] - 1)
+    assert moves[("600001.SH", DATES[-1].date())] is None  # 分析日之后还没有行情
+    assert later_moves(FakeRepository(bars), [("600000.SH", day)])[("600000.SH", day)]["benchmark_change"] is None
+
+
+def test_list_shows_later_moves_and_delete_is_private(api):
+    client, current = api
+    day = DATES[-11].date().isoformat()
+    created = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH", "trade_date": day}).json()
+    assert created["later"]["days"] == 10
+    items = client.get("/api/v1/agent-lab/briefs").json()["items"]
+    assert items[0]["later"]["change"] == pytest.approx(created["later"]["change"])
+    current["user"] = {"id": 2, "is_admin": False}
+    assert client.delete(f"/api/v1/agent-lab/briefs/{created['id']}").status_code == 404
+    current["user"] = {"id": 1, "is_admin": False}
+    assert client.delete(f"/api/v1/agent-lab/briefs/{created['id']}").status_code == 204
+    assert client.get("/api/v1/agent-lab/briefs").json()["items"] == []

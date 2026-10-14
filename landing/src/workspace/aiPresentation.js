@@ -41,3 +41,23 @@ export function evidenceText(fact, tradeDate) {
   const day = fact.as_of && fact.as_of !== tradeDate ? `（${fact.as_of}）` : ''
   return `${fact.label}：${fact.text}${day}`
 }
+
+export function signedPercent(value) {
+  return `${value > 0 ? '+' : ''}${(value * 100).toFixed(1)}%`
+}
+
+// 分析日之后的实际走势，和同期沪深300比较。
+export function laterText(later) {
+  if (!later) return ''
+  const index = later.benchmark_change == null ? '' : `，同期${later.benchmark} ${signedPercent(later.benchmark_change)}`
+  return `分析日之后到 ${later.end_date}（${later.days} 个交易日）：这只股票 ${signedPercent(later.change)}${index}。`
+}
+
+// 开始分析时用哪只股票：选过的那只；完整的代码；否则是列表里的第一只。
+export function pickSuggestion(text, picked, suggestions = []) {
+  if (picked) return picked.symbol
+  const typed = String(text || '').trim()
+  if (/^\d{6}(\.(SH|SZ|BJ))?$/i.test(typed)) return typed
+  const exact = suggestions.find((item) => item.name === typed)
+  return (exact || suggestions[0])?.symbol || ''
+}

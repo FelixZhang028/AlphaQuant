@@ -7,8 +7,6 @@ export const overviewKey = 'overview'
 export const groups = [
   { label: 'AI 智能投研', items: [
     { key: 'agent-lab', label: 'AI研究员' },
-    { key: 'knowledge-base', label: '投研知识库' },
-    { key: 'decision-center', label: '决策辅助' },
   ] },
   { label: '策略研究', items: [
     { key: 'market-chart', label: '行情图表' },
@@ -33,7 +31,9 @@ export const groups = [
 
 // 完整路由注册表保留页内入口，兼容官网、新手引导及已有直达链接。
 const utilityItems = [
-  { key: 'prior-knowledge', label: '研究经验', parent: 'knowledge-base' },
+  // 文档问答与决策辅助暂不放进侧栏，旧链接仍能打开。研究经验在 AI研究员页面里管理。
+  { key: 'knowledge-base', label: '投研知识库', parent: 'agent-lab' },
+  { key: 'decision-center', label: '决策辅助', parent: 'agent-lab' },
   { key: 'xtick-data', label: 'XTick 数据服务', parent: 'data-management' },
   { key: 'strategy-studio', label: '新建规则策略', parent: 'strategy-hub' },
   { key: 'custom-strategy', label: 'Python 策略创建', parent: 'strategy-hub' },
@@ -44,7 +44,7 @@ export const allItems = [{ key: overviewKey, label: '首页' }, ...groups.flatMa
   g.items.flatMap((item) => item.children || [item])), ...utilityItems]
 
 // 已合并页面的旧链接，直接落到现在包含该功能的页面。
-const legacyViews = { 'walk-forward': 'research', 'risk-management': 'backtest-review', 'nl-strategy': 'strategy-studio' }
+const legacyViews = { 'walk-forward': 'research', 'risk-management': 'backtest-review', 'nl-strategy': 'strategy-studio', 'prior-knowledge': 'agent-lab' }
 export function resolveView(key) {
   return legacyViews[key] || key
 }
@@ -93,7 +93,6 @@ export const views = {
   'data-management': defineAsyncComponent(() => import('./views/DataManagementView.vue')),
   'xtick-data': defineAsyncComponent(() => import('./views/XtickDataView.vue')),
   universe: defineAsyncComponent(() => import('./views/UniverseView.vue')),
-  'prior-knowledge': investmentKnowledgeView,
   settings: defineAsyncComponent(() => import('./views/SettingsView.vue')),
   account: defineAsyncComponent(() => import('./views/AccountView.vue')),
 }
