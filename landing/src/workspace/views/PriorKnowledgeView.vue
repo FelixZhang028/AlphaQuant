@@ -3,6 +3,7 @@ import { onActivated, ref } from 'vue'
 import { addPriorKnowledge, deletePriorKnowledge, listPriorKnowledge } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
 const props = defineProps({ embedded: Boolean, notify: { type: Function, default: () => {} } })
+const emit = defineEmits(['changed'])
 const entries = ref([])
 const content = ref('')
 const source = ref('')
@@ -15,18 +16,18 @@ async function save() {
   try {
     await addPriorKnowledge({ content: content.value.trim(), source: source.value.trim() })
     content.value = ''; source.value = ''
-    await load(); props.notify('研究经验已保存')
+    await load(); emit('changed'); props.notify('研究经验已保存')
   } catch (e) { props.notify(e.message) } finally { busy.value = false }
 }
 async function remove(id) {
   busy.value = true
-  try { await deletePriorKnowledge(id); await load() } catch (e) { props.notify(e.message) }
+  try { await deletePriorKnowledge(id); await load(); emit('changed') } catch (e) { props.notify(e.message) }
   finally { busy.value = false }
 }
 </script>
 <template>
   <div class="space-y-5">
-    <p class="text-sm text-slate-400">记录投资规则、研究经验及来源，AI研究员分析时会参考（可以在分析前关闭）。这里的记录不会自动成为文档问答的检索材料。</p>
+    <p class="text-sm text-slate-400">记录投资规则、研究经验及来源，AI研究员分析时会参考（可以在分析前关闭）。它们是你自己的看法，AI 不会把它们当作数据依据。</p>
     <SectionCard title="添加研究经验">
       <form class="space-y-3" @submit.prevent="save">
         <textarea v-model="content" aria-label="知识内容" maxlength="2000" rows="4" placeholder="填写投资规则、研究经验或已验证的事实" class="w-full rounded-lg border border-white/10 bg-ink/60 p-3 text-sm text-white" />

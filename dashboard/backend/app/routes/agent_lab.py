@@ -1,8 +1,9 @@
 """AI 研究员路由：用本地数据读懂一只股票。
 
-每次分析先从本地数据整理出这只股票当天的数据（价格走势、成交、全市场比较、估值、财报、
-行业、指数、分红），这一步不需要 AI，也不限次数。平台配置了 AI 模型时，再让模型只根据这些
-数据写出倾向和要点；检查不通过的要点会被去掉。每次结果都保存，可以打开和继续追问。
+分两步：先从本地数据整理出这只股票当天的数据（价格走势、成交、全市场比较、估值、财报、
+行业、指数、分红），不需要 AI，也不限次数；页面马上显示。平台配置了 AI 模型时，再让模型只
+根据保存的这些数据写出倾向和要点，检查不通过的要点会被去掉。每次结果都保存，可以打开、
+继续追问，并对照之后实际的涨跌。
 
 研究经验（先验知识）按用户隔离，存放于 data/runtime/agent_lab/user_{id}/。
 """
@@ -13,6 +14,7 @@ import json
 import logging
 import re
 import secrets
+import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,6 +53,7 @@ from quant_platform.ai_research.brief import (
     retry_messages,
 )
 from quant_platform.ai_research.facts import StockFacts, stock_facts
+from quant_platform.ai_research.outcome import later_moves
 
 from ..database import get_conn
 from ..quant import platform_ai
@@ -64,6 +67,9 @@ router = APIRouter(prefix="/api/v1/agent-lab", tags=["agent-lab"])
 _AGENT_ROOT = BACKEND_ROOT / "data" / "runtime" / "agent_lab"
 # 追问时带上最近几轮对话，太早的不再发给模型。
 MAX_HISTORY = 6
+# 正在解读的分析：同一次分析不会同时问两次模型（也就不会重复计数）。
+_READING: set[str] = set()
+_READING_LOCK = threading.Lock()
 
 
 def _user_dir(user_id: int) -> Path:
@@ -207,7 +213,19 @@ def _read_brief(model: platform_ai.PlatformModel, stock: StockFacts, experience:
         return check_brief(parse_json(answer), stock)
 
 
-@router.post("/briefs", status_code=status.HTTP_201_CREATED, summary="分析一只股票：本地数据 + AI 解读")
+def _store_reading(brief_id: str, user: dict, reading: dict[str, Any] | None, note: str, experience: bool, model: str) -> None:
+    stored = json.dumps({"reading": reading, "note": note, "experience": experience}, ensure_ascii=False)
+    with get_conn() as conn:
+        conn.execute("UPDATE stock_briefs SET brief = ?, model = ? WHERE id = ? AND user_id = ?", (stored, model, brief_id, user["id"]))
+
+
+def _with_later(record: dict[str, Any]) -> dict[str, Any]:
+    day = date.fromisoformat(record["trade_date"])
+    moves = later_moves(market_repository(), [(record["symbol"], day)])
+    return {**record, "later": moves.get((record["symbol"], day))}
+
+
+@router.post("/briefs", status_code=status.HTTP_201_CREATED, summary="分析一只股票，第一步：整理本地数据（不用 AI）")
 def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
     symbol = to_canonical(body.symbol.strip())
     try:
@@ -221,52 +239,78 @@ def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
 
-    experience = _prior_store(user["id"]).render(None) if body.use_experience else ""
-    reading, model_label, note = None, "", ""
-    model = platform_ai.platform_model()
-    if model is None:
-        note = "平台还没有配置 AI 模型，这次只显示数据。"
-    else:
-        try:
-            platform_ai.require_quota(user, "brief")
-            reading = _read_brief(model, stock, experience)
-            platform_ai.record_use(user, "brief")
-            model_label = model.label
-        except platform_ai.QuotaExceeded as exc:
-            note = f"{exc}下面的数据不受次数限制。"
-        except Exception as exc:  # noqa: BLE001 - 模型失败时仍然给出数据
-            logger.warning("AI brief failed for %s: %s", symbol, exc)
-            note = f"AI 解读没有完成（{_ai_failure(exc)}），这次不计入次数。下面的数据仍然可以参考。"
-
+    note = "" if platform_ai.platform_model() else "平台还没有配置 AI 模型，这次只显示数据。"
     brief_id = secrets.token_hex(8)
-    stored = json.dumps({"reading": reading, "note": note, "experience": bool(experience)}, ensure_ascii=False)
+    stored = json.dumps({"reading": None, "note": note, "experience": body.use_experience}, ensure_ascii=False)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO stock_briefs (id, user_id, symbol, name, trade_date, model, facts, brief, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (brief_id, user["id"], stock.symbol, stock.name, stock.trade_date.isoformat(), model_label,
+            (brief_id, user["id"], stock.symbol, stock.name, stock.trade_date.isoformat(), "",
              json.dumps(stock.to_dict(), ensure_ascii=False), stored, _now()),
         )
-    return _record(_load(brief_id, user))
+    return _with_later(_record(_load(brief_id, user)))
 
 
-@router.get("/briefs", summary="以前的分析")
+@router.post("/briefs/{brief_id}/reading", summary="分析一只股票，第二步：AI 根据保存的数据写解读")
+def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
+    record = _record(_load(brief_id, user))
+    if record["brief"] is not None:
+        return _with_later(record)  # 已经解读过，不再调用、不再计数
+    model = platform_ai.platform_model()
+    if model is None:
+        _store_reading(brief_id, user, None, "平台还没有配置 AI 模型，这次只显示数据。", record["use_experience"], "")
+        return _with_later(_record(_load(brief_id, user)))
+    with _READING_LOCK:
+        if brief_id in _READING:
+            raise HTTPException(status_code=409, detail="这次分析正在解读，请稍候")
+        _READING.add(brief_id)
+    try:
+        reading, label, note = None, "", ""
+        try:
+            platform_ai.require_quota(user, "brief")
+            experience = _prior_store(user["id"]).render(None) if record["use_experience"] else ""
+            reading = _read_brief(model, StockFacts.from_dict(record["facts"]), experience)
+            platform_ai.record_use(user, "brief")
+            label = model.label
+        except platform_ai.QuotaExceeded as exc:
+            note = f"{exc}下面的数据不受次数限制。"
+        except Exception as exc:  # noqa: BLE001 - 模型失败时仍然给出数据
+            logger.warning("AI brief failed for %s: %s", record["symbol"], exc)
+            note = f"AI 解读没有完成（{_ai_failure(exc)}），这次不计入次数。下面的数据仍然可以参考。"
+        _store_reading(brief_id, user, reading, note, record["use_experience"], label)
+    finally:
+        with _READING_LOCK:
+            _READING.discard(brief_id)
+    return _with_later(_record(_load(brief_id, user)))
+
+
+@router.get("/briefs", summary="以前的分析，以及之后实际涨跌")
 def brief_list(limit: int = Query(20, ge=1, le=100), user: dict = Depends(get_current_user)):
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, symbol, name, trade_date, model, brief, created_at FROM stock_briefs WHERE user_id = ? "
             "ORDER BY created_at DESC LIMIT ?", (user["id"], limit),
         ).fetchall()
+    moves = later_moves(market_repository(), [(row["symbol"], date.fromisoformat(row["trade_date"])) for row in rows])
     items = []
     for row in rows:
         reading = (json.loads(row["brief"]) if row["brief"] else {}).get("reading") or {}
         items.append({"id": row["id"], "symbol": row["symbol"], "name": row["name"], "trade_date": row["trade_date"],
-                      "created_at": row["created_at"], "tilt": reading.get("tilt")})
+                      "created_at": row["created_at"], "tilt": reading.get("tilt"),
+                      "later": moves.get((row["symbol"], date.fromisoformat(row["trade_date"])))})
     return {"items": items}
 
 
 @router.get("/briefs/{brief_id}", summary="打开一次分析")
 def brief_get(brief_id: str, user: dict = Depends(get_current_user)):
-    return _record(_load(brief_id, user))
+    return _with_later(_record(_load(brief_id, user)))
+
+
+@router.delete("/briefs/{brief_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除一次分析")
+def brief_delete(brief_id: str, user: dict = Depends(get_current_user)):
+    _load(brief_id, user)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM stock_briefs WHERE id = ? AND user_id = ?", (brief_id, user["id"]))
 
 
 @router.post("/briefs/{brief_id}/questions", summary="针对一次分析继续追问")

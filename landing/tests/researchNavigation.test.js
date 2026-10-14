@@ -3,14 +3,17 @@ import test from 'node:test'
 import { researchContext, researchUrl, strategyReference } from '../src/workspace/researchNavigation.js'
 import { allItems, groups, navigationItem, resolveView, views } from '../src/workspace/modules.js'
 
-test('AI 投研三项入口，旧经验链接归入同一知识库且标签上下文可恢复', () => {
+test('AI 投研只有 AI研究员一项；文档问答、决策辅助的旧链接仍能打开，旧的研究经验链接进入 AI研究员', () => {
   const group = groups.find((g) => g.label === 'AI 智能投研')
-  assert.deepEqual(group.items.map((item) => item.label), ['AI研究员', '投研知识库', '决策辅助'])
-  assert.equal(navigationItem('prior-knowledge').key, 'knowledge-base')
-  assert.ok(allItems.some((item) => item.key === 'prior-knowledge'))
-  assert.equal(views['prior-knowledge'], views['knowledge-base'])
-  const url = researchUrl('http://localhost/app.html?view=prior-knowledge', { view: 'knowledge-base', mode: 'experience' })
-  assert.equal(researchContext(url).mode, 'experience')
+  assert.deepEqual(group.items.map((item) => item.label), ['AI研究员'])
+  for (const key of ['knowledge-base', 'decision-center']) {
+    assert.ok(allItems.some((item) => item.key === key))
+    assert.ok(views[key])
+    assert.equal(navigationItem(key).key, 'agent-lab')
+  }
+  assert.equal(resolveView('prior-knowledge'), 'agent-lab')
+  const url = researchUrl('http://localhost/app.html?view=knowledge-base', { view: 'knowledge-base', mode: 'documents' })
+  assert.equal(researchContext(url).mode, 'documents')
   assert.equal(researchContext(researchUrl(url, 'decision-center')).mode, '')
 })
 

@@ -103,8 +103,8 @@ const props = defineProps({
 
 ### AI 研究员
 - `aiStatus()` → `{ ai:{available,model},usage:{brief:{limit,used,remaining},question:{...}},experience_count,latest_date }`；管理员的 `limit`、`remaining` 为 null（不限次数）
-- `createBrief({symbol,trade_date,use_experience})` → 一次分析：`{ id,symbol,name,trade_date,created_at,model,facts:{symbol,name,trade_date,facts:[{key,group,label,text,value,as_of}],missing:[{group,reason}],notes:[]},brief:{tilt,confidence,summary,bull_points:[{text,evidence:[fact]}],risk_points,watch_points,removed}|null,ai_note,use_experience,questions:[{question,answer,at}] }`
-- `getBrief(id)` / `listBriefs()` → 同上 / `{ items:[{id,symbol,name,trade_date,created_at,tilt}] }`
+- `createBrief({symbol,trade_date,use_experience})` → 第一步，只整理本地数据（`brief` 为 null）；`readBrief(id)` → 第二步，AI 根据保存的数据写解读（已解读过的直接返回，不再计数）。两者都返回一次分析：`{ id,symbol,name,trade_date,created_at,model,facts:{symbol,name,trade_date,facts:[{key,group,label,text,value,as_of}],missing:[{group,reason}],notes:[]},brief:{tilt,confidence,summary,bull_points:[{text,evidence:[fact]}],risk_points,watch_points,removed}|null,ai_note,use_experience,questions:[{question,answer,at}],later:{end_date,days,change,benchmark,benchmark_change}|null }`
+- `getBrief(id)` / `listBriefs()` / `deleteBrief(id)` → 同上 / `{ items:[{id,symbol,name,trade_date,created_at,tilt,later}] }` / 无内容
 - `askBrief(id, message)` → `{ questions:[...],usage }`
 - `listPriorKnowledge()` → `{ entries:[{id,content,source}] }`
 
@@ -181,8 +181,8 @@ const props = defineProps({
 - `universeSaveFilters(payload)` → `{ saved:true }`
 
 ### AI 智能投研导航与页面
-- 侧栏为 AI研究员、投研知识库、决策辅助。知识库页内分研究经验与文档问答，前者仍使用账户先验记录，后者仍使用独立文档服务，两者不自动同步。旧 `prior-knowledge` 链接进入研究经验，原 `knowledge-base` 链接进入文档问答；`mode=experience|documents` 支持刷新与前进后退。
-- AI研究员只有股票代码、分析日期（留空为本地最近的交易日）和“参考我的研究经验”。模型由平台统一提供（服务器环境变量），页面不填密钥；每人每天有分析和追问次数，管理员不限。
+- 侧栏只有 AI研究员。投研知识库（文档问答）和决策辅助暂不放进侧栏，旧链接仍能打开；研究经验在 AI研究员页面底部“我的研究经验”里管理，旧 `prior-knowledge` 链接进入 AI研究员。
+- AI研究员只有股票（输入代码或名称，从下拉列表选，支持上下键和回车）、分析日期（留空为本地最近的交易日）和“参考我的研究经验”。分析分两步并显示进度：先整理本地数据（几秒，马上显示），再等 AI 解读。页面下方“以前的分析”列出每次分析的倾向和之后实际涨跌（到本地最新行情，和同期沪深300比较），可以打开或删除。模型由平台统一提供（服务器环境变量），页面不填密钥；每人每天有分析和追问次数，管理员不限。
 - 每次分析先从本地数据整理出当天已知的数据（价格走势按复权价、成交、全市场与同行业比较、估值、财报、行业、指数、分红），不需要 AI、不限次数；当天只更新了一部分股票时不做全市场比较并说明原因；本地没有的数据列在“本地缺少的数据”。
 - 有模型时显示 AI 解读：倾向（偏多/中性/偏空）、信心、一段话和三组要点（看多的理由、风险、接下来留意），每条要点下面列出它引用的本地数据。没有依据、数字和数据对不上、或给出买卖建议（买入、仓位、目标价等）的要点会被去掉并写明条数。不显示交易提案、目标价、止损和模拟成交。
 - 分析编号写进链接（`brief=`），刷新或后退可以打开同一次分析；有 AI 解读时可以继续追问，追问只用这次的数据。
