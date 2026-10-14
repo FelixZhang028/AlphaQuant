@@ -16,18 +16,22 @@ Conventions, chosen so that no value depends on data after its own date:
   whose price/volume window spans such a day is left missing rather than computed from a
   jump that never traded (``span`` below is the number of day-to-day steps the window covers).
   Other stocks' cross-sectional ranks on that day still count the affected stock.
-- ``rank`` is the cross-sectional average percentile rank within the supplied universe;
+- ``rank`` is the cross-sectional average percentile rank within the supplied universe; when
+  the bars carry an ``in_universe`` mark (an index's members on each day), only that day's
+  members are ranked;
   ``ts_rank`` the same within a stock's own window. Undefined results stay missing.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
+from quant_platform.data.index_constituents import UNIVERSE_COLUMN
 from quant_platform.factors.base import FactorDefinition, melt_wide, pivot_field
 from quant_platform.factors.builtins import BuiltinFactor
 
@@ -42,7 +46,14 @@ Frame = pd.DataFrame
 # --------------------------------------------------------------------------- #
 
 
+# 研究范围是指数当时的成分股时，截面排名只在当天的成分股之间进行（日期 x 股票的布尔表）。
+_UNIVERSE: ContextVar[Frame | None] = ContextVar("alpha101_universe", default=None)
+
+
 def rank(x: Frame) -> Frame:
+    members = _UNIVERSE.get()
+    if members is not None:
+        x = x.where(members.reindex(index=x.index, columns=x.columns, fill_value=False))
     return x.rank(axis=1, pct=True)
 
 
@@ -364,7 +375,14 @@ class _Formula:
 
     def compute(self, bars: pd.DataFrame) -> pd.DataFrame:
         panel = Panel(bars)
-        values = self.func(panel).replace([np.inf, -np.inf], np.nan)
+        members = None
+        if UNIVERSE_COLUMN in bars.columns:
+            members = pivot_field(bars.assign(**{UNIVERSE_COLUMN: bars[UNIVERSE_COLUMN].astype(float)}), UNIVERSE_COLUMN).eq(1.0)
+        token = _UNIVERSE.set(members)
+        try:
+            values = self.func(panel).replace([np.inf, -np.inf], np.nan)
+        finally:
+            _UNIVERSE.reset(token)
         return melt_wide(panel.comparable(values, self.span))
 
 

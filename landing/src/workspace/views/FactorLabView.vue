@@ -6,9 +6,11 @@ import {
   createCustomFactor,
   deleteCustomFactor,
   evaluateFactor,
+  factorUniverses,
   listFactors,
   researchFactors,
 } from '../../api.js'
+import { CURRENT_POOL, defaultFactorUniverse, factorUniverseNote, marketChoices } from '../marketPresentation.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
@@ -231,6 +233,28 @@ function onKeydown(e) {
 const horizonOptions = [1, 5, 10, 20]
 const groupOptions = [5, 10]
 
+// ---------- 股票范围（评估、合成、研究共用） ----------
+const UNIVERSE_KEY = 'fq-factor-universe'
+const universes = ref([])
+const universe = ref(CURRENT_POOL)
+const universeOptions = computed(() => marketChoices(universes.value))
+const universeNote = computed(() => factorUniverseNote(universe.value, universes.value))
+function rememberedUniverse() {
+  try { return localStorage.getItem(UNIVERSE_KEY) || '' } catch { return '' }
+}
+function chooseUniverse(value) {
+  universe.value = value
+  try { localStorage.setItem(UNIVERSE_KEY, value) } catch { /* 浏览器不让存时只影响下次的默认值 */ }
+}
+async function loadUniverses() {
+  try {
+    universes.value = (await factorUniverses()).items || []
+  } catch {
+    universes.value = []
+  }
+  universe.value = defaultFactorUniverse(universes.value, rememberedUniverse())
+}
+
 const evalForm = reactive({
   factor_name: '',
   horizon: 5,
@@ -256,6 +280,7 @@ async function runEvaluate() {
       neutralization: evalForm.neutralization,
       start_date: evalForm.start_date,
       end_date: evalForm.end_date,
+      universe: universe.value,
     })
     props.notify('评估完成')
   } catch (e) {
@@ -322,6 +347,7 @@ async function runComposite() {
       end_date: compForm.end_date,
       train_end: compForm.train_end,
       test_start: compForm.test_start,
+      universe: universe.value,
     }
     if (compForm.weight_mode === 'custom') {
       payload.weights = {}
@@ -417,6 +443,7 @@ async function runResearch() {
       train_end: researchForm.train_end,
       test_start: researchForm.test_start,
       test_end: researchForm.test_end,
+      universe: universe.value,
     }
     if (researchForm.weight_mode === 'manual') {
       payload.weights = {}
@@ -582,6 +609,7 @@ const weightCaption = computed(() => {
 
 onMounted(() => {
   loadFactors()
+  loadUniverses()
   window.addEventListener('keydown', onKeydown)
 })
 
@@ -625,6 +653,13 @@ onBeforeUnmount(() => {
         </div>
       </details>
     </div>
+
+    <section v-if="activeTab === 'evaluate' || activeTab === 'research'" class="glass rounded-2xl p-4" aria-label="股票范围">
+      <div class="grid gap-3 md:grid-cols-[minmax(0,16rem)_1fr] md:items-end">
+        <FormField label="股票范围" type="select" :model-value="universe" :options="universeOptions" @update:model-value="chooseUniverse" />
+        <p class="text-xs text-slate-400">{{ universeNote }}</p>
+      </div>
+    </section>
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
@@ -743,12 +778,12 @@ onBeforeUnmount(() => {
           <label
             v-for="f in compListed"
             :key="f.name"
-            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
           >
             <input type="checkbox" :checked="isSelected(f.name)" @change="toggleFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="shrink-0 text-xs text-slate-500">{{ f.name }}</span>
             <button
               type="button"
               title="查看因子详情"
@@ -879,12 +914,12 @@ onBeforeUnmount(() => {
           <label
             v-for="f in researchListed"
             :key="f.name"
-            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
           >
             <input type="checkbox" :checked="researchForm.factor_names.includes(f.name)" @change="toggleResearchFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="shrink-0 text-xs text-slate-500">{{ f.name }}</span>
             <button
               type="button"
               title="查看因子详情"

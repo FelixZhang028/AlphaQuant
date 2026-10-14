@@ -180,5 +180,6 @@ def factor_report_to_dict(report: FactorReport) -> dict[str, Any]:
         "turnover_mean": _round(report.turnover_mean, 4),
         "daily_ic": daily_ic,
         "group_mean_returns": group_mean_returns,
-        "notes": "；".join(report.notes),
+        # 每条说明各自以句号结尾，接在一起时不再加分号，免得出现「。；」。
+        "notes": "".join(note if note.endswith(("。", "！", "？")) else note + "。" for note in report.notes),
     }

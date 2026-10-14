@@ -178,6 +178,9 @@ export function listFactors() {
 export function evaluateFactor(payload) {
   return request('/api/v1/factors/evaluate', { method: 'POST', body: payload, auth: true })
 }
+export function factorUniverses() {
+  return request('/api/v1/factors/universes', { auth: true })
+}
 export function compositeFactors(payload) {
   return request('/api/v1/factors/composite', { method: 'POST', body: payload, auth: true })
 }

@@ -31,7 +31,7 @@ from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
 from ..quant.market_catalog import LocalMarketCatalog
-from ..quant.markets import CURRENT_POOL, use_market
+from ..quant.markets import CURRENT_POOL, market_options, use_market
 from ..quant.run_trades import symbol_trades, traded_symbols
 from ..quant.research_runs import (
     MAX_BACKTESTS,
@@ -79,6 +79,8 @@ from quant_platform.application.strategy_studio_service import (
 )
 from quant_platform.application.benchmarks import BENCHMARKS
 from quant_platform.application.factor_research_service import research_combination
+from quant_platform.data.index_constituents import INDEX_UNIVERSES, IndexUniverseRepository
+from quant_platform.factors.evaluation import FactorEvaluator
 from quant_platform.core.exceptions import ConfigurationError
 from quant_platform.factors.combine import (
     CompositeFactor,
@@ -760,6 +762,26 @@ def _factor_symbols(user: dict) -> list[str] | None:
     return list(symbols)
 
 
+def _factor_scope(user: dict, universe: str, start: date, end: date) -> tuple[Any, list[str] | None]:
+    """因子研究用的行情和股票：当前股票池，或某个指数在这段时间里当过成分股的全部股票（每天标明是不是成分股）。"""
+
+    if universe == CURRENT_POOL:
+        return market_repository(), _factor_symbols(user)
+    if universe not in INDEX_UNIVERSES:
+        raise HTTPException(status_code=422, detail="不支持这个股票范围，请选择当前股票池或列表里的指数。")
+    try:
+        repository = IndexUniverseRepository(market_repository(), universe, start, end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+    return repository, repository.symbols
+
+
+def _scope_note(universe: str) -> str:
+    if universe == CURRENT_POOL:
+        return "使用当前固定股票池，仍可能有事后选股偏差。"
+    return f"使用{INDEX_UNIVERSES[universe][0]}当时的成分股：每天只用那天在指数里的股票。"
+
+
 # 引擎英文报错 -> 中文提示（避免把 "No daily bars available for backtest" 直接抛给用户）
 _ENGINE_ERROR_MESSAGES = {
     "No daily bars available for backtest": "本地没有所选区间的日线数据，请先在数据管理中下载行情。",
@@ -812,6 +834,8 @@ class FactorEvalIn(BaseModel):
     n_groups: int = Field(5, ge=5, le=10)
     # 中性化：去掉因子值里能被行业、市值解释的部分。
     neutralization: Literal["none", "industry", "size", "both"] = "none"
+    # 股票范围：当前股票池，或某个指数当时的成分股（指数代码）。
+    universe: str = Field(CURRENT_POOL, max_length=40)
 
 
 class FactorCompositeIn(BaseModel):
@@ -828,6 +852,7 @@ class FactorCompositeIn(BaseModel):
     test_start: str = ""
     horizon: int = Field(5, ge=1, le=20)
     n_groups: int = Field(5, ge=5, le=10)
+    universe: str = Field(CURRENT_POOL, max_length=40)
 
 
 class FactorResearchIn(BaseModel):
@@ -842,6 +867,7 @@ class FactorResearchIn(BaseModel):
     missing: str = "drop"  # drop | median
     horizon: int = Field(5, ge=1, le=20)
     n_groups: int = Field(5, ge=5, le=10)
+    universe: str = Field(CURRENT_POOL, max_length=40)
 
 
 class CustomFactorIn(BaseModel):
@@ -882,6 +908,11 @@ def list_factors(user: dict = Depends(get_current_user)):
     return {"factors": factors}
 
 
+@router.get("/factors/universes", summary="因子研究可以用的股票范围")
+def factor_universes(user: dict = Depends(get_current_user)):
+    return {"items": market_options()}
+
+
 @router.post("/factors/evaluate", summary="单因子评估")
 def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
     registry = build_factor_registry(user)
@@ -890,10 +921,11 @@ def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"因子不存在：{body.factor_name}")
     start, end = _clamped_range(body.start_date, body.end_date)
-    evaluator = build_factor_evaluator()
+    repository, symbols = _factor_scope(user, body.universe, start, end)
+    evaluator = build_factor_evaluator() if body.universe == CURRENT_POOL else FactorEvaluator(repository)
     try:
         report = evaluator.evaluate(
-            factor, start, end, symbols=_factor_symbols(user),
+            factor, start, end, symbols=symbols,
             horizon=body.horizon, n_groups=body.n_groups, neutralization=body.neutralization,
         )
     except ValueError as exc:
@@ -914,14 +946,14 @@ def factor_composite(body: FactorCompositeIn, user: dict = Depends(get_current_u
         raise HTTPException(status_code=404, detail="因子不存在") from exc
     start, end = _clamped_range(body.start_date, body.end_date)
     split = start + timedelta(days=int((end-start).days*0.7))
-    symbols = _factor_symbols(user)
+    repository, symbols = _factor_scope(user, body.universe, start, end)
     try:
         train_end = date.fromisoformat(body.train_end) if body.train_end else split
         test_start = date.fromisoformat(body.test_start) if body.test_start else train_end + timedelta(days=1)
         if not 0 < body.corr_threshold <= 1:
             raise ValueError("相关性阈值需在 (0, 1] 内")
         result = research_combination(
-            market_repository(), components, train_start=start, train_end=train_end,
+            repository, components, train_start=start, train_end=train_end,
             test_start=test_start, test_end=end,
             mode="manual" if body.weight_mode == "custom" else body.weight_mode,
             custom_weights=body.weights, clip=body.winsorize, missing=body.fill_method,
@@ -939,7 +971,7 @@ def factor_composite(body: FactorCompositeIn, user: dict = Depends(get_current_u
         "train_end": train_end.isoformat(), "test_start": test_start.isoformat(), "test_end": end.isoformat(),
         "train_signal_end": result.train_signal_end.isoformat(), "purged_sessions": result.purged_sessions,
         "universe_symbols": symbols,
-        "note": "使用当前固定股票池，仍可能有事后选股偏差。权重、方向及相关性剔除在训练期冻结；报告只评价测试期。负 IC 不取绝对值。合成前固定按日标准化。",
+        "note": _scope_note(body.universe) + "权重、方向及相关性剔除在训练期冻结；报告只评价测试期。负 IC 不取绝对值。合成前固定按日标准化。",
     }
 
 
@@ -976,10 +1008,11 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
     test_start = _parse(body.test_start, str(date.fromordinal(train_end.toordinal() + 1)))
     train_start = max(train_start, local_start)
     test_end = min(test_end, local_end)
+    repository, symbols = _factor_scope(user, body.universe, train_start, test_end)
 
     try:
         result = research_combination(
-            market_repository(),
+            repository,
             tuple(components),
             train_start=train_start,
             train_end=train_end,
@@ -991,7 +1024,7 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
             missing=body.missing,
             horizon=body.horizon,
             n_groups=body.n_groups,
-            symbols=_factor_symbols(user),
+            symbols=symbols,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
