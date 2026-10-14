@@ -552,7 +552,7 @@ onBeforeUnmount(clearPoll)
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载约 20 到 40 分钟，在后台运行；以后只取新的时点。</p>
+      <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
     </section>
     <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
     <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">
