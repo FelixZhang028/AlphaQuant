@@ -5,7 +5,7 @@ import SectionCard from '../ui/SectionCard.vue'
 import PriorKnowledgeView from './PriorKnowledgeView.vue'
 import { openResearch } from '../researchNavigation.js'
 import {
-  evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
+  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
 } from '../aiPresentation.js'
 
 const props = defineProps({
@@ -228,6 +228,7 @@ function moveTone(value) {
           <span class="rounded-full border px-4 py-1.5 text-base font-semibold" :class="tiltTone(brief.tilt)">{{ brief.tilt }}</span>
           <span class="text-sm text-slate-400">信心：{{ brief.confidence }}</span>
         </div>
+        <p v-if="brief.odds" class="mt-3 text-xs text-slate-400">{{ oddsText(brief.odds) }}<span v-if="oddsDisagree(brief.odds, brief.tilt)" class="text-amber-200">。两个模型看法不同，说明数据给出的信号不一致</span></p>
         <p v-if="brief.summary" class="mt-4 text-sm leading-relaxed text-slate-200">{{ brief.summary }}</p>
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
           <div v-for="section in pointSections" :key="section.key" class="min-w-0 rounded-xl border border-white/10 bg-white/5 p-4">

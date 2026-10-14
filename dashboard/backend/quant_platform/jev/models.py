@@ -19,7 +19,6 @@ class ChoiceResponse:
     selected: str
     probabilities: dict[str, float]  # option -> probability, sum == 1
     confidence: float  # 0-1
-    mock: bool = False
 
 
 # ---------------- Noul: 条件是否成立 ----------------
@@ -28,13 +27,13 @@ class ChoiceResponse:
 class NoulRequest:
     condition: str
     state: dict[str, Any] = field(default_factory=dict)
+    true_means: str = "条件成立"
+    false_means: str = "条件不成立"
 
 
 @dataclass
 class NoulResponse:
     probability: float  # 0-1, P(condition is true)
-    confidence: float | None
-    mock: bool = False
 
 
 # ---------------- Score: 在有序量表上的位置 ----------------
@@ -52,7 +51,6 @@ class ScoreResponse:
     level_probabilities: dict[str, float]  # level -> probability
     confidence: float
     levels: list[str] = field(default_factory=list)  # 有序等级列表
-    mock: bool = False
 
     def to_score_0_100(self) -> float:
         """将 score 映射到 0-100 分。"""

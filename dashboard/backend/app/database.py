@@ -8,6 +8,7 @@
 - chart_drawings 每个用户在每只股票 K 线上画的线
 - ai_usage       每个用户每天调用平台 AI 的次数
 - stock_briefs   AI 研究员的每次分析（当时的数据、AI 解读、追问）
+- ai_reviews     每次回测的 AI 评估（风险等级、过度拟合的可能）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -195,6 +196,14 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_stock_briefs_user ON stock_briefs(user_id, created_at);
+            CREATE TABLE IF NOT EXISTS ai_reviews (
+                user_id     INTEGER NOT NULL,
+                backtest_id INTEGER NOT NULL,
+                review      TEXT    NOT NULL,                -- JSON：用到的数据和 AI 的估计
+                created_at  TEXT    NOT NULL,
+                PRIMARY KEY (user_id, backtest_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         # 旧库迁移：补 is_admin 列（已存在则忽略）

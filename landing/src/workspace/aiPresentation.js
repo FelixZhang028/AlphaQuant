@@ -61,3 +61,23 @@ export function pickSuggestion(text, picked, suggestions = []) {
   const exact = suggestions.find((item) => item.name === typed)
   return (exact || suggestions[0])?.symbol || ''
 }
+
+export function percent(value) {
+  return `${Math.round(Number(value) * 100)}%`
+}
+
+// 决策模型对同一张数据表的估计；和 AI 解读的倾向不同时说明信号不一致。
+export function oddsText(odds) {
+  if (!odds) return ''
+  const parts = ['偏多', '中性', '偏空'].map((tilt) => `${tilt} ${percent(odds.probabilities?.[tilt] ?? 0)}`)
+  return `决策模型 ${odds.model} 的估计：${parts.join(' · ')}`
+}
+export function oddsDisagree(odds, tilt) {
+  return Boolean(odds && tilt && odds.choice !== tilt)
+}
+
+export function overfitText(probability) {
+  if (probability >= 0.6) return '模型认为这个结果很可能经不起新数据的检验。'
+  if (probability >= 0.4) return '模型拿不准，建议用参数验证检查。'
+  return '模型认为这个结果不太像是巧合，但仍建议用参数验证确认。'
+}

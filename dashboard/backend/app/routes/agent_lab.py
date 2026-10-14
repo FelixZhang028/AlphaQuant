@@ -52,6 +52,7 @@ from quant_platform.ai_research.brief import (
     parse_json,
     retry_messages,
 )
+from quant_platform.ai_research.decisions import tilt_odds
 from quant_platform.ai_research.facts import StockFacts, stock_facts
 from quant_platform.ai_research.outcome import later_moves
 
@@ -225,6 +226,18 @@ def _with_later(record: dict[str, Any]) -> dict[str, Any]:
     return {**record, "later": moves.get((record["symbol"], day))}
 
 
+def _tilt_odds(stock: StockFacts) -> dict[str, Any] | None:
+    """决策模型 Jev 对同一张数据表给出的倾向概率；没有配置或失败时不显示。"""
+    client = platform_ai.decision_client()
+    if client is None:
+        return None
+    try:
+        return tilt_odds(client, stock)
+    except Exception as exc:  # noqa: BLE001 - 第二个模型失败不影响解读
+        logger.warning("Jev tilt failed for %s: %s", stock.symbol, exc)
+        return None
+
+
 @router.post("/briefs", status_code=status.HTTP_201_CREATED, summary="分析一只股票，第一步：整理本地数据（不用 AI）")
 def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
     symbol = to_canonical(body.symbol.strip())
@@ -269,9 +282,11 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
         try:
             platform_ai.require_quota(user, "brief")
             experience = _prior_store(user["id"]).render(None) if record["use_experience"] else ""
-            reading = _read_brief(model, StockFacts.from_dict(record["facts"]), experience)
+            stock = StockFacts.from_dict(record["facts"])
+            reading = _read_brief(model, stock, experience)
             platform_ai.record_use(user, "brief")
             label = model.label
+            reading["odds"] = _tilt_odds(stock)
         except platform_ai.QuotaExceeded as exc:
             note = f"{exc}下面的数据不受次数限制。"
         except Exception as exc:  # noqa: BLE001 - 模型失败时仍然给出数据

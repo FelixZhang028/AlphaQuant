@@ -29,10 +29,6 @@
 
 ![策略工作室](docs/images/workspace.png)
 
-**Jev 结构化决策**
-
-![Jev 决策中心](docs/images/decision-center.png)
-
 ## 📖 项目介绍
 
 FellowQuant v4 是面向 A 股的量化研究工作台，基于 **Vue 3 + FastAPI** 构建。它把数据更新、策略创建、因子评估、回测验证和 AI 投研放进同一套工作流程，帮助研究者记录和检验投资想法。
@@ -49,7 +45,7 @@ v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。�
 | 数据管理 | 数据概览、数据更新、股票池管理；XTick 位于概览的「数据源与高级工具」 |
 | 系统 | 个人中心、账户独立的服务配置 |
 
-**能力边界：**回测与因子评估需要先下载行情数据；监控大屏使用模拟指标。WeKnora 和 Jev 需要独立服务或有效 API Key，未配置时提供明确标记的演示结果，配置后的服务错误会直接提示。项目用于研究与模拟，不连接真实资金交易。
+**能力边界：**回测与因子评估需要先下载行情数据；监控大屏使用模拟指标。AI 功能需要服务器配置 `OPENROUTER_API_KEY`，没有配置时不显示 AI 结果（不提供演示结果）；WeKnora 文档问答需要独立部署的服务。项目用于研究与模拟，不连接真实资金交易。
 
 ## 🚀 快速开始
 
@@ -96,14 +92,15 @@ npm run dev -- --host 127.0.0.1
 | `FELLOWQUANT_ADMIN_EMAIL` / `FELLOWQUANT_ADMIN_PASSWORD` | 首次创建管理员，初始密码至少 12 位；不提供公共默认密码 |
 | `OPENROUTER_API_KEY` | 平台统一提供的 AI 模型（AI研究员、用一句话生成规则），也用于 Jev 决策服务；用户不需要自己填写密钥 |
 | `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
-| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` | 可选：每人每天的 AI 分析、追问、生成规则次数（默认 5 / 20 / 10），管理员不限 |
+| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估次数（默认 5 / 20 / 10 / 10），管理员不限 |
+| `FELLOWQUANT_JEV_MODEL` | 可选：决策模型，默认 `typesafe/jev-1.13`（只在 OpenRouter 上提供） |
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可在页面配置 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_FROM` | 密码重置邮件服务，采用 STARTTLS；默认端口 587 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP 登录凭据（邮件服务需要时填写） |
 
 未配置 SMTP 时密码重置不可用；验证码只发送至注册邮箱，不返回到浏览器。重置密码后旧登录令牌失效。本机账户、行情、运行记录和密钥保存在后端 `data/` 中，不进入 Git。
 
-WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。Jev 提供 Choice、Noul、Score 三种决策，可输入文本或 JSON 上下文；真实调用可能消耗服务额度。AI研究员和“用一句话生成规则”使用平台的聊天模型；没有配置时，AI研究员只显示本地数据，生成规则改用离线规则识别。Jev 在「决策辅助」中使用。
+WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。AI研究员和“用一句话生成规则”使用平台的聊天模型；没有配置时，AI研究员只显示本地数据，生成规则改用离线规则识别。决策模型 Jev 按概率回答选择、是非、评分三类问题：AI研究员用它给出偏多/中性/偏空的概率，回测结果页用它评估风险等级和过度拟合的可能，材料都由平台从本地数据自动整理。
 
 ## 🧩 项目结构
 

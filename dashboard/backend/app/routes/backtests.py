@@ -32,7 +32,10 @@ from ..quant.runtime import (
     security_names,
     user_risk_limits,
 )
+from ..quant import platform_ai
+from ..routes.agent_lab import _ai_failure
 from ..routes.auth import get_current_user
+from quant_platform.ai_research.decisions import backtest_facts, review_backtest
 from quant_platform.application.benchmarks import BENCHMARK_NAMES
 from quant_platform.data.index_constituents import INDEX_UNIVERSES
 
@@ -234,3 +237,49 @@ def backtest_benchmark(bid: int, symbol: str = Query(..., max_length=12), user: 
         raise HTTPException(status_code=404, detail=f"本地没有{BENCHMARK_NAMES[symbol]}在这段时间的行情，请先在「数据更新」里更新基准指数。")
     return comparison
 
+
+# --------------------------------------------------------------------------- #
+# AI 评估：决策模型 Jev 根据这次回测自己的数字估计风险等级和过度拟合的可能
+# --------------------------------------------------------------------------- #
+
+
+def _saved_review(bid: int, user: dict) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT review, created_at FROM ai_reviews WHERE backtest_id = ? AND user_id = ?", (bid, user["id"])).fetchone()
+    return {**json.loads(row["review"]), "created_at": row["created_at"]} if row else None
+
+
+@router.get("/{bid}/ai-review", summary="这次回测的 AI 评估（没有评估过时为空）")
+def backtest_ai_review(bid: int, user: dict = Depends(get_current_user)):
+    return {"review": _saved_review(bid, user), "available": platform_ai.decision_client() is not None,
+            "usage": platform_ai.usage(user, "review")}
+
+
+@router.post("/{bid}/ai-review", summary="让 AI 评估这次回测：风险等级、在新数据上做不到的可能")
+def backtest_ai_review_run(bid: int, user: dict = Depends(get_current_user)):
+    saved = _saved_review(bid, user)
+    if saved is not None:
+        return {"review": saved, "available": True, "usage": platform_ai.usage(user, "review")}  # 评估过：不再调用、不再计数
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM backtests WHERE id = ? AND user_id = ?", (bid, user["id"])).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="回测不存在")
+    client = platform_ai.decision_client()
+    if client is None:
+        raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能评估。")
+    try:
+        platform_ai.require_quota(user, "review")
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
+    facts = backtest_facts({"from_date": row["from_date"], "to_date": row["to_date"]}, result, benchmark_comparison(run_directory(result)))
+    try:
+        review = review_backtest(client, facts)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"AI 评估没有完成（{_ai_failure(exc)}），这次不计入次数。") from exc
+    platform_ai.record_use(user, "review")
+    review["facts"] = [fact.to_dict() for fact in facts]
+    with get_conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO ai_reviews (user_id, backtest_id, review, created_at) VALUES (?,?,?,?)",
+                     (user["id"], bid, json.dumps(review, ensure_ascii=False), _now()))
+    return {"review": _saved_review(bid, user), "available": True, "usage": platform_ai.usage(user, "review")}
