@@ -46,6 +46,13 @@ def lists_frame(index_symbol, lists):
                          for day, members in lists.items() for symbol in members])
 
 
+def stay_rows(stays):
+    """(symbol, first day, day of the first list without it or None) - plain values, the same on every pandas version."""
+    day = lambda value: None if pd.isna(value) else value.date().isoformat()  # noqa: E731
+    return [[symbol, day(start), day(end)] for symbol, start, end in
+            zip(stays["symbol"], stays["effective_from"], stays["effective_to"])]
+
+
 def test_a_vendor_list_becomes_one_dated_row_per_member():
     vendor = pd.DataFrame({"updateDate": "2025-06-16", "code": ["sh.600000", "sz.000001", "sz.000001"], "code_name": ["浦发银行", "平安银行", "平安银行"]})
     rows = normalize_baostock_constituents(vendor, HS300, monday("2025-06-16"))
@@ -64,12 +71,12 @@ def test_membership_is_one_row_per_unbroken_stay():
     })
     stored = pd.concat([stored, lists_frame(SZ50, {"2025-01-06": ["Z"]})], ignore_index=True)
     stays = membership(stored, HS300)
-    assert stays[["symbol", "effective_from", "effective_to"]].astype(str).values.tolist() == [
-        ["A", "2025-01-06", "NaT"],
+    assert stay_rows(stays) == [
+        ["A", "2025-01-06", None],
         ["B", "2025-01-06", "2025-06-16"],
-        ["B", "2025-12-15", "NaT"],
+        ["B", "2025-12-15", None],
         ["C", "2025-01-06", "2025-12-15"],
-        ["D", "2025-06-16", "NaT"],
+        ["D", "2025-06-16", None],
     ]
     assert stays["known_at"].equals(stays["effective_from"]) and stays["source"].eq(f"index:{HS300}").all()
     assert membership(stored, ZZ500).empty and membership(pd.DataFrame(), HS300).empty
@@ -178,9 +185,9 @@ def test_an_earlier_start_extends_the_history_backwards(tmp_path):
     run(repo, earlier, indexes=[HS300])
     assert all(day <= monday("2024-12-30") for _, day in earlier.requests)   # 已经核对过的日期不再问
     stays = membership(repo.read_table(CONSTITUENTS_TABLE), HS300)
-    assert stays[stays["symbol"] != "600000.SH"][["symbol", "effective_from"]].astype(str).values.tolist() == [
-        ["000001.SZ", "2023-01-02"], ["600004.SH", "2023-06-12"], ["600005.SH", "2024-12-16"], ["600006.SH", "2025-06-16"]]
-    assert stays["effective_to"].isna().all()
+    assert stay_rows(stays[stays["symbol"] != "600000.SH"]) == [
+        ["000001.SZ", "2023-01-02", None], ["600004.SH", "2023-06-12", None], ["600005.SH", "2024-12-16", None],
+        ["600006.SH", "2025-06-16", None]]
     assert checked_range(repo.read_table(CHECKS_TABLE), HS300) == (week_start(START), week_start(TODAY))
 
 
