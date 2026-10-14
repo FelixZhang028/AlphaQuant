@@ -31,6 +31,14 @@ from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
 from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
+from quant_platform.data.index_constituents import (
+    CHECKS_TABLE,
+    CONSTITUENTS_TABLE,
+    INDEX_UNIVERSES,
+    checked_range,
+    stored_lists,
+)
+from quant_platform.data.index_constituents_backfill import BaoStockIndexConstituentsBackfill
 from quant_platform.data.industry import EXPOSURES_TABLE, SNAPSHOTS_TABLE
 from quant_platform.data.industry_backfill import BaoStockIndustryBackfill
 from quant_platform.data.coverage import (
@@ -577,6 +585,33 @@ class DataCenterService:
             start_date, end_date, progress=progress
         )
 
+    @serialized_update
+    def backfill_index_constituents(self, start_date: date, end_date: date, *, progress: Any = None) -> dict[str, Any]:
+        """下载指数的历史成分股：找出名单发生变化的每一周，保存当时的完整名单。"""
+
+        return BaoStockIndexConstituentsBackfill(self.repository, self.sources.baostock_provider()).backfill(
+            start_date, end_date, progress=progress
+        )
+
+    def index_constituents_status(self) -> list[dict[str, Any]]:
+        """每个指数的历史成分股：核对过的起止日期、名单变化过几次、现在有多少只成分股。"""
+
+        checks = self.repository.read_table(CHECKS_TABLE)
+        constituents = self.repository.read_table(CONSTITUENTS_TABLE)
+        status = []
+        for index_symbol, (name, _) in INDEX_UNIVERSES.items():
+            covered = checked_range(checks, index_symbol)
+            lists = stored_lists(constituents, index_symbol) if covered else {}
+            status.append({
+                "symbol": index_symbol,
+                "name": name,
+                "start_date": covered[0].isoformat() if covered else None,
+                "end_date": covered[1].isoformat() if covered else None,
+                "changes": max(len(lists) - 1, 0),
+                "members": len(lists[max(lists)]) if lists else 0,
+            })
+        return status
+
     def industry_status(self) -> dict[str, Any]:
         """行业分类的落地情况：多少只股票有分类、多少只有行情却没有、快照覆盖到哪一天。"""
 
@@ -646,6 +681,7 @@ class DataCenterService:
         status["indicators"] = self.indicator_status()
         status["fundamentals"] = self.fundamentals_status()
         status["industry"] = self.industry_status()
+        status["index_constituents"] = self.index_constituents_status()
         return status
 
     def _catalog(self) -> AkShareCatalogIngestor:

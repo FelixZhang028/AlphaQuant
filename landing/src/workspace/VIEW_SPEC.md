@@ -123,7 +123,7 @@ const props = defineProps({
 - `getBacktest(id)` → `{ id,strategy,market,from_date,to_date,status,created_at,result:{equity,total_return,max_drawdown,sharpe,win_rate,...},trades:[],positions:[],benchmark }`
 - `benchmark`（和基准的对比，默认沪深 300）：`{ symbol,name,comparable:true,strategy_curve:[],benchmark_curve:[],benchmark_return,excess_return,benchmark_max_drawdown,beta,alpha,information_ratio,tracking_error }`；百分比字段已乘 100，两条曲线是从同一天 0% 出发的累计收益。查看时从运行目录读出，所以以前的回测也有。基准行情晚于回测开始日时为 `{ symbol,name,comparable:false,benchmark_start }`，页面只说明原因、不做比较；回测没有记录基准时为 `null`，页面显示资金曲线。
 - `benchmark_options`：`[{symbol,name,start_date,end_date}]`，本地有行情的常用指数。`getBacktestBenchmark(id,symbol)` 返回和这个指数的对比（形状同 `benchmark`），按引擎同样的方法用本地指数行情重算；指数行情比回测早结束超过 5 个交易日时为 `{comparable:false,benchmark_end}`。页面在标题里提供下拉框，选择记在浏览器里（`fq-benchmark`），下次查看回测时沿用。
-- `submitBacktest({strategy,market,from_date,to_date})` → `{ id,status,result,created_at }`
+- `submitBacktest({strategy,market,from_date,to_date})` → `{ id,status,result,created_at }`；`market` 是 `当前股票池` 或指数代码（见数据管理的「回测的股票范围」）
 
 ### 参数优化与稳健性验证
 - `researchBaselines()` → `{ items:[{run_id,strategy,market,from_date,to_date,created_at,display_label,parameters:[{name,label,kind,description,current,minimum,maximum,choices,choice_labels}]}],max_combinations,max_backtests }`；只列出保存了运行明细的记录。`parameters` 先列策略自己的可调参数，再列所有策略共用的 `top_n`（持股数量）和 `rebalance`（调仓频率），所以规则策略也能做参数验证；策略已删除或无法加载时为空。
@@ -144,6 +144,8 @@ const props = defineProps({
 - 估值与换手率（每日指标）：市盈率、市净率、市销率、市现率（TTM/最近一季）和换手率，单独存在 `daily_indicators` 表里，不改动行情表。用 BaoStock 更新行情时在同一次请求里取回并保存；以前下载的行情通过后台任务补全（`startDataJob({start_date,end_date,datasets:['indicators']})`，每只股票一次请求，只请求还没有的日期，可中断后继续）。`closedLoopStatus()` 的返回值增加 `indicators:{symbols,missing_symbols,rows,start_date,end_date}`；数据更新页据此显示覆盖情况和「补全历史数据」按钮。还没有下载时使用相关因子会提示去数据更新页补全。
 - 财务数据（季度财报）：净资产收益率、净利率、毛利率、净利润、同比增长（净资产、总资产、净利润、每股收益）、流动比率、速动比率、权益乘数、总股本和流通股本，存在 `quarterly_fundamentals` 表里，每行是一只股票的一个报告期，带公告日。**每份财报从公告日起才会被使用**（同一天公告两期时用较新的一期；超过 370 天的财报不再使用）。BaoStock 一次只能取一只股票的一个季度，所以默认只下载股票池：`startDataJob({start_date,end_date,datasets:['fundamentals'],scope:'universe'})`；不带 `scope` 时是本地有行情的全部股票（约 20 多个小时，可续传）。`closedLoopStatus()` 的返回值增加 `fundamentals:{symbols,missing_symbols,reports,latest_stat_date,latest_pub_date}`；数据更新页据此显示覆盖情况和「下载股票池的财务数据」按钮。
 - 行业分类：证监会行业分类（门类字母 + 两位大类，如 `J66货币金融服务`，共 84 个大类）。每个季度末取一张全市场快照，只把「第一次分类」和「发生变化」的记录存进 `security_exposures`，所以使用时是当时的行业。后台任务 `startDataJob({start_date,end_date,datasets:['industry']})`，第一次大约 1 小时（每个时点 1 到 2 分钟），以后只取新的时点。`closedLoopStatus()` 的返回值增加 `industry:{symbols,missing_symbols,snapshots,start_date,end_date}`。
+- 指数成分股：沪深300（`000300.SH`）、上证50（`000016.SH`）、中证500（`000905.SH`）在历史上每一天的成分股。数据源的名单每周一更新一次；下载时把区间切成半年一段，只在两头名单不同的段里折半查找发生变化的那一周，把第一天和每次变化后的完整名单存进 `index_constituents`，核对过的起止日期记在 `index_constituent_checks`。后台任务 `startDataJob({start_date,end_date,datasets:['index_constituents']})`，第一次约 10 分钟，以后只核对新的几周。`closedLoopStatus()` 的返回值增加 `index_constituents:[{symbol,name,start_date,end_date,changes,members}]`。
+- 回测的股票范围：`getBacktestCatalog()` 的返回值增加 `markets:[{value,label,available,start_date,end_date}]`，第一项是 `当前股票池`，其余是指数。`submitBacktest({...,market})` 的 `market` 传 `当前股票池` 或指数代码；选指数时每个调仓日只在当时的成分股里选股，运行快照记下 `universe.mode='historical'` 和 `universe.index`，参数验证用同一个范围重跑。成分股历史没有覆盖回测区间（开始日期早于第一份名单，或核对日期落后结束日超过 31 天）时返回 422 并说明原因。
 - 因子评估的中性化：`evaluateFactor({...,neutralization:'none'|'industry'|'size'|'both'})`。行业用当时的分类，市值用当天收盘价乘以当时已公告的总股本。缺少行业或市值的样本不参与，并在返回的 `notes` 里说明数量（评估结果上方会显示）；股票太少（每天的股票数不比行业数多）时返回 422 并说明原因。
 
 ### XTick 数据服务

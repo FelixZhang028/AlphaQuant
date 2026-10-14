@@ -89,3 +89,12 @@ test('行业分类的覆盖情况用一句话说明；中性化有四种选择',
     '已有 300 只股票的行业分类（2026-06-30 至 2026-10-13，2 个时点）。')
   assert.deepEqual(NEUTRALIZATION_OPTIONS.map((option) => option.value), ['none', 'industry', 'size', 'both'])
 })
+
+test('指数成分股的覆盖情况每个指数一句话', async () => {
+  const { indexConstituentsSummary } = await import('../src/workspace/dataPresentation.js')
+  assert.deepEqual(indexConstituentsSummary(null), [])
+  assert.deepEqual(indexConstituentsSummary([
+    { symbol: '000300.SH', name: '沪深300', start_date: '2015-01-05', end_date: '2026-10-12', changes: 27, members: 300 },
+    { symbol: '000016.SH', name: '上证50', start_date: null, end_date: null, changes: 0, members: 0 },
+  ]), ['沪深300：2015-01-05 至 2026-10-12，名单变化过 27 次，现在 300 只。', '上证50：还没有下载。'])
+})

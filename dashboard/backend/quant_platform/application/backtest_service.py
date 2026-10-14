@@ -14,6 +14,12 @@ from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.run_store import BacktestRunStore
 from quant_platform.core.config import load_app_config, load_yaml, require_mapping
 from quant_platform.core.exceptions import PluginError
+from quant_platform.data.index_constituents import (
+    CHECKS_TABLE,
+    CONSTITUENTS_TABLE,
+    membership,
+    require_coverage,
+)
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -245,11 +251,16 @@ class BacktestService:
         if universe_mode == "historical":
             from quant_platform.universe.historical import HistoricalUniverse
 
-            universe = HistoricalUniverse(
-                universe.config,
-                repository.read_table("universe_membership"),
-                repository.read_table("security_master"),
-            )
+            index_symbol = str(universe_section.get("index") or "")
+            if index_symbol:
+                # 指数成分股：每天用当时的名单。名单没有覆盖回测区间时不运行。
+                require_coverage(
+                    repository.read_table(CHECKS_TABLE), index_symbol, effective.start_date, effective.end_date
+                )
+                members = membership(repository.read_table(CONSTITUENTS_TABLE), index_symbol)
+            else:
+                members = repository.read_table("universe_membership")
+            universe = HistoricalUniverse(universe.config, members, repository.read_table("security_master"))
         portfolio_section = require_mapping(app, "portfolio")
         backtest_section = require_mapping(app, "backtest")
         # 空值或显式留空表示关闭基准对比；缺省沿用沪深 300。

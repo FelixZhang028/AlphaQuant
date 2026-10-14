@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from enum import StrEnum
@@ -95,6 +96,7 @@ def assess_backtest_validity(
     missing_adj_factor_rows: int = 0,
     evaluation_mode: str = "in_sample",
     fixed_universe: bool = True,
+    members_missing_bars: Sequence[str] = (),
     maximum_allowed_gap_days: int = 20,
     endpoint_tolerance_days: int = 15,
 ) -> BacktestValidityReport:
@@ -184,6 +186,16 @@ def assess_backtest_validity(
                 "FIXED_UNIVERSE",
                 IssueSeverity.WARNING,
                 "本次使用当前固定股票池，结果只代表这些股票，可能存在事后选股偏差。",
+            )
+        )
+    if members_missing_bars:
+        names = "、".join(list(members_missing_bars)[:8]) + ("等" if len(members_missing_bars) > 8 else "")
+        issues.append(
+            ValidityIssue(
+                "MEMBERS_MISSING_BARS",
+                IssueSeverity.WARNING,
+                f"有 {len(members_missing_bars)} 只成分股在成分期间缺少一部分本地行情（{names}），"
+                "缺行情的那段时间它们没有参与选股。补全这些股票的行情后重新回测，结果才完整。",
             )
         )
     if evaluation_mode == "in_sample":

@@ -25,7 +25,7 @@ const emit = defineEmits(['update:modelValue'])
       class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40 disabled:opacity-50"
       @change="emit('update:modelValue', $event.target.value)"
     >
-      <option v-for="o in options" :key="o.value" :value="o.value" class="bg-ink">{{ o.label }}</option>
+      <option v-for="o in options" :key="o.value" :value="o.value" :disabled="o.disabled" class="bg-ink">{{ o.label }}</option>
     </select>
     <textarea
       v-else-if="type === 'textarea'"
