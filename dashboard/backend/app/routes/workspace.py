@@ -31,6 +31,7 @@ from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
 from ..quant.market_catalog import LocalMarketCatalog
+from ..quant import platform_ai
 from ..quant.markets import CURRENT_POOL, market_options, use_market
 from ..quant.run_trades import symbol_trades, traded_symbols
 from ..quant.research_runs import (
@@ -72,7 +73,6 @@ from ..quant.symbols import to_bare, to_canonical
 from ..routes.agent_lab import _llm_store
 from ..routes.auth import get_current_user
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
-from quant_platform.agents_bridge.llm_settings import PROVIDER_CATALOG
 from quant_platform.application.strategy_studio_service import (
     StrategyPackage,
     StrategyStudioService,
@@ -99,8 +99,7 @@ from quant_platform.web.factor_fields import field_description
 from quant_platform.web.security_names import xtick_security_names
 from quant_platform.jev import JevClient, ChoiceRequest, NoulRequest, ScoreRequest
 from quant_platform.weknora import WeKnoraClient
-from trading_agents.config import TradingConfig
-from trading_agents.llm import create_llm_client
+from trading_agents.llm.mock import MockLLMClient
 
 router = APIRouter(prefix="/api/v1", tags=["workspace"])
 
@@ -544,79 +543,43 @@ def studio_options(user: dict = Depends(get_current_user)):
 
 class NlGenerateIn(BaseModel):
     description: str = Field(..., min_length=3)
-    provider: str = "mock"
-    base_url: str = ""
-    api_key: str = ""
-    model: str = ""
     top_n: int = Field(5, ge=1, le=50)
     rebalance: str = "weekly"
 
 
-@router.get("/nl/providers", summary="自然语言建策略：模型提供方目录")
-def nl_providers(user: dict = Depends(get_current_user)):
-    store = _llm_store(user["id"])
-    ordered = ["mock", *[key for key in PROVIDER_CATALOG if key not in {"mock", "openrouter"}]]
-    providers = []
-    for key in ordered:
-        spec = PROVIDER_CATALOG[key]
-        resolved = store.resolve(key)
-        providers.append(
-            {
-                "key": spec.key,
-                "display_name": spec.display_name,
-                "default_base_url": resolved["base_url"],
-                "models": list(spec.models),
-                "default_model": resolved["model"],
-                "requires_key": spec.requires_key,
-                "api_key_configured": bool(resolved["api_key"]),
-            }
-        )
-    return {"providers": providers, "default_provider": store.get_default_provider()}
+@router.get("/nl/status", summary="用一句话建策略：用哪个模型、今天还剩几次")
+def nl_status(user: dict = Depends(get_current_user)):
+    model = platform_ai.platform_model()
+    return {"ai": {"available": model is not None, "model": model.label if model else None},
+            "usage": platform_ai.usage(user, "strategy")}
 
 
-@router.post("/nl/generate", summary="自然语言生成结构化策略规则（真实 LLM，校验失败自动修复重试）")
+@router.post("/nl/generate", summary="一句话生成结构化策略规则（平台模型；没有模型或次数用完时用离线规则识别）")
 def nl_generate(body: NlGenerateIn, user: dict = Depends(get_current_user)):
-    store = _llm_store(user["id"])
-    provider = (
-        body.provider if body.provider in PROVIDER_CATALOG else store.get_default_provider()
-    )
-    if provider == "openrouter":
-        raise HTTPException(status_code=422, detail="Jev 为决策模型，请在 AI 决策中心使用")
-    spec = PROVIDER_CATALOG[provider]
-    resolved = store.resolve(provider)
-    if body.base_url.strip():
-        resolved["base_url"] = _service_url(body.base_url)
-    if body.api_key.strip():
-        resolved["api_key"] = body.api_key.strip()
-    if body.model.strip():
-        resolved["model"] = body.model.strip()
-    if spec.requires_key and not resolved["api_key"]:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"{spec.display_name} 未配置 API Key：请先在「智能体分析台 → 配置模型」"
-                "保存密钥，或改用 Mock 离线生成。"
-            ),
-        )
+    model = platform_ai.platform_model()
+    note = ""
+    if model is not None:
+        try:
+            platform_ai.require_quota(user, "strategy")
+        except platform_ai.QuotaExceeded as exc:
+            model, note = None, f"{exc}这次用离线规则识别，只能识别简单的句子。"
+    client = platform_ai.model_client(model) if model is not None else MockLLMClient()
     try:
-        client = create_llm_client(
-            provider,
-            model=resolved["model"] or spec.default_model,
-            base_url=resolved["base_url"] or None,
-            api_key=resolved["api_key"] or None,
-            env_key_name=TradingConfig.env_key_name(provider),
-        )
         definition = NLStrategyBuilder(client).generate(body.description)
     except ConfigurationError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - LLM 调用异常统一转 422
         raise HTTPException(status_code=422, detail=f"生成失败：{_sanitize_detail(exc)}") from exc
+    if model is not None:
+        platform_ai.record_use(user, "strategy")
     return {
         "definition": definition_to_frontend(definition.to_dict()),
         "explanation": definition_explanation(
             definition, top_n=body.top_n, rebalance=body.rebalance
         ),
         "minimum_history_days": definition.minimum_history_days,
+        "model": model.label if model is not None else None,
+        "note": note,
     }
 
 

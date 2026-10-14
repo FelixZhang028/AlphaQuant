@@ -6,6 +6,8 @@
 - strategies     每个用户的策略
 - backtests      每个用户的回测任务与结果
 - chart_drawings 每个用户在每只股票 K 线上画的线
+- ai_usage       每个用户每天调用平台 AI 的次数
+- stock_briefs   AI 研究员的每次分析（当时的数据、AI 解读、追问）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -171,6 +173,28 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, symbol),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                user_id INTEGER NOT NULL,
+                day     TEXT    NOT NULL,                -- 北京时间日期
+                kind    TEXT    NOT NULL,                -- brief / question / strategy
+                count   INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, day, kind),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS stock_briefs (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                symbol     TEXT    NOT NULL,
+                name       TEXT    NOT NULL,
+                trade_date TEXT    NOT NULL,
+                model      TEXT    NOT NULL DEFAULT '',     -- 空表示没有 AI 解读，只有数据
+                facts      TEXT    NOT NULL,                -- JSON：当时的数据
+                brief      TEXT,                            -- JSON：AI 解读
+                questions  TEXT    NOT NULL DEFAULT '[]',   -- JSON：追问与回答
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_briefs_user ON stock_briefs(user_id, created_at);
             """
         )
         # 旧库迁移：补 is_admin 列（已存在则忽略）
