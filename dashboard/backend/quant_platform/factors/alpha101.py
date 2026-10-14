@@ -1,8 +1,8 @@
 """A verified subset of the 101 Formulaic Alphas, computed from daily bars.
 
 Source: https://arxiv.org/abs/1601.00991 (Appendix A). Each formula below is the paper's,
-with the paper's operator definitions. 82 of the 101 need only daily price and volume; the
-other 19 need an industry classification (18) or market cap (#56), which the local data lacks.
+with the paper's operator definitions. 82 of the 101 need only daily price and volume, and all
+82 are here; the other 19 need an industry classification (18) or market cap (#56).
 
 Conventions, chosen so that no value depends on data after its own date:
 
@@ -11,19 +11,28 @@ Conventions, chosen so that no value depends on data after its own date:
 - ``returns`` is the true close-to-close return (from the adjusted close), so an ex-dividend
   day is not counted as a loss.
 - ``vwap`` is amount / volume of the day; ``adv{d}`` is the average amount over ``d`` days,
-  as the paper defines it. Formulas that compare ``adv`` with share volume are left out.
+  as the paper defines it.
 - A dividend or split makes raw prices and volumes before and after it incomparable. A value
   whose price/volume window spans such a day is left missing rather than computed from a
   jump that never traded (``span`` below is the number of day-to-day steps the window covers).
   Other stocks' cross-sectional ranks on that day still count the affected stock.
 - ``rank`` is the cross-sectional average percentile rank within the supplied universe; when
   the bars carry an ``in_universe`` mark (an index's members on each day), only that day's
-  members are ranked;
+  members are ranked (``scale`` too);
+- A non-integer number of days is floored, as the paper says. ``ts_argmax``/``ts_argmin`` say
+  which day of the window holds the extreme, 1 for the oldest and d for today (the paper does
+  not say which end to count from). ``max``/``min`` of two expressions are taken element-wise;
+  with a number of days as the second argument they are ``ts_max``/``ts_min``, as defined.
+- A ``condition ? yes : no`` has a value only once every part of it can be computed.
+- The formulas that compare ``volume`` with ``adv`` (7, 17, 21, 39, 43, 47) use the day's amount
+  in place of ``volume``: ``adv`` is an average amount, so the paper's comparison mixes shares
+  with money and would rank stocks by their price level instead of their activity.
   ``ts_rank`` the same within a stock's own window. Undefined results stay missing.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -50,39 +59,143 @@ Frame = pd.DataFrame
 _UNIVERSE: ContextVar[Frame | None] = ContextVar("alpha101_universe", default=None)
 
 
-def rank(x: Frame) -> Frame:
+def _days(d: float) -> int:
+    """The paper: a non-integer number of days d is converted to floor(d)."""
+
+    return int(math.floor(d))
+
+
+def _cross_section(x: Frame) -> Frame:
+    """The values that take part in a cross-sectional operation: that day's members only, when a universe is set."""
+
     members = _UNIVERSE.get()
-    if members is not None:
-        x = x.where(members.reindex(index=x.index, columns=x.columns, fill_value=False))
-    return x.rank(axis=1, pct=True)
+    if members is None:
+        return x
+    return x.where(members.reindex(index=x.index, columns=x.columns, fill_value=False))
 
 
-def delay(x: Frame, d: int) -> Frame:
-    return x.shift(d)
+def rank(x: Frame) -> Frame:
+    return _cross_section(x).rank(axis=1, pct=True)
 
 
-def delta(x: Frame, d: int) -> Frame:
-    return x.diff(d)
+def scale(x: Frame, a: float = 1.0) -> Frame:
+    """Rescaled across stocks so that the absolute values of each day sum to ``a``."""
+
+    x = _cross_section(x)
+    return x.div(x.abs().sum(axis=1).replace(0, np.nan), axis=0) * a
 
 
-def ts_sum(x: Frame, d: int) -> Frame:
-    return x.rolling(d, min_periods=d).sum()
+def delay(x: Frame, d: float) -> Frame:
+    return x.shift(_days(d))
 
 
-def ts_min(x: Frame, d: int) -> Frame:
-    return x.rolling(d, min_periods=d).min()
+def delta(x: Frame, d: float) -> Frame:
+    return x.diff(_days(d))
 
 
-def ts_max(x: Frame, d: int) -> Frame:
-    return x.rolling(d, min_periods=d).max()
+def ts_sum(x: Frame, d: float) -> Frame:
+    return x.rolling(_days(d), min_periods=_days(d)).sum()
 
 
-def ts_rank(x: Frame, d: int) -> Frame:
-    return x.rolling(d, min_periods=d).rank(pct=True)
+def ts_min(x: Frame, d: float) -> Frame:
+    return x.rolling(_days(d), min_periods=_days(d)).min()
 
 
-def stddev(x: Frame, d: int) -> Frame:
-    return x.rolling(d, min_periods=d).std()
+def ts_max(x: Frame, d: float) -> Frame:
+    return x.rolling(_days(d), min_periods=_days(d)).max()
+
+
+def ts_rank(x: Frame, d: float) -> Frame:
+    return x.rolling(_days(d), min_periods=_days(d)).rank(pct=True)
+
+
+def stddev(x: Frame, d: float) -> Frame:
+    return x.rolling(_days(d), min_periods=_days(d)).std()
+
+
+def decay_linear(x: Frame, d: float) -> Frame:
+    """Weighted average of the past d days with weights d (today), d - 1, ..., 1, rescaled to sum to 1."""
+
+    d = _days(d)
+    total = sum(x.shift(k) * (d - k) for k in range(d))
+    # 输入常常是排名：两只股票的加权平均精确相等时，舍入误差不应该在之后的排名里分出先后。
+    return (total / (d * (d + 1) / 2)).round(MOMENT_DECIMALS)
+
+
+def _over_window(x: Frame, d: float, reduce: Callable[[np.ndarray], np.ndarray]) -> Frame:
+    """``reduce`` applied to each stock's last d values; missing when any of them is."""
+
+    d = _days(d)
+    values = x.to_numpy(dtype=float)
+    out = np.full(values.shape, np.nan)
+    if len(values) >= d:
+        windows = np.lib.stride_tricks.sliding_window_view(values, d, axis=0)
+        result = reduce(np.nan_to_num(windows, nan=0.0)).astype(float)
+        result[np.isnan(windows).any(axis=-1)] = np.nan
+        out[d - 1:] = result
+    return pd.DataFrame(out, index=x.index, columns=x.columns)
+
+
+def ts_argmax(x: Frame, d: float) -> Frame:
+    """Which day of the window the maximum fell on: 1 for the oldest day, d for today (the earliest one on ties)."""
+
+    return _over_window(x, d, lambda windows: np.argmax(windows, axis=-1) + 1)
+
+
+def ts_argmin(x: Frame, d: float) -> Frame:
+    """Which day of the window the minimum fell on, counted the same way as ``ts_argmax``."""
+
+    return _over_window(x, d, lambda windows: np.argmin(windows, axis=-1) + 1)
+
+
+def product(x: Frame, d: float) -> Frame:
+    return _over_window(x, d, lambda windows: np.prod(windows, axis=-1))
+
+
+def power(x: Frame, a: Frame | float) -> Frame:
+    """x^a, missing when either side is (numpy would make 1 ** missing equal to 1)."""
+
+    result = x ** a
+    return result.where(_known(x, a)) if isinstance(a, pd.DataFrame) else result
+
+
+def signed_power(x: Frame, a: Frame | float) -> Frame:
+    return np.sign(x) * power(x.abs(), a)
+
+
+def elementwise_max(x: Frame, y: Frame) -> Frame:
+    """``max(x, y)`` of two expressions (the paper's max(x, d) is ts_max when d is a number of days)."""
+
+    return np.maximum(x, y)
+
+
+def elementwise_min(x: Frame, y: Frame) -> Frame:
+    return np.minimum(x, y)
+
+
+def _known(*parts: Frame) -> Frame:
+    known = None
+    for part in parts:
+        known = part.notna() if known is None else known & part.notna()
+    return known
+
+
+def less(x: Frame, y: Frame | float) -> Frame:
+    """1 where x < y, 0 where not, missing where either side is."""
+
+    y_frame = y if isinstance(y, pd.DataFrame) else pd.DataFrame(y, index=x.index, columns=x.columns)
+    return (x < y_frame).astype(float).where(_known(x, y_frame))
+
+
+def choose(condition: Frame, yes: Frame | float, no: Frame | float, *parts: Frame) -> Frame:
+    """``condition ? yes : no``. A value exists only when every part of the expression can be computed,
+    so that the first value never depends on which branch a stock happened to take."""
+
+    frames = [part for part in (*parts, yes, no) if isinstance(part, pd.DataFrame)]
+    shape = frames[0]
+    pick = lambda value: value if isinstance(value, pd.DataFrame) else pd.DataFrame(value, index=shape.index, columns=shape.columns)  # noqa: E731
+    result = pick(yes).where(condition.astype(bool), pick(no))
+    return result.where(_known(*frames))
 
 
 # 相关系数和协方差保留的小数位。滚动计算会留下 1e-16 量级的舍入误差；不去掉的话，
@@ -97,12 +210,19 @@ def _flat(x: Frame, d: int) -> Frame:
     return ts_max(x, d) == ts_min(x, d)
 
 
-def correlation(x: Frame, y: Frame, d: int) -> Frame:
+def correlation(x: Frame, y: Frame, d: float) -> Frame:
+    d = _days(d)
+    if d == 2:
+        # 两天的相关系数只能是 1 或 -1：直接按两天的变化方向算。滚动计算会留下 1e-9 量级的误差，
+        # 让本该并列的排名分出先后。
+        step = x.diff() * y.diff()
+        return np.sign(step).where(step != 0)
     result = x.rolling(d, min_periods=d).corr(y).replace([np.inf, -np.inf], np.nan)
     return result.where(~(_flat(x, d) | _flat(y, d))).round(MOMENT_DECIMALS)
 
 
-def covariance(x: Frame, y: Frame, d: int) -> Frame:
+def covariance(x: Frame, y: Frame, d: float) -> Frame:
+    d = _days(d)
     result = x.rolling(d, min_periods=d).cov(y)
     return result.where(~(_flat(x, d) | _flat(y, d)) | result.isna(), 0.0).round(MOMENT_DECIMALS)
 
@@ -357,6 +477,395 @@ def _alpha101(p: Panel) -> Frame:
     return (p.close - p.open) / (p.high - p.low + 0.001)
 
 
+# --------------------------------------------------------------------------- #
+# Second batch: the rest of the formulas that need only daily prices and volume.
+# --------------------------------------------------------------------------- #
+
+
+def _mix(x: Frame, y: Frame, weight: float) -> Frame:
+    """The paper's ((x * weight) + (y * (1 - weight)))."""
+
+    return x * weight + y * (1 - weight)
+
+
+def _midpoint(p: Panel) -> Frame:
+    return (p.high + p.low) / 2
+
+
+# (rank(Ts_ArgMax(SignedPower(((returns < 0) ? stddev(returns, 20) : close), 2.), 5)) - 0.5)
+def _alpha001(p: Panel) -> Frame:
+    spread = stddev(p.returns, 20)
+    base = choose(p.returns < 0, spread, p.close, p.returns, spread, p.close)
+    return rank(ts_argmax(signed_power(base, 2.0), 5)) - 0.5
+
+
+# 原式：((adv20 < volume) ? ((-1 * ts_rank(abs(delta(close, 7)), 60)) * sign(delta(close, 7))) : (-1 * 1))
+# volume 换成当天的成交额：adv20 是平均成交额。
+def _alpha007(p: Panel) -> Frame:
+    move = delta(p.close, 7)
+    active = -ts_rank(move.abs(), 60) * np.sign(move)
+    return choose(p.adv(20) < p.amount, active, -1.0, p.adv(20), p.amount, active)
+
+
+# (-1 * rank(((sum(open, 5) * sum(returns, 5)) - delay((sum(open, 5) * sum(returns, 5)), 10))))
+def _alpha008(p: Panel) -> Frame:
+    level = ts_sum(p.open, 5) * ts_sum(p.returns, 5)
+    return -rank(level - delay(level, 10))
+
+
+# 原式：(((-1 * rank(ts_rank(close, 10))) * rank(delta(delta(close, 1), 1))) * rank(ts_rank((volume / adv20), 5)))
+# volume 换成当天的成交额。
+def _alpha017(p: Panel) -> Frame:
+    return -rank(ts_rank(p.close, 10)) * rank(delta(delta(p.close, 1), 1)) * rank(ts_rank(p.amount / p.adv(20), 5))
+
+
+# ((-1 * sign(((close - delay(close, 7)) + delta(close, 7)))) * (1 + rank((1 + sum(returns, 250)))))
+def _alpha019(p: Panel) -> Frame:
+    return -np.sign((p.close - delay(p.close, 7)) + delta(p.close, 7)) * (1 + rank(1 + ts_sum(p.returns, 250)))
+
+
+# 原式见 FORMULAS；最后一层的 volume / adv20 换成 成交额 / adv20。
+def _alpha021(p: Panel) -> Frame:
+    long_mean, long_spread, short_mean = ts_sum(p.close, 8) / 8, stddev(p.close, 8), ts_sum(p.close, 2) / 2
+    relative = p.amount / p.adv(20)
+    busy = choose((relative > 1) | (relative == 1), 1.0, -1.0, relative)
+    lower = choose(short_mean < long_mean - long_spread, 1.0, busy, short_mean, long_mean, long_spread, busy)
+    return choose(long_mean + long_spread < short_mean, -1.0, lower, short_mean, long_mean, long_spread, lower)
+
+
+# (-1 * (delta(correlation(high, volume, 5), 5) * rank(stddev(close, 20))))
+def _alpha022(p: Panel) -> Frame:
+    return -(delta(correlation(p.high, p.volume, 5), 5) * rank(stddev(p.close, 20)))
+
+
+# ((((delta((sum(close, 100) / 100), 100) / delay(close, 100)) < 0.05) || (... == 0.05))
+#   ? (-1 * (close - ts_min(close, 100))) : (-1 * delta(close, 3)))
+def _alpha024(p: Panel) -> Frame:
+    drift = delta(ts_sum(p.close, 100) / 100, 100) / delay(p.close, 100)
+    near_low, recent = -(p.close - ts_min(p.close, 100)), -delta(p.close, 3)
+    return choose(drift <= 0.05, near_low, recent, drift, near_low, recent)
+
+
+# (-1 * ts_max(correlation(ts_rank(volume, 5), ts_rank(high, 5), 5), 3))
+def _alpha026(p: Panel) -> Frame:
+    return -ts_max(correlation(ts_rank(p.volume, 5), ts_rank(p.high, 5), 5), 3)
+
+
+# ((0.5 < rank((sum(correlation(rank(volume), rank(vwap), 6), 2) / 2.0))) ? (-1 * 1) : 1)
+def _alpha027(p: Panel) -> Frame:
+    level = rank(ts_sum(correlation(rank(p.volume), rank(p.vwap), 6), 2) / 2.0)
+    return choose(level > 0.5, -1.0, 1.0, level)
+
+
+# scale(((correlation(adv20, low, 5) + ((high + low) / 2)) - close))
+def _alpha028(p: Panel) -> Frame:
+    return scale(correlation(p.adv(20), p.low, 5) + _midpoint(p) - p.close)
+
+
+# (min(product(rank(rank(scale(log(sum(ts_min(rank(rank((-1 * rank(delta((close - 1), 5))))), 2), 1))))), 1), 5)
+#   + ts_rank(delay((-1 * returns), 6), 5))
+def _alpha029(p: Panel) -> Frame:
+    inner = ts_sum(ts_min(rank(rank(-rank(delta(p.close - 1, 5)))), 2), 1)
+    return ts_min(product(rank(rank(scale(np.log(inner)))), 1), 5) + ts_rank(delay(-p.returns, 6), 5)
+
+
+# ((rank(rank(rank(decay_linear((-1 * rank(rank(delta(close, 10)))), 10)))) + rank((-1 * delta(close, 3))))
+#   + sign(scale(correlation(adv20, low, 12))))
+def _alpha031(p: Panel) -> Frame:
+    first = rank(rank(rank(decay_linear(-rank(rank(delta(p.close, 10))), 10))))
+    return first + rank(-delta(p.close, 3)) + np.sign(scale(correlation(p.adv(20), p.low, 12)))
+
+
+# (scale(((sum(close, 7) / 7) - close)) + (20 * scale(correlation(vwap, delay(close, 5), 230))))
+def _alpha032(p: Panel) -> Frame:
+    return scale(ts_sum(p.close, 7) / 7 - p.close) + 20 * scale(correlation(p.vwap, delay(p.close, 5), 230))
+
+
+# ((Ts_Rank(volume, 32) * (1 - Ts_Rank(((close + high) - low), 16))) * (1 - Ts_Rank(returns, 32)))
+def _alpha035(p: Panel) -> Frame:
+    return ts_rank(p.volume, 32) * (1 - ts_rank(p.close + p.high - p.low, 16)) * (1 - ts_rank(p.returns, 32))
+
+
+# (((((2.21 * rank(correlation((close - open), delay(volume, 1), 15))) + (0.7 * rank((open - close))))
+#   + (0.73 * rank(Ts_Rank(delay((-1 * returns), 6), 5)))) + rank(abs(correlation(vwap, adv20, 6))))
+#   + (0.6 * rank((((sum(close, 200) / 200) - open) * (close - open)))))
+def _alpha036(p: Panel) -> Frame:
+    return (2.21 * rank(correlation(p.close - p.open, delay(p.volume, 1), 15))
+            + 0.7 * rank(p.open - p.close)
+            + 0.73 * rank(ts_rank(delay(-p.returns, 6), 5))
+            + rank(correlation(p.vwap, p.adv(20), 6).abs())
+            + 0.6 * rank((ts_sum(p.close, 200) / 200 - p.open) * (p.close - p.open)))
+
+
+# (rank(correlation(delay((open - close), 1), close, 200)) + rank((open - close)))
+def _alpha037(p: Panel) -> Frame:
+    return rank(correlation(delay(p.open - p.close, 1), p.close, 200)) + rank(p.open - p.close)
+
+
+# 原式：((-1 * rank((delta(close, 7) * (1 - rank(decay_linear((volume / adv20), 9)))))) * (1 + rank(sum(returns, 250))))
+# volume 换成当天的成交额。
+def _alpha039(p: Panel) -> Frame:
+    activity = rank(decay_linear(p.amount / p.adv(20), 9))
+    return -rank(delta(p.close, 7) * (1 - activity)) * (1 + rank(ts_sum(p.returns, 250)))
+
+
+# 原式：(ts_rank((volume / adv20), 20) * ts_rank((-1 * delta(close, 7)), 8))，volume 换成当天的成交额。
+def _alpha043(p: Panel) -> Frame:
+    return ts_rank(p.amount / p.adv(20), 20) * ts_rank(-delta(p.close, 7), 8)
+
+
+# (-1 * ((rank((sum(delay(close, 5), 20) / 20)) * correlation(close, volume, 2))
+#   * rank(correlation(sum(close, 5), sum(close, 20), 2))))
+def _alpha045(p: Panel) -> Frame:
+    return -(rank(ts_sum(delay(p.close, 5), 20) / 20) * correlation(p.close, p.volume, 2)
+             * rank(correlation(ts_sum(p.close, 5), ts_sum(p.close, 20), 2)))
+
+
+def _slope_change(p: Panel) -> Frame:
+    """(((delay(close, 20) - delay(close, 10)) / 10) - ((delay(close, 10) - close) / 10))"""
+
+    return (delay(p.close, 20) - delay(p.close, 10)) / 10 - (delay(p.close, 10) - p.close) / 10
+
+
+# ((0.25 < x) ? (-1 * 1) : ((x < 0) ? 1 : ((-1 * 1) * (close - delay(close, 1)))))，x 为 _slope_change
+def _alpha046(p: Panel) -> Frame:
+    x, fallback = _slope_change(p), -(p.close - delay(p.close, 1))
+    return choose(x > 0.25, -1.0, choose(x < 0, 1.0, fallback, x, fallback), x, fallback)
+
+
+# 原式：((((rank((1 / close)) * volume) / adv20) * ((high * rank((high - close))) / (sum(high, 5) / 5)))
+#   - rank((vwap - delay(vwap, 5))))，volume 换成当天的成交额。
+def _alpha047(p: Panel) -> Frame:
+    return (rank(1 / p.close) * p.amount / p.adv(20) * (p.high * rank(p.high - p.close)) / (ts_sum(p.high, 5) / 5)
+            - rank(p.vwap - delay(p.vwap, 5)))
+
+
+def _slope_rule(p: Panel, threshold: float) -> Frame:
+    """((x < (-1 * threshold)) ? 1 : ((-1 * 1) * (close - delay(close, 1))))，x 为 _slope_change"""
+
+    x, fallback = _slope_change(p), -(p.close - delay(p.close, 1))
+    return choose(x < -threshold, 1.0, fallback, x, fallback)
+
+
+def _alpha049(p: Panel) -> Frame:
+    return _slope_rule(p, 0.1)
+
+
+# (-1 * ts_max(rank(correlation(rank(volume), rank(vwap), 5)), 5))
+def _alpha050(p: Panel) -> Frame:
+    return -ts_max(rank(correlation(rank(p.volume), rank(p.vwap), 5)), 5)
+
+
+def _alpha051(p: Panel) -> Frame:
+    return _slope_rule(p, 0.05)
+
+
+# ((((-1 * ts_min(low, 5)) + delay(ts_min(low, 5), 5)) * rank(((sum(returns, 240) - sum(returns, 20)) / 220)))
+#   * ts_rank(volume, 5))
+def _alpha052(p: Panel) -> Frame:
+    low5 = ts_min(p.low, 5)
+    return ((-low5 + delay(low5, 5)) * rank((ts_sum(p.returns, 240) - ts_sum(p.returns, 20)) / 220)
+            * ts_rank(p.volume, 5))
+
+
+# (-1 * correlation(rank(((close - ts_min(low, 12)) / (ts_max(high, 12) - ts_min(low, 12)))), rank(volume), 6))
+def _alpha055(p: Panel) -> Frame:
+    low12 = ts_min(p.low, 12)
+    position = (p.close - low12) / (ts_max(p.high, 12) - low12)
+    return -correlation(rank(position.replace([np.inf, -np.inf], np.nan)), rank(p.volume), 6)
+
+
+# (0 - (1 * ((close - vwap) / decay_linear(rank(ts_argmax(close, 30)), 2))))
+def _alpha057(p: Panel) -> Frame:
+    return -((p.close - p.vwap) / decay_linear(rank(ts_argmax(p.close, 30)), 2))
+
+
+# (0 - (1 * ((2 * scale(rank(((((close - low) - (high - close)) / (high - low)) * volume))))
+#   - scale(rank(ts_argmax(close, 10))))))
+def _alpha060(p: Panel) -> Frame:
+    pressure = ((p.close - p.low) - (p.high - p.close)) / (p.high - p.low) * p.volume
+    return -(2 * scale(rank(pressure.replace([np.inf, -np.inf], np.nan))) - scale(rank(ts_argmax(p.close, 10))))
+
+
+# (rank((vwap - ts_min(vwap, 16.1219))) < rank(correlation(vwap, adv180, 17.9282)))
+def _alpha061(p: Panel) -> Frame:
+    return less(rank(p.vwap - ts_min(p.vwap, 16.1219)), rank(correlation(p.vwap, p.adv(180), 17.9282)))
+
+
+# ((rank(correlation(vwap, sum(adv20, 22.4101), 9.91009))
+#   < rank(((rank(open) + rank(open)) < (rank(((high + low) / 2)) + rank(high))))) * -1)
+def _alpha062(p: Panel) -> Frame:
+    gap = less(rank(p.open) + rank(p.open), rank(_midpoint(p)) + rank(p.high))
+    return less(rank(correlation(p.vwap, ts_sum(p.adv(20), 22.4101), 9.91009)), rank(gap)) * -1
+
+
+# ((rank(correlation(sum(((open * 0.178404) + (low * (1 - 0.178404))), 12.7054), sum(adv120, 12.7054), 16.6208))
+#   < rank(delta(((((high + low) / 2) * 0.178404) + (vwap * (1 - 0.178404))), 3.69741))) * -1)
+def _alpha064(p: Panel) -> Frame:
+    left = rank(correlation(ts_sum(_mix(p.open, p.low, 0.178404), 12.7054), ts_sum(p.adv(120), 12.7054), 16.6208))
+    return less(left, rank(delta(_mix(_midpoint(p), p.vwap, 0.178404), 3.69741))) * -1
+
+
+# ((rank(correlation(((open * 0.00817205) + (vwap * (1 - 0.00817205))), sum(adv60, 8.6911), 6.40374))
+#   < rank((open - ts_min(open, 13.635)))) * -1)
+def _alpha065(p: Panel) -> Frame:
+    left = rank(correlation(_mix(p.open, p.vwap, 0.00817205), ts_sum(p.adv(60), 8.6911), 6.40374))
+    return less(left, rank(p.open - ts_min(p.open, 13.635))) * -1
+
+
+# ((rank(decay_linear(delta(vwap, 3.51013), 7.23052))
+#   + Ts_Rank(decay_linear(((((low * 0.96633) + (low * (1 - 0.96633))) - vwap) / (open - ((high + low) / 2))), 11.4157), 6.72611)) * -1)
+def _alpha066(p: Panel) -> Frame:
+    stretch = (_mix(p.low, p.low, 0.96633) - p.vwap) / (p.open - _midpoint(p))
+    stretch = stretch.replace([np.inf, -np.inf], np.nan)
+    return (rank(decay_linear(delta(p.vwap, 3.51013), 7.23052)) + ts_rank(decay_linear(stretch, 11.4157), 6.72611)) * -1
+
+
+# ((Ts_Rank(correlation(rank(high), rank(adv15), 8.91644), 13.9333)
+#   < rank(delta(((close * 0.518371) + (low * (1 - 0.518371))), 1.06157))) * -1)
+def _alpha068(p: Panel) -> Frame:
+    left = ts_rank(correlation(rank(p.high), rank(p.adv(15)), 8.91644), 13.9333)
+    return less(left, rank(delta(_mix(p.close, p.low, 0.518371), 1.06157))) * -1
+
+
+# max(Ts_Rank(decay_linear(correlation(Ts_Rank(close, 3.43976), Ts_Rank(adv180, 12.0647), 18.0175), 4.20501), 15.6948),
+#     Ts_Rank(decay_linear((rank(((low + open) - (vwap + vwap)))^2), 16.4662), 4.4388))
+def _alpha071(p: Panel) -> Frame:
+    first = ts_rank(decay_linear(correlation(ts_rank(p.close, 3.43976), ts_rank(p.adv(180), 12.0647), 18.0175), 4.20501), 15.6948)
+    second = ts_rank(decay_linear(power(rank((p.low + p.open) - (p.vwap + p.vwap)), 2), 16.4662), 4.4388)
+    return elementwise_max(first, second)
+
+
+# (rank(decay_linear(correlation(((high + low) / 2), adv40, 8.93345), 10.1519))
+#   / rank(decay_linear(correlation(Ts_Rank(vwap, 3.72469), Ts_Rank(volume, 18.5188), 6.86671), 2.95011)))
+def _alpha072(p: Panel) -> Frame:
+    top = rank(decay_linear(correlation(_midpoint(p), p.adv(40), 8.93345), 10.1519))
+    bottom = rank(decay_linear(correlation(ts_rank(p.vwap, 3.72469), ts_rank(p.volume, 18.5188), 6.86671), 2.95011))
+    return top / bottom
+
+
+# (max(rank(decay_linear(delta(vwap, 4.72775), 2.91864)),
+#   Ts_Rank(decay_linear(((delta(((open * 0.147155) + (low * (1 - 0.147155))), 2.03608)
+#   / ((open * 0.147155) + (low * (1 - 0.147155)))) * -1), 3.33829), 16.7411)) * -1)
+def _alpha073(p: Panel) -> Frame:
+    base = _mix(p.open, p.low, 0.147155)
+    second = ts_rank(decay_linear(delta(base, 2.03608) / base * -1, 3.33829), 16.7411)
+    return elementwise_max(rank(decay_linear(delta(p.vwap, 4.72775), 2.91864)), second) * -1
+
+
+# ((rank(correlation(close, sum(adv30, 37.4843), 15.1365))
+#   < rank(correlation(rank(((high * 0.0261661) + (vwap * (1 - 0.0261661)))), rank(volume), 11.4791))) * -1)
+def _alpha074(p: Panel) -> Frame:
+    left = rank(correlation(p.close, ts_sum(p.adv(30), 37.4843), 15.1365))
+    right = rank(correlation(rank(_mix(p.high, p.vwap, 0.0261661)), rank(p.volume), 11.4791))
+    return less(left, right) * -1
+
+
+# (rank(correlation(vwap, volume, 4.24304)) < rank(correlation(rank(low), rank(adv50), 12.4413)))
+def _alpha075(p: Panel) -> Frame:
+    return less(rank(correlation(p.vwap, p.volume, 4.24304)), rank(correlation(rank(p.low), rank(p.adv(50)), 12.4413)))
+
+
+# min(rank(decay_linear(((((high + low) / 2) + high) - (vwap + high)), 20.0451)),
+#     rank(decay_linear(correlation(((high + low) / 2), adv40, 3.1614), 5.64125)))
+def _alpha077(p: Panel) -> Frame:
+    first = rank(decay_linear((_midpoint(p) + p.high) - (p.vwap + p.high), 20.0451))
+    second = rank(decay_linear(correlation(_midpoint(p), p.adv(40), 3.1614), 5.64125))
+    return elementwise_min(first, second)
+
+
+# (rank(correlation(sum(((low * 0.352233) + (vwap * (1 - 0.352233))), 19.7428), sum(adv40, 19.7428), 6.83313))
+#   ^rank(correlation(rank(vwap), rank(volume), 5.77492)))
+def _alpha078(p: Panel) -> Frame:
+    base = rank(correlation(ts_sum(_mix(p.low, p.vwap, 0.352233), 19.7428), ts_sum(p.adv(40), 19.7428), 6.83313))
+    return power(base, rank(correlation(rank(p.vwap), rank(p.volume), 5.77492)))
+
+
+# ((rank(Log(product(rank((rank(correlation(vwap, sum(adv10, 49.6054), 8.47743))^4)), 14.9655)))
+#   < rank(correlation(rank(vwap), rank(volume), 5.07914))) * -1)
+def _alpha081(p: Panel) -> Frame:
+    inner = rank(power(rank(correlation(p.vwap, ts_sum(p.adv(10), 49.6054), 8.47743)), 4))
+    left = rank(np.log(product(inner, 14.9655)))
+    return less(left, rank(correlation(rank(p.vwap), rank(p.volume), 5.07914))) * -1
+
+
+# ((rank(delay(((high - low) / (sum(close, 5) / 5)), 2)) * rank(rank(volume)))
+#   / (((high - low) / (sum(close, 5) / 5)) / (vwap - close)))
+def _alpha083(p: Panel) -> Frame:
+    width = (p.high - p.low) / (ts_sum(p.close, 5) / 5)
+    return rank(delay(width, 2)) * rank(rank(p.volume)) / (width / (p.vwap - p.close))
+
+
+# SignedPower(Ts_Rank((vwap - ts_max(vwap, 15.3217)), 20.7127), delta(close, 4.96796))
+def _alpha084(p: Panel) -> Frame:
+    return signed_power(ts_rank(p.vwap - ts_max(p.vwap, 15.3217), 20.7127), delta(p.close, 4.96796))
+
+
+# (rank(correlation(((high * 0.876703) + (close * (1 - 0.876703))), adv30, 9.61331))
+#   ^rank(correlation(Ts_Rank(((high + low) / 2), 3.70596), Ts_Rank(volume, 10.1595), 7.11408)))
+def _alpha085(p: Panel) -> Frame:
+    base = rank(correlation(_mix(p.high, p.close, 0.876703), p.adv(30), 9.61331))
+    return power(base, rank(correlation(ts_rank(_midpoint(p), 3.70596), ts_rank(p.volume, 10.1595), 7.11408)))
+
+
+# ((Ts_Rank(correlation(close, sum(adv20, 14.7444), 6.00049), 20.4195) < rank(((open + close) - (vwap + open)))) * -1)
+def _alpha086(p: Panel) -> Frame:
+    left = ts_rank(correlation(p.close, ts_sum(p.adv(20), 14.7444), 6.00049), 20.4195)
+    return less(left, rank((p.open + p.close) - (p.vwap + p.open))) * -1
+
+
+# min(rank(decay_linear(((rank(open) + rank(low)) - (rank(high) + rank(close))), 8.06882)),
+#     Ts_Rank(decay_linear(correlation(Ts_Rank(close, 8.44728), Ts_Rank(adv60, 20.6966), 8.01266), 6.65053), 2.61957))
+def _alpha088(p: Panel) -> Frame:
+    first = rank(decay_linear((rank(p.open) + rank(p.low)) - (rank(p.high) + rank(p.close)), 8.06882))
+    second = ts_rank(decay_linear(correlation(ts_rank(p.close, 8.44728), ts_rank(p.adv(60), 20.6966), 8.01266), 6.65053), 2.61957)
+    return elementwise_min(first, second)
+
+
+# min(Ts_Rank(decay_linear(((((high + low) / 2) + close) < (low + open)), 14.7221), 18.8683),
+#     Ts_Rank(decay_linear(correlation(rank(low), rank(adv30), 7.58555), 6.94024), 6.80584))
+def _alpha092(p: Panel) -> Frame:
+    first = ts_rank(decay_linear(less(_midpoint(p) + p.close, p.low + p.open), 14.7221), 18.8683)
+    second = ts_rank(decay_linear(correlation(rank(p.low), rank(p.adv(30)), 7.58555), 6.94024), 6.80584)
+    return elementwise_min(first, second)
+
+
+# ((rank((vwap - ts_min(vwap, 11.5783)))^Ts_Rank(correlation(Ts_Rank(vwap, 19.6462), Ts_Rank(adv60, 4.02992), 18.0926), 2.70756)) * -1)
+def _alpha094(p: Panel) -> Frame:
+    exponent = ts_rank(correlation(ts_rank(p.vwap, 19.6462), ts_rank(p.adv(60), 4.02992), 18.0926), 2.70756)
+    return power(rank(p.vwap - ts_min(p.vwap, 11.5783)), exponent) * -1
+
+
+# (rank((open - ts_min(open, 12.4105)))
+#   < Ts_Rank((rank(correlation(sum(((high + low) / 2), 19.1351), sum(adv40, 19.1351), 12.8742))^5), 11.7584))
+def _alpha095(p: Panel) -> Frame:
+    right = ts_rank(power(rank(correlation(ts_sum(_midpoint(p), 19.1351), ts_sum(p.adv(40), 19.1351), 12.8742)), 5), 11.7584)
+    return less(rank(p.open - ts_min(p.open, 12.4105)), right)
+
+
+# (max(Ts_Rank(decay_linear(correlation(rank(vwap), rank(volume), 3.83878), 4.16783), 8.38151),
+#   Ts_Rank(decay_linear(Ts_ArgMax(correlation(Ts_Rank(close, 7.45404), Ts_Rank(adv60, 4.13242), 3.65459), 12.6556), 14.0365), 13.4143)) * -1)
+def _alpha096(p: Panel) -> Frame:
+    first = ts_rank(decay_linear(correlation(rank(p.vwap), rank(p.volume), 3.83878), 4.16783), 8.38151)
+    peak = ts_argmax(correlation(ts_rank(p.close, 7.45404), ts_rank(p.adv(60), 4.13242), 3.65459), 12.6556)
+    return elementwise_max(first, ts_rank(decay_linear(peak, 14.0365), 13.4143)) * -1
+
+
+# (rank(decay_linear(correlation(vwap, sum(adv5, 26.4719), 4.58418), 7.18088))
+#   - rank(decay_linear(Ts_Rank(Ts_ArgMin(correlation(rank(open), rank(adv15), 20.8187), 8.62571), 6.95668), 8.07206)))
+def _alpha098(p: Panel) -> Frame:
+    first = rank(decay_linear(correlation(p.vwap, ts_sum(p.adv(5), 26.4719), 4.58418), 7.18088))
+    trough = ts_argmin(correlation(rank(p.open), rank(p.adv(15)), 20.8187), 8.62571)
+    return first - rank(decay_linear(ts_rank(trough, 6.95668), 8.07206))
+
+
+# ((rank(correlation(sum(((high + low) / 2), 19.8975), sum(adv60, 19.8975), 8.8136))
+#   < rank(correlation(low, volume, 6.28259))) * -1)
+def _alpha099(p: Panel) -> Frame:
+    left = rank(correlation(ts_sum(_midpoint(p), 19.8975), ts_sum(p.adv(60), 19.8975), 8.8136))
+    return less(left, rank(correlation(p.low, p.volume, 6.28259))) * -1
+
+
 _OHLC = ("raw_open", "raw_high", "raw_low", "raw_close")
 
 
@@ -437,6 +946,148 @@ FORMULAS: tuple[_Formula, ...] = (
              "-((low - close) * open^5) / ((low - high) * close^5)", _alpha054),
     _Formula(101, "K线实体占振幅比例", "K线", 0, 1, _OHLC, "(close - open) / (high - low + 0.001)", _alpha101),
 )
+
+
+_C = ("raw_close",)
+_V = ("raw_high", "raw_low", "volume", "amount")      # vwap 要用到的列
+_ALL = ("raw_open", "raw_high", "raw_low", "raw_close", "volume", "amount")
+_AMOUNT_NOTE = "（volume 换成当天的成交额 amount，单位才和 adv 一致）"
+# 窗口超过 200 个交易日：A股多数股票每年分红一次，窗口几乎总会跨过除息日，这样的值按约定置空。
+_LONG_NOTE = "（窗口超过 200 天，多数股票的窗口会跨过一年一次的除息日，这些日子没有值）"
+_SPARSE_NOTE = "（内层 3 天的相关系数里，成交额的 4 日排名常常几天不变，相关系数没有定义，多数日子没有值）"
+
+# 编号, 名称, 类别, span（价量窗口跨过的相邻交易日步数）, history（算出第一个值需要的交易日数）, 用到的列, 公式。
+_SECOND_BATCH: tuple[_Formula, ...] = (
+    _Formula(1, "收益为负时的波动与价格的高点位置", "波动", 4, 25, _C,
+             "rank(Ts_ArgMax(SignedPower(((returns < 0) ? stddev(returns, 20) : close), 2.), 5)) - 0.5", _alpha001),
+    _Formula(7, "放量时的7日价格变化排名", "量价", 66, 67, ("raw_close", "amount"),
+             "(adv20 < volume) ? (-1 * ts_rank(abs(delta(close, 7)), 60)) * sign(delta(close, 7)) : -1" + _AMOUNT_NOTE, _alpha007),
+    _Formula(8, "开盘价与收益乘积的10日变化", "动量", 14, 16, ("raw_open",),
+             "-rank((sum(open, 5) * sum(returns, 5)) - delay(sum(open, 5) * sum(returns, 5), 10))", _alpha008),
+    _Formula(17, "收盘价位置、价格加速度与相对成交额", "量价", 9, 24, ("raw_close", "amount"),
+             "-rank(ts_rank(close, 10)) * rank(delta(delta(close, 1), 1)) * rank(ts_rank(volume / adv20, 5))" + _AMOUNT_NOTE, _alpha017),
+    _Formula(19, "7日价格方向与年度累计收益", "动量", 7, 251, _C,
+             "-sign((close - delay(close, 7)) + delta(close, 7)) * (1 + rank(1 + sum(returns, 250)))", _alpha019),
+    _Formula(21, "均线通道突破与相对成交额", "量价", 7, 20, ("raw_close", "amount"),
+             "(sum(close, 8) / 8 + stddev(close, 8)) < sum(close, 2) / 2 ? -1 : (sum(close, 2) / 2 < sum(close, 8) / 8 - stddev(close, 8) ? 1 : "
+             "((1 < volume / adv20) || (volume / adv20 == 1) ? 1 : -1))" + _AMOUNT_NOTE, _alpha021),
+    _Formula(22, "量价相关性变化与价格波动", "量价", 19, 20, ("raw_high", "raw_close", "volume"),
+             "-(delta(correlation(high, volume, 5), 5) * rank(stddev(close, 20)))", _alpha022),
+    _Formula(24, "百日均线变化慢时看距百日低点，否则看3日变化", "反转", 199, 200, _C,
+             "((delta(sum(close, 100) / 100, 100) / delay(close, 100)) <= 0.05) ? -(close - ts_min(close, 100)) : -delta(close, 3)" + _LONG_NOTE, _alpha024),
+    _Formula(26, "成交量与最高价时序排名的相关性高点", "量价", 10, 11, ("raw_high", "volume"),
+             "-ts_max(correlation(ts_rank(volume, 5), ts_rank(high, 5), 5), 3)", _alpha026),
+    _Formula(27, "量价排名相关性是否偏高", "量价", 6, 7, _V,
+             "(0.5 < rank(sum(correlation(rank(volume), rank(vwap), 6), 2) / 2.0)) ? -1 : 1", _alpha027),
+    _Formula(28, "成交额与最低价相关性加中间价减收盘价", "量价", 4, 24, ("raw_high", "raw_low", "raw_close", "amount"),
+             "scale((correlation(adv20, low, 5) + (high + low) / 2) - close)", _alpha028),
+    _Formula(29, "5日价格变化的多层排名与滞后收益", "反转", 10, 12, _C,
+             "min(product(rank(rank(scale(log(sum(ts_min(rank(rank(-rank(delta(close - 1, 5)))), 2), 1))))), 1), 5) "
+             "+ ts_rank(delay(-returns, 6), 5)", _alpha029),
+    _Formula(31, "10日价格变化的衰减排名与短期反转", "反转", 19, 31, ("raw_low", "raw_close", "amount"),
+             "rank(rank(rank(decay_linear(-rank(rank(delta(close, 10))), 10)))) + rank(-delta(close, 3)) "
+             "+ sign(scale(correlation(adv20, low, 12)))", _alpha031),
+    _Formula(32, "收盘价偏离7日均线与长期均价相关性", "反转", 234, 235, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "scale(sum(close, 7) / 7 - close) + 20 * scale(correlation(vwap, delay(close, 5), 230))" + _LONG_NOTE, _alpha032),
+    _Formula(35, "成交量、价格区间与收益的时序位置", "量价", 31, 33, ("raw_high", "raw_low", "raw_close", "volume"),
+             "Ts_Rank(volume, 32) * (1 - Ts_Rank((close + high) - low, 16)) * (1 - Ts_Rank(returns, 32))", _alpha035),
+    _Formula(36, "五项量价特征的加权组合", "量价", 199, 200, _ALL,
+             "2.21 * rank(correlation(close - open, delay(volume, 1), 15)) + 0.7 * rank(open - close) "
+             "+ 0.73 * rank(Ts_Rank(delay(-returns, 6), 5)) + rank(abs(correlation(vwap, adv20, 6))) "
+             "+ 0.6 * rank((sum(close, 200) / 200 - open) * (close - open))" + _LONG_NOTE, _alpha036),
+    _Formula(37, "昨日K线实体与收盘价的长期相关性", "K线", 200, 201, ("raw_open", "raw_close"),
+             "rank(correlation(delay(open - close, 1), close, 200)) + rank(open - close)" + _LONG_NOTE, _alpha037),
+    _Formula(39, "7日价格变化、相对成交额与年度收益", "动量", 7, 251, ("raw_close", "amount"),
+             "-rank(delta(close, 7) * (1 - rank(decay_linear(volume / adv20, 9)))) * (1 + rank(sum(returns, 250)))" + _AMOUNT_NOTE, _alpha039),
+    _Formula(43, "相对成交额与7日跌幅的时序位置", "量价", 14, 39, ("raw_close", "amount"),
+             "ts_rank(volume / adv20, 20) * ts_rank(-delta(close, 7), 8)" + _AMOUNT_NOTE, _alpha043),
+    _Formula(45, "滞后均价与两组量价相关性", "量价", 24, 25, ("raw_close", "volume"),
+             "-(rank(sum(delay(close, 5), 20) / 20) * correlation(close, volume, 2) * rank(correlation(sum(close, 5), sum(close, 20), 2)))", _alpha045),
+    _Formula(46, "前后10日价格斜率之差（阈值 0.25）", "反转", 20, 21, _C,
+             "x = (delay(close, 20) - delay(close, 10)) / 10 - (delay(close, 10) - close) / 10；"
+             "0.25 < x ? -1 : (x < 0 ? 1 : -(close - delay(close, 1)))", _alpha046),
+    _Formula(47, "低价、相对成交额、上影线与均价变化", "量价", 5, 20, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "rank(1 / close) * volume / adv20 * (high * rank(high - close)) / (sum(high, 5) / 5) - rank(vwap - delay(vwap, 5))" + _AMOUNT_NOTE, _alpha047),
+    _Formula(49, "前后10日价格斜率之差（阈值 -0.1）", "反转", 20, 21, _C,
+             "x = (delay(close, 20) - delay(close, 10)) / 10 - (delay(close, 10) - close) / 10；x < -0.1 ? 1 : -(close - delay(close, 1))", _alpha049),
+    _Formula(50, "成交量与均价排名相关性的5日高点", "量价", 8, 9, _V,
+             "-ts_max(rank(correlation(rank(volume), rank(vwap), 5)), 5)", _alpha050),
+    _Formula(51, "前后10日价格斜率之差（阈值 -0.05）", "反转", 20, 21, _C,
+             "x = (delay(close, 20) - delay(close, 10)) / 10 - (delay(close, 10) - close) / 10；x < -0.05 ? 1 : -(close - delay(close, 1))", _alpha051),
+    _Formula(52, "最低价回升、中长期收益与成交量位置", "动量", 9, 241, ("raw_low", "volume"),
+             "(-ts_min(low, 5) + delay(ts_min(low, 5), 5)) * rank((sum(returns, 240) - sum(returns, 20)) / 220) * ts_rank(volume, 5)", _alpha052),
+    _Formula(55, "12日价格位置与成交量的排名相关性", "量价", 16, 17, ("raw_high", "raw_low", "raw_close", "volume"),
+             "-correlation(rank((close - ts_min(low, 12)) / (ts_max(high, 12) - ts_min(low, 12))), rank(volume), 6)", _alpha055),
+    _Formula(57, "收盘价偏离均价与30日高点位置", "反转", 30, 31, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "-((close - vwap) / decay_linear(rank(ts_argmax(close, 30)), 2))", _alpha057),
+    _Formula(60, "日内买卖力量与10日高点位置", "量价", 9, 10, ("raw_high", "raw_low", "raw_close", "volume"),
+             "-(2 * scale(rank(((close - low) - (high - close)) / (high - low) * volume)) - scale(rank(ts_argmax(close, 10))))", _alpha060),
+    _Formula(61, "均价离低点的位置与长期成交额相关性比较", "量价", 16, 196, _V,
+             "rank(vwap - ts_min(vwap, 16.1219)) < rank(correlation(vwap, adv180, 17.9282))", _alpha061),
+    _Formula(62, "均价与成交额相关性和开盘价位置比较", "量价", 8, 49, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "(rank(correlation(vwap, sum(adv20, 22.4101), 9.91009)) < rank((rank(open) + rank(open)) < (rank((high + low) / 2) + rank(high)))) * -1", _alpha062),
+    _Formula(64, "开低价与成交额相关性和中间价变化比较", "量价", 26, 146, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "(rank(correlation(sum(open * 0.178404 + low * (1 - 0.178404), 12.7054), sum(adv120, 12.7054), 16.6208)) "
+             "< rank(delta(((high + low) / 2) * 0.178404 + vwap * (1 - 0.178404), 3.69741))) * -1", _alpha064),
+    _Formula(65, "开盘价与成交额相关性和开盘离低点比较", "量价", 12, 72, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "(rank(correlation(open * 0.00817205 + vwap * (1 - 0.00817205), sum(adv60, 8.6911), 6.40374)) < rank(open - ts_min(open, 13.635))) * -1", _alpha065),
+    _Formula(66, "均价变化与开盘偏离中间价", "K线", 15, 16, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "(rank(decay_linear(delta(vwap, 3.51013), 7.23052)) + Ts_Rank(decay_linear((low * 0.96633 + low * (1 - 0.96633) - vwap) "
+             "/ (open - (high + low) / 2), 11.4157), 6.72611)) * -1", _alpha066),
+    _Formula(68, "最高价与成交额相关性和收盘低价变化比较", "量价", 19, 34, ("raw_high", "raw_low", "raw_close", "amount"),
+             "(Ts_Rank(correlation(rank(high), rank(adv15), 8.91644), 13.9333) < rank(delta(close * 0.518371 + low * (1 - 0.518371), 1.06157))) * -1", _alpha068),
+    _Formula(71, "收盘与成交额的时序相关性和开低价偏离均价取大", "量价", 36, 225, _ALL,
+             "max(Ts_Rank(decay_linear(correlation(Ts_Rank(close, 3.43976), Ts_Rank(adv180, 12.0647), 18.0175), 4.20501), 15.6948), "
+             "Ts_Rank(decay_linear(rank((low + open) - (vwap + vwap))^2, 16.4662), 4.4388))", _alpha071),
+    _Formula(72, "中间价与成交额相关性比量价时序相关性", "量价", 23, 56, _V,
+             "rank(decay_linear(correlation((high + low) / 2, adv40, 8.93345), 10.1519)) "
+             "/ rank(decay_linear(correlation(Ts_Rank(vwap, 3.72469), Ts_Rank(volume, 18.5188), 6.86671), 2.95011))", _alpha072),
+    _Formula(73, "均价变化与开低价跌幅取大", "动量", 19, 20, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "max(rank(decay_linear(delta(vwap, 4.72775), 2.91864)), Ts_Rank(decay_linear(-(delta(open * 0.147155 + low * (1 - 0.147155), 2.03608) "
+             "/ (open * 0.147155 + low * (1 - 0.147155))), 3.33829), 16.7411)) * -1", _alpha073),
+    _Formula(74, "收盘与成交额相关性和高价均价与成交量相关性比较", "量价", 14, 80, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "(rank(correlation(close, sum(adv30, 37.4843), 15.1365)) < rank(correlation(rank(high * 0.0261661 + vwap * (1 - 0.0261661)), rank(volume), 11.4791))) * -1", _alpha074),
+    _Formula(75, "均价与成交量相关性和最低价与成交额相关性比较", "量价", 11, 61, _V,
+             "rank(correlation(vwap, volume, 4.24304)) < rank(correlation(rank(low), rank(adv50), 12.4413))", _alpha075),
+    _Formula(77, "中间价偏离均价与中间价成交额相关性取小", "量价", 19, 46, _V,
+             "min(rank(decay_linear(((high + low) / 2 + high) - (vwap + high), 20.0451)), "
+             "rank(decay_linear(correlation((high + low) / 2, adv40, 3.1614), 5.64125)))", _alpha077),
+    _Formula(78, "低价均价与成交额相关性的量价相关性次方", "量价", 23, 63, _V,
+             "rank(correlation(sum(low * 0.352233 + vwap * (1 - 0.352233), 19.7428), sum(adv40, 19.7428), 6.83313))"
+             "^rank(correlation(rank(vwap), rank(volume), 5.77492))", _alpha078),
+    _Formula(81, "均价与成交额相关性的累乘和量价相关性比较", "量价", 20, 78, _V,
+             "(rank(Log(product(rank(rank(correlation(vwap, sum(adv10, 49.6054), 8.47743))^4), 14.9655))) "
+             "< rank(correlation(rank(vwap), rank(volume), 5.07914))) * -1", _alpha081),
+    _Formula(83, "振幅、成交量与均价收盘差", "波动", 6, 7, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "rank(delay((high - low) / (sum(close, 5) / 5), 2)) * rank(rank(volume)) / (((high - low) / (sum(close, 5) / 5)) / (vwap - close))", _alpha083),
+    _Formula(84, "均价离高点位置的价格变化次方", "动量", 33, 34, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "SignedPower(Ts_Rank(vwap - ts_max(vwap, 15.3217), 20.7127), delta(close, 4.96796))", _alpha084),
+    _Formula(85, "高收价与成交额相关性的量价时序相关性次方", "量价", 15, 38, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+             "rank(correlation(high * 0.876703 + close * (1 - 0.876703), adv30, 9.61331))"
+             "^rank(correlation(Ts_Rank((high + low) / 2, 3.70596), Ts_Rank(volume, 10.1595), 7.11408))", _alpha085),
+    _Formula(86, "收盘与成交额相关性位置和收盘偏离均价比较", "量价", 24, 57, _ALL,
+             "(Ts_Rank(correlation(close, sum(adv20, 14.7444), 6.00049), 20.4195) < rank((open + close) - (vwap + open))) * -1", _alpha086),
+    _Formula(88, "开低与高收排名差和收盘成交额时序相关性取小", "量价", 20, 92, ("raw_open", "raw_high", "raw_low", "raw_close", "amount"),
+             "min(rank(decay_linear((rank(open) + rank(low)) - (rank(high) + rank(close)), 8.06882)), "
+             "Ts_Rank(decay_linear(correlation(Ts_Rank(close, 8.44728), Ts_Rank(adv60, 20.6966), 8.01266), 6.65053), 2.61957))", _alpha088),
+    _Formula(92, "中间价加收盘是否低于开低价与低价成交额相关性取小", "K线", 30, 46, ("raw_open", "raw_high", "raw_low", "raw_close", "amount"),
+             "min(Ts_Rank(decay_linear(((high + low) / 2 + close) < (low + open), 14.7221), 18.8683), "
+             "Ts_Rank(decay_linear(correlation(rank(low), rank(adv30), 7.58555), 6.94024), 6.80584))", _alpha092),
+    _Formula(94, "均价离低点位置的量价时序相关性次方", "量价", 36, 81, _V,
+             "(rank(vwap - ts_min(vwap, 11.5783))^Ts_Rank(correlation(Ts_Rank(vwap, 19.6462), Ts_Rank(adv60, 4.02992), 18.0926), 2.70756)) * -1", _alpha094),
+    _Formula(95, "开盘离低点和中间价成交额相关性比较", "量价", 39, 79, ("raw_open", "raw_high", "raw_low", "amount"),
+             "rank(open - ts_min(open, 12.4105)) < Ts_Rank(rank(correlation(sum((high + low) / 2, 19.1351), sum(adv40, 19.1351), 12.8742))^5, 11.7584)", _alpha095),
+    _Formula(96, "量价相关性和收盘成交额相关性高点位置取大", "量价", 44, 101, _ALL,
+             "max(Ts_Rank(decay_linear(correlation(rank(vwap), rank(volume), 3.83878), 4.16783), 8.38151), "
+             "Ts_Rank(decay_linear(Ts_ArgMax(correlation(Ts_Rank(close, 7.45404), Ts_Rank(adv60, 4.13242), 3.65459), 12.6556), 14.0365), 13.4143)) * -1" + _SPARSE_NOTE, _alpha096),
+    _Formula(98, "均价成交额相关性与开盘成交额相关性低点位置之差", "量价", 38, 53, ("raw_open", "raw_high", "raw_low", "volume", "amount"),
+             "rank(decay_linear(correlation(vwap, sum(adv5, 26.4719), 4.58418), 7.18088)) "
+             "- rank(decay_linear(Ts_Rank(Ts_ArgMin(correlation(rank(open), rank(adv15), 20.8187), 8.62571), 6.95668), 8.07206))", _alpha098),
+    _Formula(99, "中间价与成交额相关性和低价成交量相关性比较", "量价", 25, 85, ("raw_high", "raw_low", "volume", "amount"),
+             "(rank(correlation(sum((high + low) / 2, 19.8975), sum(adv60, 19.8975), 8.8136)) < rank(correlation(low, volume, 6.28259))) * -1", _alpha099),
+)
+
+FORMULAS = tuple(sorted(FORMULAS + _SECOND_BATCH, key=lambda item: item.number))
 
 
 def alpha101_factors() -> list[FactorDefinition]:
