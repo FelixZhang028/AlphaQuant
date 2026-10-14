@@ -113,3 +113,13 @@ test('行情不完整的股票用一句话说明；没有时不显示', async ()
   assert.equal(barGapSummary({ symbols: 1, without_bars: 1, examples: [{ symbol: '002450.SZ', name: '', expected_start: '2015-01-05', first_bar: null }] }),
     '有 1 只股票的行情不完整：开始得比上市日期晚，或者完全没有。其中 1 只完全没有行情。')
 })
+
+test('找不到分红送转记录的复权因子变化用一句话说明', async () => {
+  const { actionGapSummary } = await import('../src/workspace/dataPresentation.js')
+  assert.equal(actionGapSummary(null), '')
+  assert.equal(actionGapSummary({ changes: 0, symbols: 0, to_check: 0 }), '')
+  assert.equal(actionGapSummary({ changes: 973, symbols: 428, to_check: 428 }),
+    '有 973 次复权因子变化找不到分红送转记录（428 只股票）。其中 428 只股票还可以向 BaoStock 补查记录。')
+  assert.equal(actionGapSummary({ changes: 250, symbols: 235, to_check: 0 }),
+    '有 250 次复权因子变化找不到分红送转记录（235 只股票）。BaoStock 也没有这些记录，多半是配股：回测时如果持有，会按复权因子推算，并在结果里写明。')
+})

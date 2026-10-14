@@ -32,6 +32,7 @@ from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
 from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
 from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
 from quant_platform.data.bar_gaps import stocks_missing_history
+from quant_platform.data.corporate_action_gaps import BaoStockDividendBackfill
 from quant_platform.data.index_constituents import (
     CHECKS_TABLE,
     CONSTITUENTS_TABLE,
@@ -539,6 +540,23 @@ class DataCenterService:
 
         return self.full_market_backfill().repair_bar_gaps(start_date, end_date, progress=progress)
 
+    @serialized_update
+    def backfill_corporate_action_gaps(self, *, progress: Any = None) -> dict[str, Any]:
+        """给找不到分红送转记录的复权因子变化，从 BaoStock 补记录（退市股票也有）。"""
+
+        return BaoStockDividendBackfill(self.repository, self.sources.baostock_provider()).backfill(progress=progress)
+
+    def corporate_action_gap_status(self) -> dict[str, Any]:
+        """找不到分红送转记录的复权因子变化：多少次、多少只股票、还有多少只没有向 BaoStock 问过。"""
+
+        backfill = BaoStockDividendBackfill(self.repository, provider=object())
+        gaps = backfill.unexplained()
+        return {
+            "changes": int(len(gaps)),
+            "symbols": int(gaps["symbol"].nunique()) if len(gaps) else 0,
+            "to_check": len(backfill.plan()),
+        }
+
     def bar_gap_status(self) -> dict[str, Any]:
         """本地行情不完整的股票：多少只、其中多少只完全没有行情、举几个例子。"""
 
@@ -712,6 +730,7 @@ class DataCenterService:
         status["industry"] = self.industry_status()
         status["index_constituents"] = self.index_constituents_status()
         status["bar_gaps"] = self.bar_gap_status()
+        status["action_gaps"] = self.corporate_action_gap_status()
         return status
 
     def _catalog(self) -> AkShareCatalogIngestor:

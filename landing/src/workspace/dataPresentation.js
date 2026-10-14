@@ -63,6 +63,15 @@ export function barGapSummary(status) {
   return `有 ${number(status.symbols)} 只股票的行情不完整：开始得比上市日期晚，或者完全没有。${example}${absent}`
 }
 
+// 找不到分红送转记录的复权因子变化，一句话；没有时返回空串。status 来自闭环状态接口的 action_gaps。
+export function actionGapSummary(status) {
+  if (!status?.changes) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  const head = `有 ${number(status.changes)} 次复权因子变化找不到分红送转记录（${number(status.symbols)} 只股票）。`
+  if (status.to_check) return `${head}其中 ${number(status.to_check)} 只股票还可以向 BaoStock 补查记录。`
+  return `${head}BaoStock 也没有这些记录，多半是配股：回测时如果持有，会按复权因子推算，并在结果里写明。`
+}
+
 // 指数历史成分股的覆盖情况，每个指数一句话。status 来自闭环状态接口的 index_constituents。
 export function indexConstituentsSummary(status) {
   return (status || []).map((item) => {

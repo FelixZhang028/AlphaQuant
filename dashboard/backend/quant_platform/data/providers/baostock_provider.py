@@ -158,6 +158,16 @@ class BaoStockDataProvider(DataProvider):
         query = f"query_{kind}_stocks"
         return self._query_frame(query, lambda: getattr(self._client, query)(date=day.isoformat() if day else ""))
 
+    def get_dividends(self, symbol: str, year: int) -> pd.DataFrame:
+        """Cash dividends and bonus or transfer shares whose ex-date falls in ``year`` (delisted stocks too)."""
+
+        self.login()
+        code = self.to_baostock_symbol(symbol)
+        return self._query_frame(
+            "query_dividend_data",
+            lambda: self._client.query_dividend_data(code=code, year=str(year), yearType="operate"),
+        )
+
     def get_quarterly_report(self, kind: str, symbol: str, year: int, quarter: int) -> pd.DataFrame:
         """One quarterly report section (profit, growth or balance); empty when not published."""
 
