@@ -136,9 +136,16 @@ class BacktestEngine:
         if not self.fixed_universe:
             absent = set(universe_symbols) - set(bars.symbol)
             if absent:
+                names = "、".join(sorted(absent)[:10]) + ("等" if len(absent) > 10 else "")
                 raise BacktestValidityError(
-                    f"历史成分缺少行情（不可删除后继续回测）：{sorted(absent)}"
+                    f"这段时间的成分股里有 {len(absent)} 只在本地完全没有行情：{names}。"
+                    "去掉它们再回测会让结果偏高，所以没有运行。请先下载这些股票的行情，或者换一个不包含它们的回测区间。"
                 )
+        members_missing_bars = (
+            self.universe.members_missing_bars(bars, start_date, end_date)
+            if hasattr(self.universe, "members_missing_bars")
+            else []
+        )
         if hasattr(self.universe, "prepare"):
             self.universe.prepare(bars)
         # Opening capacity is capped by prior observed daily volume AND today's
@@ -451,6 +458,7 @@ class BacktestEngine:
             missing_adj_factor_rows=missing_adj_factor_events,
             evaluation_mode=self.evaluation_mode,
             fixed_universe=self.fixed_universe,
+            members_missing_bars=members_missing_bars,
         )
         if validity.blocks_completion:
             errors = "；".join(

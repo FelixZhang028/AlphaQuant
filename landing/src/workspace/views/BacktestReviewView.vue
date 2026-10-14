@@ -13,6 +13,7 @@ import DataTable from '../ui/DataTable.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { pendingAuditRun } from '../auditLink.js'
 import { benchmarkCards, benchmarkChoices, benchmarkNote, benchmarkSeries } from '../benchmarkPresentation.js'
+import { CURRENT_POOL, marketChoices, marketLabel, marketNote, usableMarket } from '../marketPresentation.js'
 
 const props = defineProps({
   routeContext: { type: Object, default: () => ({}) },
@@ -21,7 +22,10 @@ const props = defineProps({
 })
 
 // ---------- 新建回测表单 ----------
-const markets = [{ value: '当前股票池', label: '当前 A 股股票池' }]
+// 股票范围：自己的股票池，或某个指数当时的成分股（来自回测目录接口）。
+const markets = ref([])
+const marketOptions = computed(() => marketChoices(markets.value))
+const marketHint = computed(() => marketNote(form.market, markets.value))
 const strategyOptions = ref([])
 const catalogLoading = ref(false)
 const catalogErrors = ref([])
@@ -44,7 +48,7 @@ const rebalances = [
 
 const form = reactive({
   strategy: '',
-  market: '当前股票池',
+  market: CURRENT_POOL,
   from_date: '2025-01-01',
   to_date: '2025-12-31',
   initial_capital: 1000000,
@@ -200,6 +204,7 @@ async function loadDetail() {
         for (const key of ['from_date', 'to_date', 'initial_capital', 'max_positions', 'rebalance']) {
           if (config[key] != null) form[key] = config[key]
         }
+        form.market = usableMarket(config.market, markets.value)
         if (!reference.startsWith('package:')) Object.assign(strategyParameters, config.strategy_parameters || {})
       }
     }
@@ -257,6 +262,8 @@ async function loadCatalog() {
       ...catalog.items,
     ]
     catalogErrors.value = catalog.errors || []
+    markets.value = catalog.markets || []
+    form.market = usableMarket(form.market, markets.value)
     const requested = props.routeContext.strategy
     if (requested) {
       form.strategy = strategyOptions.value.some((s) => s.value === requested) ? requested : ''
@@ -305,16 +312,17 @@ onActivated(async () => {
 
     <!-- 新建回测 -->
     <SectionCard title="新建回测" hint="配置策略与市场区间，运行一次确定性回测">
-      <p v-if="routeContext.mode === 'reuse'" class="mb-4 text-sm text-slate-400">已带入历史区间、资金与策略参数；股票池与风控使用当前设置。</p>
+      <p v-if="routeContext.mode === 'reuse'" class="mb-4 text-sm text-slate-400">已带入历史区间、资金、股票范围与策略参数；风控使用当前设置。</p>
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <FormField label="策略" type="select" v-model="form.strategy" :options="[{ value: '', label: catalogLoading ? '加载中…' : '请选择策略' }, ...strategyOptions]" :disabled="catalogLoading" @update:model-value="chooseStrategy" />
-        <FormField label="市场" type="select" v-model="form.market" :options="markets" />
+        <FormField label="股票范围" type="select" v-model="form.market" :options="marketOptions" />
         <FormField label="开始日期" type="date" v-model="form.from_date" />
         <FormField label="结束日期" type="date" v-model="form.to_date" />
         <FormField label="初始资金" type="number" v-model="form.initial_capital" :min="0" :step="10000" />
         <FormField label="最大持仓" type="number" v-model="form.max_positions" :min="1" :max="form.strategy.startsWith('package:') ? 50 : 500" :step="1" />
         <FormField label="调仓频率" type="select" v-model="form.rebalance" :options="rebalances" />
       </div>
+      <p v-if="marketHint" class="mt-3 text-xs text-slate-400">{{ marketHint }}</p>
       <p v-for="(error, i) in catalogErrors" :key="i" role="alert" class="mt-3 text-sm text-amber-300">{{ error }}</p>
       <div v-if="selectedStrategy?.parameters?.length" class="mt-5 grid gap-4 border-t border-white/10 pt-5 md:grid-cols-2 xl:grid-cols-4">
         <FormField v-for="p in selectedStrategy.parameters" :key="p.name" v-model="strategyParameters[p.name]" :label="p.label" :type="p.choices?.length ? 'select' : p.kind === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(p.kind) ? 'number' : 'text'" :options="(p.choices || []).map((v) => ({ value: v, label: v }))" :min="p.minimum" :max="p.maximum" :step="p.kind === 'integer' ? 1 : 'any'" :hint="p.description" />
@@ -350,8 +358,8 @@ onActivated(async () => {
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
           <span class="text-slate-400">策略</span>
           <span class="font-medium text-white">{{ shownStrategy }}</span>
-          <span class="text-slate-400">市场</span>
-          <span class="text-white">{{ current.market }}</span>
+          <span class="text-slate-400">股票范围</span>
+          <span class="text-white">{{ marketLabel(current.market, markets) }}</span>
           <span class="text-slate-400">区间</span>
           <span class="text-white">{{ current.from_date }} ~ {{ current.to_date }}</span>
           <span class="text-slate-400">运行时间</span>

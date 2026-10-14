@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
-import { fundamentalsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
+import { fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -166,6 +166,7 @@ const STAGES = {
   daily_indicators: '估值与换手率',
   quarterly_fundamentals: '财务数据',
   industry: '行业分类',
+  index_constituents: '指数成分股',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -197,6 +198,7 @@ const DATASET_OPTIONS = [
   { value: 'indicators', label: '估值与换手率' },
   { value: 'fundamentals', label: '财务数据' },
   { value: 'industry', label: '行业分类' },
+  { value: 'index_constituents', label: '指数成分股' },
 ]
 function toggleDataset(v) {
   const idx = jobForm.datasets.indexOf(v)
@@ -400,6 +402,14 @@ async function downloadIndustry() {
   if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
   await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['industry'] })
 }
+// 指数历史成分股：找出名单发生变化的每一周，保存当时的完整名单。
+const indexConstituents = computed(() => loop.value?.index_constituents || null)
+const indexConstituentsLines = computed(() => indexConstituentsSummary(indexConstituents.value))
+const hasIndexConstituents = computed(() => (indexConstituents.value || []).some((item) => item.start_date))
+async function downloadIndexConstituents() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['index_constituents'] })
+}
 // 后台任务结束后，重新读取落地情况。
 watch(activeJob, (job, previous) => { if (previous && !job) loadLoop() })
 function clearPoll() {
@@ -553,6 +563,18 @@ onBeforeUnmount(clearPoll)
           @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
       </div>
       <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
+    </section>
+    <section v-if="indexConstituents" class="glass rounded-2xl p-5" aria-label="指数成分股">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">指数成分股</h2>
+          <p v-for="line in indexConstituentsLines" :key="line" class="mt-1 text-sm text-slate-300">{{ line }}</p>
+        </div>
+        <button type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadIndexConstituents">{{ activeJob ? '后台任务运行中…' : hasIndexConstituents ? '更新指数成分股' : '下载指数成分股' }}</button>
+      </div>
+      <p class="mt-2 text-xs text-slate-500">沪深300、上证50、中证500 在历史上每一天的成分股。下载后，回测的「股票范围」可以选择指数：每个调仓日只在当时的成分股里选股，不会用今天的名单去回测过去。第一次下载大约需要 10 分钟，在后台运行，中断后可以继续；以后只核对新的几周，几秒钟就能完成。成分股半年调整一次，核对日期落后回测结束日一个月以上时，需要先更新。</p>
     </section>
     <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
     <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">

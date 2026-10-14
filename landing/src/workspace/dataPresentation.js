@@ -53,6 +53,14 @@ export function industrySummary(status) {
   return `已有 ${number(status.symbols)} 只股票的行业分类（${span}，${number(status.snapshots)} 个时点）${missing}。`
 }
 
+// 指数历史成分股的覆盖情况，每个指数一句话。status 来自闭环状态接口的 index_constituents。
+export function indexConstituentsSummary(status) {
+  return (status || []).map((item) => {
+    if (!item.start_date) return `${item.name}：还没有下载。`
+    return `${item.name}：${item.start_date} 至 ${item.end_date}，名单变化过 ${item.changes} 次，现在 ${item.members} 只。`
+  })
+}
+
 // 因子评估时可以选的中性化方式。
 export const NEUTRALIZATION_OPTIONS = [
   { value: 'none', label: '不做', hint: '' },

@@ -41,6 +41,23 @@ class HistoricalUniverse(AShareUniverse):
         ]
         return tuple(sorted(frame.symbol.unique()))
 
+    def members_missing_bars(self, bars: pd.DataFrame, start, end, tolerance_days: int = 10) -> list[str]:
+        """Members whose first bar comes well after their stay (or the period) begins.
+
+        They cannot be selected while their bars are missing, so the result leaves them out for
+        that time. The engine reports them; it does not hide them.
+        """
+
+        first, last = pd.Timestamp(start), pd.Timestamp(end)
+        stays = self.membership[
+            (self.membership.effective_from <= last)
+            & (self.membership.known_at <= last)
+            & (self.membership.effective_to.isna() | (self.membership.effective_to > first))
+        ]
+        first_bar = stays.symbol.map(pd.to_datetime(bars["trade_date"]).groupby(bars["symbol"]).min())
+        begins = stays.effective_from.clip(lower=first) + pd.Timedelta(days=tolerance_days)
+        return sorted(stays[first_bar.notna() & (first_bar > begins)].symbol.unique())
+
     def select(self, trade_date, history):
         day = pd.Timestamp(trade_date)
         members = self.membership

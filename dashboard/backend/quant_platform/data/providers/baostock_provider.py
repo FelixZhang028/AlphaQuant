@@ -151,6 +151,13 @@ class BaoStockDataProvider(DataProvider):
             lambda: self._client.query_stock_industry(date=day.isoformat() if day else ""),
         )
 
+    def get_index_constituents(self, kind: str, day: date | None = None) -> pd.DataFrame:
+        """The members of an index (``hs300``, ``sz50`` or ``zz500``) on ``day`` (the latest when omitted)."""
+
+        self.login()
+        query = f"query_{kind}_stocks"
+        return self._query_frame(query, lambda: getattr(self._client, query)(date=day.isoformat() if day else ""))
+
     def get_quarterly_report(self, kind: str, symbol: str, year: int, quarter: int) -> pd.DataFrame:
         """One quarterly report section (profit, growth or balance); empty when not published."""
 

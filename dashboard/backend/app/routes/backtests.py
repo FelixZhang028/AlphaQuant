@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from ..database import _now, get_conn
 from ..quant.benchmark_view import benchmark_comparison, benchmark_options
+from ..quant.markets import CURRENT_POOL, market_options, use_market
 from ..quant.result_adapter import backtest_run_to_result
 from ..quant.run_evidence import run_directory, with_run_evidence
 from ..quant.runtime import (
@@ -33,6 +34,7 @@ from ..quant.runtime import (
 )
 from ..routes.auth import get_current_user
 from quant_platform.application.benchmarks import BENCHMARK_NAMES
+from quant_platform.data.index_constituents import INDEX_UNIVERSES
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 
@@ -75,8 +77,8 @@ def _friendly_error(exc: Exception) -> str:
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="提交回测任务")
 def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
-    if body.market != "当前股票池":
-        raise HTTPException(status_code=422, detail="目前仅支持当前 A 股股票池；指数成分及海外市场尚未接入。")
+    if body.market != CURRENT_POOL and body.market not in INDEX_UNIVERSES:
+        raise HTTPException(status_code=422, detail="不支持这个股票范围，请选择当前股票池或列表里的指数。")
     try:
         date.fromisoformat(body.from_date)
         date.fromisoformat(body.to_date)
@@ -106,9 +108,10 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=422, detail="规则策略请在创建页修改指标规则。")
         return backtest_package(body.strategy.removeprefix("package:"), PackageBacktestIn(
             from_date=start, to_date=end, initial_cash=body.initial_capital,
-            top_n=body.max_positions, rebalance=body.rebalance), user)
+            top_n=body.max_positions, rebalance=body.rebalance, market=body.market), user)
 
     service = build_backtest_service(user)
+    use_market(service, body.market)
     reference = body.strategy.strip()
     if reference.startswith("user:"):
         plugin = getattr(service, "user_strategy_plugins", {}).get(reference.removeprefix("user:"))
@@ -151,7 +154,7 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
         "strategy_reference": reference,
         "strategy_plugin": request.strategy_plugin,
         "strategy_parameters": request.strategy_parameters,
-        "market": "当前股票池",
+        "market": body.market,
         "initial_capital": request.initial_cash,
         "max_positions": request.top_n,
         "rebalance": request.rebalance,
@@ -185,7 +188,8 @@ def backtest_catalog(user: dict = Depends(get_current_user)):
     return {"items": items,
             "errors": list(getattr(service, "user_strategy_errors", ())),
             "default": service.default_request().strategy_plugin,
-            "market": "当前股票池"}
+            "market": CURRENT_POOL,
+            "markets": market_options()}
 
 
 @router.get("/{bid}", summary="单次回测详情")

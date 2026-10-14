@@ -31,6 +31,7 @@ from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
 from ..quant.market_catalog import LocalMarketCatalog
+from ..quant.markets import CURRENT_POOL, use_market
 from ..quant.run_trades import symbol_trades, traded_symbols
 from ..quant.research_runs import (
     MAX_BACKTESTS,
@@ -185,6 +186,7 @@ class PackageBacktestIn(BaseModel):
     top_n: int | None = Field(None, ge=1, le=50)
     rebalance: Literal["daily", "weekly", "monthly"] | None = None
     style: Literal["conservative", "balanced", "aggressive"] = "balanced"
+    market: str = Field(CURRENT_POOL, max_length=40)
 
 
 class CopyIn(BaseModel):
@@ -410,6 +412,10 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
         raise HTTPException(status_code=422, detail="开始日期需早于结束日期，且区间须与本地行情有交集。")
 
     service = build_backtest_service(user)
+    try:
+        use_market(service, body.market)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     studio = StrategyStudioService(service)
     try:
         package = _stored_package(row, body.style)
@@ -437,7 +443,7 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
     result = backtest_run_to_result(run, names=security_names())
     result["effective_config"] = {
         "strategy_reference": f"package:{package_id}", "package_id": package_id,
-        "strategy_plugin": "rule_builder", "market": "当前股票池",
+        "strategy_plugin": "rule_builder", "market": body.market,
         "strategy_parameters": {"definition_json": package.definition.to_json()},
         "initial_capital": base.initial_cash, "max_positions": package.top_n,
         "rebalance": package.rebalance, "from_date": start.isoformat(), "to_date": end.isoformat(),
@@ -446,7 +452,7 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO backtests (user_id, strategy, market, from_date, to_date, status, result, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"], row["name"], "当前股票池", start.isoformat(), end.isoformat(), "完成",
+            (user["id"], row["name"], body.market, start.isoformat(), end.isoformat(), "完成",
              json.dumps(result, ensure_ascii=False), _now()),
         )
         bid = cur.lastrowid
