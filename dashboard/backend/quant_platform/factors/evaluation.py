@@ -18,6 +18,8 @@ from datetime import date
 import pandas as pd
 
 from quant_platform.data.extras import extra_columns
+from quant_platform.data.fundamentals import MISSING_FUNDAMENTALS_MESSAGE, point_in_time
+from quant_platform.data.industry import EXPOSURES_TABLE, MISSING_INDUSTRY_MESSAGE, industry_on
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.base import FactorDefinition, pivot_field
 from quant_platform.factors.statistics import annual_ic, ic_statistics, neutralize_exposures
@@ -55,6 +57,50 @@ class FactorEvaluator:
     def __init__(self, repository: ParquetMarketDataRepository) -> None:
         self.repository = repository
 
+    def _neutralized(
+        self, values: pd.DataFrame, bars: pd.DataFrame, neutralization: str
+    ) -> tuple[pd.DataFrame, list[str]]:
+        """去掉因子值里能被行业和（或）市值解释的部分，只用每个交易日当时已知的行业和市值。
+
+        没有行业分类或市值的样本不参与，并在说明里写明数量；不会拿空值硬算。
+        """
+
+        sample = values[["date", "symbol", "value"]].copy()
+        sample["date"] = pd.to_datetime(sample["date"]).astype("datetime64[ns]")
+        exposures = sample[["date", "symbol"]].copy()
+        usable = pd.Series(True, index=sample.index)
+        if neutralization in {"industry", "both"}:
+            changes = self.repository.read_table(EXPOSURES_TABLE)
+            if changes.empty or "industry" not in changes.columns:
+                raise ValueError(MISSING_INDUSTRY_MESSAGE)
+            exposures["industry"] = industry_on(exposures, changes).to_numpy()
+            usable &= exposures["industry"].notna()
+        if neutralization in {"size", "both"}:
+            days = bars[["symbol", "trade_date", "raw_close"]].copy()
+            days["trade_date"] = pd.to_datetime(days["trade_date"]).astype("datetime64[ns]")
+            days = days[days["trade_date"].isin(sample["date"].unique())]
+            shares = point_in_time(days, self.repository.get_fundamentals(), ["total_shares"])["total_shares"].to_numpy()
+            days["market_cap"] = pd.to_numeric(days["raw_close"], errors="coerce").to_numpy() * shares
+            if not days["market_cap"].notna().any():
+                raise ValueError(MISSING_FUNDAMENTALS_MESSAGE)
+            exposures = exposures.merge(
+                days.rename(columns={"trade_date": "date"})[["date", "symbol", "market_cap"]], on=["date", "symbol"], how="left"
+            )
+            usable &= (exposures["market_cap"] > 0).to_numpy()
+        notes: list[str] = []
+        dropped = int((~usable).sum())
+        if dropped:
+            notes.append(f"{dropped} 个样本缺少当时的行业分类或市值，没有参与中性化（共 {len(sample)} 个样本）")
+        try:
+            result = neutralize_exposures(sample[usable.to_numpy()], exposures[usable.to_numpy()], neutralization)
+        except ValueError as exc:
+            if "样本不足" in str(exc):
+                raise ValueError(
+                    "股票数量太少，做不了中性化：每个交易日的股票数要明显多于行业数。可以扩大股票池，或者不做中性化。"
+                ) from exc
+            raise
+        return result, notes
+
     def evaluate(
         self,
         factor: FactorDefinition,
@@ -89,10 +135,9 @@ class FactorEvaluator:
         values = values[
             values["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
         ].copy()
+        neutral_notes: list[str] = []
         if neutralization != "none":
-            values = neutralize_exposures(
-                values, self.repository.read_table("security_exposures"), neutralization
-            )
+            values, neutral_notes = self._neutralized(values, factor_bars, neutralization)
         values["adjusted"] = pd.to_numeric(values["value"], errors="coerce") * factor.direction
 
         values["adjusted"] = values["adjusted"].replace([float("inf"), -float("inf")], float("nan"))
@@ -112,7 +157,7 @@ class FactorEvaluator:
         first_half = float(rank_ic.iloc[:half].mean()) if half else float("nan")
         second_half = float(rank_ic.iloc[half:].mean()) if len(rank_ic) > half else float("nan")
 
-        notes: list[str] = []
+        notes: list[str] = list(neutral_notes)
         if len(daily_ic) < 20:
             notes.append("有效截面不足 20 日，统计结论仅供参考")
         if values["group"].isna().any():

@@ -42,3 +42,21 @@ export function fundamentalsSummary(status) {
   if (!status.missing_symbols) return `本地有行情的 ${number(status.symbols)} 只股票都有财报（${latest}）。`
   return `已有 ${number(status.symbols)} 只股票的财报（${latest}）；本地有行情的股票里还有 ${number(status.missing_symbols)} 只没有。`
 }
+
+// 行业分类的覆盖情况，一句话。status 来自闭环状态接口的 industry。
+export function industrySummary(status) {
+  if (!status) return ''
+  const number = (value) => Number(value || 0).toLocaleString('zh-CN')
+  if (!status.snapshots) return '还没有下载。'
+  const span = `${status.start_date} 至 ${status.end_date}`
+  const missing = status.missing_symbols ? `；有 ${number(status.missing_symbols)} 只没有分类（多数是已经退市的）` : ''
+  return `已有 ${number(status.symbols)} 只股票的行业分类（${span}，${number(status.snapshots)} 个时点）${missing}。`
+}
+
+// 因子评估时可以选的中性化方式。
+export const NEUTRALIZATION_OPTIONS = [
+  { value: 'none', label: '不做', hint: '' },
+  { value: 'industry', label: '行业', hint: '去掉行业之间的差别，只比较同行业里的股票。需要先下载行业分类。' },
+  { value: 'size', label: '市值', hint: '去掉大小盘的影响。需要先下载财务数据（用到总股本）。' },
+  { value: 'both', label: '行业和市值', hint: '同时去掉行业和大小盘的影响。需要先下载行业分类和财务数据。' },
+]

@@ -142,6 +142,15 @@ class BaoStockDataProvider(DataProvider):
             ),
         )
 
+    def get_industry_snapshot(self, day: date | None = None) -> pd.DataFrame:
+        """Every stock's industry classification as of ``day`` (the latest when omitted)."""
+
+        self.login()
+        return self._query_frame(
+            "query_stock_industry",
+            lambda: self._client.query_stock_industry(date=day.isoformat() if day else ""),
+        )
+
     def get_quarterly_report(self, kind: str, symbol: str, year: int, quarter: int) -> pd.DataFrame:
         """One quarterly report section (profit, growth or balance); empty when not published."""
 
