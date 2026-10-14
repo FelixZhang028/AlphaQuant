@@ -19,6 +19,7 @@ import pandas as pd
 
 from quant_platform.data.extras import extra_columns
 from quant_platform.data.fundamentals import MISSING_FUNDAMENTALS_MESSAGE, point_in_time
+from quant_platform.data.index_constituents import UNIVERSE_COLUMN, only_members
 from quant_platform.data.industry import EXPOSURES_TABLE, MISSING_INDUSTRY_MESSAGE, industry_on
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.base import FactorDefinition, pivot_field
@@ -136,6 +137,10 @@ class FactorEvaluator:
             values["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
         ].copy()
         neutral_notes: list[str] = []
+        if UNIVERSE_COLUMN in factor_bars.columns:
+            # 指数当时的成分股：每天只评估那天在指数里的股票。
+            values, universe_note = only_members(values, factor_bars)
+            neutral_notes.append(universe_note)
         if neutralization != "none":
             values, neutral_notes = self._neutralized(values, factor_bars, neutralization)
         values["adjusted"] = pd.to_numeric(values["value"], errors="coerce") * factor.direction

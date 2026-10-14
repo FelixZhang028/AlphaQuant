@@ -41,3 +41,16 @@ test('带入以前的配置时，范围已经不能选就回到自己的股票�
   assert.equal(usableMarket(undefined, markets), CURRENT_POOL)
   assert.equal(usableMarket('000300.SH', []), CURRENT_POOL)
 })
+
+test('因子研究的范围说明，以及默认用哪个范围', async () => {
+  const { factorUniverseNote, defaultFactorUniverse } = await import('../src/workspace/marketPresentation.js')
+  assert.match(factorUniverseNote('当前股票池', markets), /股票很少时.*建议选择指数/)
+  assert.equal(factorUniverseNote('000300.SH', markets),
+    '每天只用那天在指数里的股票，不用今天的名单；Alpha101 的截面排名也只在当天的成分股之间进行。成分股历史从 2015-01-05 开始，开始日期不能早于这一天。')
+  assert.equal(factorUniverseNote('000905.SH', markets), '还没有下载中证500历史成分股，请先到「数据更新」下载指数成分股。')
+  assert.equal(factorUniverseNote('000300.SH', []), '')
+  assert.equal(defaultFactorUniverse(markets, ''), '000300.SH')                 // 没用过：有沪深300 就用它
+  assert.equal(defaultFactorUniverse(markets, '当前股票池'), '当前股票池')     // 用过的优先
+  assert.equal(defaultFactorUniverse(markets, '000905.SH'), '000300.SH')       // 用过的现在不能选了
+  assert.equal(defaultFactorUniverse([], ''), CURRENT_POOL)
+})

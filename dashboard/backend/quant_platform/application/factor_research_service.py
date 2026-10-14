@@ -9,6 +9,7 @@ from math import isfinite
 import pandas as pd
 
 from quant_platform.data.extras import extra_columns
+from quant_platform.data.index_constituents import UNIVERSE_COLUMN
 from quant_platform.factors.base import FactorDefinition
 from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames, drop_highly_correlated
 from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
@@ -82,7 +83,9 @@ def research_combination(
         bars = repository.get_daily_bars(symbols=symbols, end_date=end, **({"extras": extra} if extra else {}))
         if bars.empty:
             raise ValueError("所选区间没有本地行情，请先更新数据。")
-        universe = bars[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})
+        # 指数当时的成分股：只有那天在指数里的股票才是样本。
+        members = bars[bars[UNIVERSE_COLUMN]] if UNIVERSE_COLUMN in bars.columns else bars
+        universe = members[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})
         universe["date"] = pd.to_datetime(universe["date"]).dt.normalize()
         frames = {}
         for factor in components:
