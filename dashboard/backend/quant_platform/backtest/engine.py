@@ -208,6 +208,7 @@ class BacktestEngine:
 
         missing_adj_factor_events = 0
         implied_actions: list[dict[str, object]] = []
+        risk_interventions: list[dict[str, object]] = []
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
             account.start_day(trade_date)
@@ -376,7 +377,17 @@ class BacktestEngine:
                 )
                 pending[next_date] = corrective_orders
                 continue
-            if daily_risk.action == PortfolioRiskAction.STOP_NEW:
+            # 回撤停止线的「停止新开仓」交给下面的目标检查：不买新股票，但已有持仓照常卖出或减少，
+            # 否则持仓会一直冻结。单日亏损等其他原因的暂停仍然跳过这一天，并记下来。
+            drawdown_stop = (
+                self.risk_limits.drawdown_action == "stop_new"
+                and snapshot.drawdown <= -self.risk_limits.max_drawdown
+            )
+            if daily_risk.action == PortfolioRiskAction.STOP_NEW and not drawdown_stop:
+                if trade_date in rebalance_dates and index + 1 < len(dates):
+                    risk_interventions.append(
+                        {"trade_date": trade_date, "decision": "REJECT", "reasons": daily_risk.reasons}
+                    )
                 continue
 
             if trade_date not in rebalance_dates or index + 1 >= len(dates):
@@ -403,13 +414,19 @@ class BacktestEngine:
                     reference=TargetPosition(self.strategy.strategy_id, trade_date, "", 0),
                 )
             all_signals.extend(signals)
-            all_targets.extend(targets)
             evaluation = evaluate_target_risk(
                 targets,
                 self.risk_limits,
                 current_drawdown=snapshot.drawdown,
                 industry_map=industry_map,
+                current_weights=weights,
             )
+            # 记下真正用来下单的目标：调整过的用调整后的；被拒绝的仍记策略原来的目标，方便核对。
+            all_targets.extend(evaluation.targets if evaluation.decision != RiskDecision.REJECT else targets)
+            if evaluation.decision != RiskDecision.PASS:
+                risk_interventions.append(
+                    {"trade_date": trade_date, "decision": evaluation.decision.value, "reasons": evaluation.reasons}
+                )
             risk_rows.append(
                 {
                     "trade_date": trade_date,
@@ -426,8 +443,9 @@ class BacktestEngine:
                     "current_drawdown": evaluation.current_drawdown,
                 }
             )
-            if evaluation.decision != RiskDecision.PASS:
+            if evaluation.decision == RiskDecision.REJECT:
                 continue
+            targets = list(evaluation.targets)
             next_date = dates[index + 1]
             orders = self.order_generator.generate(
                 targets=targets,
@@ -472,6 +490,7 @@ class BacktestEngine:
             fixed_universe=self.fixed_universe,
             members_missing_bars=members_missing_bars,
             implied_actions=implied_actions,
+            risk_interventions=risk_interventions,
         )
         if validity.blocks_completion:
             errors = "；".join(

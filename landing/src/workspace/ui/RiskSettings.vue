@@ -27,6 +27,13 @@ const actionOptions = [
   { value: 'reduce', label: '自动降低仓位' },
   { value: 'liquidate', label: '自动清仓' },
 ]
+// 每种处理方式的实际效果。回撤从账户最高点算起，空仓以后很难回到停止线以内。
+const actionHints = {
+  stop_new: '不再买入新股票；已有持仓最多保持现在的仓位，策略不要的照常卖出。卖完以后账户是现金，回撤很难回到停止线以内，通常不会再恢复交易。',
+  reduce: '总仓位降到下面的比例，之后继续按策略调仓，只是总仓位不超过这个比例；回撤回到停止线以内后恢复正常。',
+  liquidate: '全部卖出并不再开仓。回撤从最高点算起，空仓以后通常不会再恢复交易。',
+}
+const actionHint = computed(() => actionHints[form.drawdown_action] || '')
 
 const loadingRisk = ref(false)
 const saving = ref(false)
@@ -99,7 +106,10 @@ onActivated(() => {
         <div class="space-y-4">
           <FormField label="" type="checkbox" v-model="form.enabled" hint="启用风控" />
           <FormField label="最大总仓位" type="number" v-model="form.max_total_weight" :min="0" :max="1" :step="0.05" />
-          <FormField label="单只股票最大权重" type="number" v-model="form.max_single_weight" :min="0" :max="1" :step="0.05" />
+          <div>
+            <FormField label="单只股票最大权重" type="number" v-model="form.max_single_weight" :min="0" :max="1" :step="0.05" />
+            <p class="mt-1 text-xs text-slate-500">持股太少时，平均分配会超过这个上限：每只按上限买，其余留作现金。</p>
+          </div>
           <div>
             <FormField label="" type="checkbox" v-model="form.daily_position_limits" hint="每日检查实际持仓并自动纠偏" />
             <p class="mt-1 pl-6 text-xs text-slate-500">持仓上涨导致单股、总仓位或持股数量超限时，下一交易日自动减仓。</p>
@@ -109,8 +119,9 @@ onActivated(() => {
           <FormField label="最低现金比例" type="number" v-model="form.minimum_cash_ratio" :min="0" :max="1" :step="0.05" />
           <FormField label="最大回撤停止线" type="number" v-model="form.max_drawdown" :min="0" :max="1" :step="0.05" />
           <FormField label="达到回撤线后的处理" type="select" v-model="form.drawdown_action" :options="actionOptions" />
+          <p class="text-xs text-slate-500">{{ actionHint }}</p>
           <FormField label="降仓后的最大总仓位" type="number" v-model="form.drawdown_target_weight" :min="0" :max="1" :step="0.05" :disabled="form.drawdown_action !== 'reduce'" />
-          <p class="text-xs text-slate-500">风控在每日收盘后检查实际持仓，纠偏订单在下一交易日开盘执行。</p>
+          <p class="text-xs text-slate-500">风控在每日收盘后检查实际持仓，纠偏订单在下一交易日开盘执行。风控调整或拒绝了哪些调仓，会写在回测结果的数据状态里。</p>
         </div>
       </div>
 

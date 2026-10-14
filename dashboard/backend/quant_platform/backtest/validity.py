@@ -98,6 +98,7 @@ def assess_backtest_validity(
     fixed_universe: bool = True,
     members_missing_bars: Sequence[str] = (),
     implied_actions: Sequence[dict[str, Any]] = (),
+    risk_interventions: Sequence[dict[str, Any]] = (),
     maximum_allowed_gap_days: int = 20,
     endpoint_tolerance_days: int = 15,
 ) -> BacktestValidityReport:
@@ -210,6 +211,7 @@ def assess_backtest_validity(
                 "这几次按复权因子推算成现金计入账户，相当于把配股权按理论价值卖出；没有模拟真实的认购。",
             )
         )
+    issues.extend(_risk_intervention_issues(risk_interventions))
     if evaluation_mode == "in_sample":
         issues.append(
             ValidityIssue(
@@ -276,6 +278,29 @@ def assess_backtest_validity(
         unknown_status_orders=unknown_order_count,
         missing_adj_factor_rows=max(int(missing_adj_factor_rows), 0),
     )
+
+
+def _risk_intervention_issues(interventions: Sequence[dict[str, Any]]) -> list[ValidityIssue]:
+    """One warning for rebalances the risk limits changed, one for those they stopped; each reason with its count and first date."""
+
+    issues = []
+    for decision, code, opening, effect in (
+        ("ADJUST", "RISK_ADJUSTED_TARGETS", "风控调整了", "按限制减少了仓位"),
+        ("REJECT", "RISK_REJECTED_TARGETS", "风控拒绝了", "这些天没有调仓"),
+    ):
+        chosen = [item for item in interventions if item.get("decision") == decision]
+        if not chosen:
+            continue
+        reasons: dict[str, list[Any]] = {}
+        for item in chosen:
+            for reason in item.get("reasons") or ("未说明原因",):
+                reasons.setdefault(str(reason), []).append(item.get("trade_date"))
+        detail = "；".join(f"{reason}（{len(days)} 次，第一次 {min(days)}）" for reason, days in reasons.items())
+        severity = IssueSeverity.WARNING
+        issues.append(
+            ValidityIssue(code, severity, f"{opening} {len(chosen)} 个调仓日的目标持仓，{effect}：{detail}。")
+        )
+    return issues
 
 
 def load_persisted_validity(run_dir: str | Path) -> dict[str, Any]:
