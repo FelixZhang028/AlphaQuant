@@ -162,8 +162,8 @@ onActivated(loadOverview)
       <summary class="cursor-pointer text-lg font-semibold text-white">数据源与高级工具</summary>
       <div class="mt-4">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <p class="max-w-2xl text-sm text-slate-400">日常更新会自动选择来源。XTick 的凭证配置与专项查询在这里进入。</p>
-          <button type="button" class="rounded-full border border-white/10 px-4 py-2 text-sm text-indigo-300 hover:bg-white/5" @click="navigate('xtick-data')">打开 XTick 数据服务 →</button>
+          <p class="max-w-2xl text-sm text-slate-400">日常更新默认从 BaoStock 下载行情，失败时按下表的顺序尝试备用来源。XTick 只用于专项查询，凭证配置和查询从这里进入。</p>
+          <button type="button" class="rounded-full border border-white/10 px-4 py-2 text-sm text-indigo-300 hover:bg-white/5" @click="navigate('xtick-data')">打开 XTick 专项查询 →</button>
         </div>
         <p
           v-if="primaryProvider"

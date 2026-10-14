@@ -1527,7 +1527,7 @@ def data_overview(user: dict = Depends(get_current_user)):
                 "end_date": end.isoformat() if end is not None else None,
                 "rows": int(row["rows"] or 0),
             })
-    # 数据源就绪状态（含 XTick 首选来源），迁移自 AlphaQuant 1_data_management。
+    # 数据源就绪状态：按行情路由的顺序，第一个是首选来源（BaoStock），迁移自 AlphaQuant 1_data_management。
     providers: list[dict[str, Any]] = []
     status_frame = service.market_source_status()
     if not status_frame.empty:

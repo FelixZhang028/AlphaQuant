@@ -4,10 +4,11 @@ const columns = [
     title: '产品',
     links: [
       { label: '可视化回测', href: '/app.html?view=backtest-review' },
-      { label: 'XTick 数据服务', href: '/app.html?view=xtick-data' },
+      { label: '本地数据中心', href: '/app.html?view=data-management' },
       { label: '零代码策略', href: '/app.html?view=strategy-studio' },
       { label: '因子实验室', href: '/app.html?view=factor-lab' },
       { label: 'AI研究员', href: '/app.html?view=agent-lab' },
+      { label: 'XTick 专项查询', href: '/app.html?view=xtick-data' },
     ],
   },
   {
