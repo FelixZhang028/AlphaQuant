@@ -334,3 +334,107 @@ def test_list_shows_later_moves_and_delete_is_private(api):
     current["user"] = {"id": 1, "is_admin": False}
     assert client.delete(f"/api/v1/agent-lab/briefs/{created['id']}").status_code == 204
     assert client.get("/api/v1/agent-lab/briefs").json()["items"] == []
+
+
+# ------------------------------------------------------------- decisions ----
+
+from quant_platform.ai_research.decisions import RISK_LEVELS, backtest_facts  # noqa: E402
+
+
+class FakeJev:
+    model = "typesafe/jev-1.13"
+
+    def __init__(self, fail=False):
+        self.calls = []
+        self.fail = fail
+
+    def ask(self, state, questions):
+        self.calls.append((state, questions))
+        if self.fail:
+            raise requests.Timeout()
+        answers = {}
+        for name, question in questions.items():
+            if question["type"] == "choice":
+                answers[name] = {"type": "choice", "choice": "中性", "confidence": 0.5,
+                                 "probabilities": {"偏多": 0.3, "中性": 0.5, "偏空": 0.2}}
+            elif question["type"] == "noul":
+                answers[name] = {"type": "noul", "probability": 0.7}
+            else:
+                answers[name] = {"type": "score", "score": 2.4, "confidence": 0.6,
+                                 "probabilities": dict(zip(question["criteria"], [0.05, 0.15, 0.4, 0.3, 0.1]))}
+        return answers
+
+
+def test_reading_adds_the_decision_model_odds_and_survives_its_failure(api, monkeypatch):
+    client, _ = api
+    stock = small_stock()
+    use_model(monkeypatch, [good_answer(stock), good_answer(stock)])
+    jev = FakeJev()
+    monkeypatch.setattr(platform_ai, "decision_client", lambda: jev)
+    result = analyse(client, "600000.SH")
+    assert result["brief"]["odds"] == {"choice": "中性", "probabilities": {"偏多": 0.3, "中性": 0.5, "偏空": 0.2},
+                                       "confidence": 0.5, "model": "jev-1.13"}
+    state = jev.calls[0][0]
+    assert state["数据"]["近 20 个交易日涨跌幅"].startswith(by_key(stock)["ret_20d"].text)  # 和页面上的数据相同
+    monkeypatch.setattr(platform_ai, "decision_client", lambda: FakeJev(fail=True))
+    again = analyse(client, "600000.SH")
+    assert again["brief"]["tilt"] == "偏多" and again["brief"]["odds"] is None
+
+
+RESULT = {
+    "nav_dates": ["2025-01-02"] * 243, "total_return": 23.03, "annual_return": 24.09, "max_drawdown": 6.26, "sharpe": 1.61,
+    "win_rate": 57.85, "fills": 245, "closed_trades": 196, "trade_win_rate": 65.82, "average_holding_days": 62.13,
+    "total_cost": 19890.13, "trades": [{"symbol": "601398"}, {"symbol": "000001"}, {"symbol": "601398"}],
+    "validity_status": "WARNING", "validity_issues": [{"code": "IN_SAMPLE_ONLY", "severity": "WARNING", "message": "只做了样本内回测"}],
+    "effective_config": {"market": "当前股票池", "max_positions": 10, "rebalance": "weekly", "initial_capital": 1000000.0,
+                         "strategy_parameters": {"short_window": 20, "long_window": 60}},
+}
+BENCHMARK = {"comparable": True, "name": "沪深 300", "benchmark_return": 21.19, "excess_return": 1.84,
+             "benchmark_max_drawdown": 10.49, "beta": 0.57}
+
+
+def test_backtest_facts_are_the_run_s_own_numbers():
+    rows = {row.key: row.text for row in backtest_facts({"from_date": "2025-01-01", "to_date": "2025-12-31"}, RESULT, BENCHMARK)}
+    assert rows["period"] == "2025-01-01 至 2025-12-31（243 个交易日）"
+    assert rows["max_drawdown"] == "6.26%" and rows["rebalance"] == "每周" and rows["parameters"] == "2 个"
+    assert rows["cost"] == "1.99%" and rows["stocks"] == "2 只" and rows["excess_return"] == "1.84%"
+    assert rows["validity"] == "有警告" and rows["issue_1"] == "只做了样本内回测"
+    assert "excess_return" not in {r.key for r in backtest_facts({}, RESULT, {"comparable": False})}
+
+
+def test_backtest_review_is_saved_counted_once_and_private(tmp_path, monkeypatch):
+    import json as _json
+    from app.routes import backtests
+    monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "app.db"))
+    database.init_db()
+    with database.get_conn() as conn:
+        for uid in (1, 2):
+            conn.execute("INSERT INTO users (id, name, email, password_hash, salt, created_at) VALUES (?, 'u', ?, 'h', 's', 'now')",
+                         (uid, f"u{uid}@example.test"))
+        conn.execute("INSERT INTO backtests (id, user_id, strategy, market, from_date, to_date, status, result, created_at) "
+                     "VALUES (7, 1, 'a_share_momentum', '当前股票池', '2025-01-01', '2025-12-31', '完成', ?, 'now')", (_json.dumps(RESULT),))
+    monkeypatch.setattr(backtests, "benchmark_comparison", lambda directory: BENCHMARK)
+    monkeypatch.setattr(backtests, "with_run_evidence", lambda result: result)  # 测试里没有运行目录
+    monkeypatch.setenv("FELLOWQUANT_AI_DAILY_REVIEWS", "1")
+    app = FastAPI()
+    app.include_router(backtests.router)
+    current = {"user": {"id": 1, "is_admin": False}}
+    app.dependency_overrides[get_current_user] = lambda: current["user"]
+    client = TestClient(app)
+
+    monkeypatch.setattr(platform_ai, "decision_client", lambda: None)
+    assert client.get("/api/v1/backtests/7/ai-review").json()["available"] is False
+    assert client.post("/api/v1/backtests/7/ai-review").status_code == 422
+    jev = FakeJev()
+    monkeypatch.setattr(platform_ai, "decision_client", lambda: jev)
+    review = client.post("/api/v1/backtests/7/ai-review").json()["review"]
+    assert review["risk"]["level"] == RISK_LEVELS[2] and review["overfit"]["probability"] == 0.7
+    assert review["model"] == "jev-1.13" and any(f["text"] == "只做了样本内回测" for f in review["facts"])
+    assert set(jev.calls[0][1]) == {"risk", "overfit"}  # 两个问题一次请求
+    assert "收益与风险 · 最大回撤：6.26%" in jev.calls[0][0]["回测数据"]  # 发给模型的就是页面上的这些行
+    again = client.post("/api/v1/backtests/7/ai-review").json()
+    assert again["review"]["risk"] == review["risk"] and len(jev.calls) == 1 and again["usage"]["used"] == 1
+    assert client.get("/api/v1/backtests/7/ai-review").json()["review"]["overfit"]["probability"] == 0.7
+    current["user"] = {"id": 2, "is_admin": False}
+    assert client.get("/api/v1/backtests/7/ai-review").json()["review"] is None
+    assert client.post("/api/v1/backtests/7/ai-review").status_code == 404

@@ -3,6 +3,7 @@ import { computed, onActivated, reactive, ref, watch } from 'vue'
 import { getBacktestBenchmark, getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { backtestId, runTime, strategyName, validityLabel } from '../runRecords.js'
+import BacktestAiReview from '../ui/BacktestAiReview.vue'
 import RiskSettings from '../ui/RiskSettings.vue'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
@@ -412,6 +413,7 @@ onActivated(async () => {
             <button @click="openResearch('research', { baseline: `run-${selectedId}` })">参数验证 →</button>
             <button @click="openResearch('market-chart', { run: selectedId })">在K线上查看成交 →</button>
           </div>
+          <BacktestAiReview :backtest-id="selectedId" :notify="notify" />
           <!-- 和基准比较：有完整的基准行情时显示两条累计收益曲线，否则只显示资金曲线。 -->
           <h3 v-if="benchmark" class="flex flex-wrap items-center gap-2 text-sm font-semibold text-white">
             <span>和</span>

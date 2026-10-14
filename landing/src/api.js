@@ -111,6 +111,12 @@ export function submitBacktest(payload) {
 export function getBacktestBenchmark(id, symbol) {
   return request(`/api/v1/backtests/${id}/benchmark?${new URLSearchParams({ symbol })}`, { auth: true })
 }
+export function getBacktestReview(id) {
+  return request(`/api/v1/backtests/${id}/ai-review`, { auth: true })
+}
+export function runBacktestReview(id) {
+  return request(`/api/v1/backtests/${id}/ai-review`, { method: 'POST', auth: true })
+}
 export function getBacktest(id) {
   return request(`/api/v1/backtests/${id}`, { auth: true })
 }
@@ -138,9 +144,6 @@ export function deletePackage(id) {
 }
 export function preflightPackage(payload) {
   return request('/api/v1/packages/preflight', { method: 'POST', body: payload, auth: true })
-}
-export function packageRiskScore(id) {
-  return request(`/api/v1/packages/${id}/risk-score`, { auth: true })
 }
 export function backtestPackage(id, payload) {
   return request(`/api/v1/packages/${id}/backtest`, { method: 'POST', body: payload || {}, auth: true })
@@ -373,8 +376,7 @@ export function weknoraQuery(payload) {
   return request('/api/v1/weknora/query', { method: 'POST', body: payload, auth: true })
 }
 
-export function jevSettings() { return request('/api/v1/jev/settings', { auth: true }) }
-export function jevSaveSettings(payload) { return request('/api/v1/jev/settings', { method: 'POST', body: payload, auth: true }) }
+export function jevStatus() { return request('/api/v1/jev/status', { auth: true }) }
 
 export function getBacktestCatalog() {
   return request('/api/v1/backtests/catalog', { auth: true })

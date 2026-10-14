@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evidenceText, factGroups, laterText, modelText, pickSuggestion, remainingText, signedPercent, tiltTone } from '../src/workspace/aiPresentation.js'
+import {
+  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltTone,
+} from '../src/workspace/aiPresentation.js'
 import { researchContext, researchUrl } from '../src/workspace/researchNavigation.js'
 
 test('数据按组排列，保持后端给的顺序', () => {
@@ -47,4 +49,19 @@ test('开始分析时用选过的股票、完整代码或列表里的第一只',
   assert.equal(pickSuggestion('五粮液', null, list), '000858')
   assert.equal(pickSuggestion('茅台', null, list), '600519')
   assert.equal(pickSuggestion('不存在', null, []), '')
+})
+
+test('决策模型的概率：三种倾向都写出来，看法不同时能看出来', () => {
+  const odds = { choice: '中性', probabilities: { 偏多: 0.25, 中性: 0.55, 偏空: 0.2 }, model: 'jev-1.13' }
+  assert.equal(oddsText(odds), '决策模型 jev-1.13 的估计：偏多 25% · 中性 55% · 偏空 20%')
+  assert.equal(oddsDisagree(odds, '偏多'), true)
+  assert.equal(oddsDisagree(odds, '中性'), false)
+  assert.equal(oddsText(null), '')
+  assert.equal(percent(0.645), '65%')
+})
+
+test('过度拟合的可能分三档说明', () => {
+  assert.match(overfitText(0.7), /很可能经不起/)
+  assert.match(overfitText(0.5), /拿不准/)
+  assert.match(overfitText(0.2), /不太像是巧合/)
 })

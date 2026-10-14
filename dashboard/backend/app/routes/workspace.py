@@ -97,7 +97,7 @@ from quant_platform.strategies.rule_schema import (
 from quant_platform.strategies.templates import beginner_templates, get_beginner_template
 from quant_platform.web.factor_fields import field_description
 from quant_platform.web.security_names import xtick_security_names
-from quant_platform.jev import JevClient, ChoiceRequest, NoulRequest, ScoreRequest
+from quant_platform.jev import ChoiceRequest, NoulRequest, ScoreRequest
 from quant_platform.weknora import WeKnoraClient
 from trading_agents.llm.mock import MockLLMClient
 
@@ -341,53 +341,6 @@ def preflight_package(body: PackageIn, user: dict = Depends(get_current_user)):
     warnings = list(StrategyStudioService.preflight(package, available_days=available_days))
     return {"warnings": warnings, "minimum_history_days": package.definition.minimum_history_days,
             "description": package.definition.describe(top_n=body.top_n, rebalance=body.rebalance)}
-
-
-@router.get("/packages/{package_id}/risk-score", summary="AI 策略风险评估（Jev Score）")
-def package_risk_score(package_id: str, user: dict = Depends(get_current_user)):
-    """用 Jev Score 对策略包做风险等级评分，返回 0-100 风险分与等级分布。"""
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
-        ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="策略包不存在")
-    definition = json.loads(row["definition"])
-    top_n = row["top_n"]
-    rebalance = row["rebalance"]
-    rules = definition.get("entry_rules") or []
-    rule_count = len(rules)
-    # 构造决策问题：把策略特征浓缩成自然语言
-    freq = {"daily": "每日", "weekly": "每周", "monthly": "每月"}.get(rebalance, rebalance)
-    question = (
-        f"评估以下量化策略的风险等级：持有前 {top_n} 只股票，{freq}调仓，"
-        f"包含 {rule_count} 条入场规则。请综合考虑集中度、调仓频率和规则复杂度给出风险评分。"
-    )
-    levels = ["低风险", "中低风险", "中等风险", "中高风险", "高风险"]
-    client = _jev_client(user["id"])
-    try:
-        resp = client.score(ScoreRequest(question=question, levels=levels))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=_sanitize_detail(exc))
-    score_100 = resp.to_score_0_100()
-    # 给出文字解读
-    if score_100 < 25:
-        interpretation = "风险较低，适合稳健型配置"
-    elif score_100 < 50:
-        interpretation = "风险中低，需关注集中度"
-    elif score_100 < 75:
-        interpretation = "风险中等，建议配合止损规则"
-    else:
-        interpretation = "风险较高，建议降低集中度或缩短调仓周期"
-    return {
-        "score_100": score_100,
-        "score": resp.score,
-        "level_probabilities": resp.level_probabilities,
-        "confidence": resp.confidence,
-        "levels": levels,
-        "interpretation": interpretation,
-        "mock": resp.mock,
-    }
 
 
 @router.post("/packages/{package_id}/backtest", status_code=status.HTTP_201_CREATED, summary="运行策略包回测")
@@ -2239,44 +2192,24 @@ def _integration_call(action):
         raise HTTPException(status_code=502, detail="服务调用失败，请检查服务地址、API Key、权限及网络连接") from None
 
 
-def _jev_client(user_id: int) -> JevClient:
-    resolved = _llm_store(user_id).resolve("openrouter")
-    url = resolved["base_url"].rstrip("/")
-    if not url.endswith("/decisions"):
-        if url.endswith("/api/v1"):
-            url = url[:-len("/api/v1")] + "/api/alpha/decisions"
-        else:
-            url += "/api/alpha/decisions"
-    return JevClient(api_key=resolved["api_key"] or None, base_url=url, model=resolved["model"])
-
-
-@router.get("/jev/settings", summary="Jev 配置状态")
-def jev_settings(user: dict = Depends(get_current_user)):
-    client = _jev_client(user["id"])
-    return {"configured": client.has_key, "base_url": client.base_url, "model": client.model}
-
-
-class JevSettingsIn(BaseModel):
-    base_url: str = "https://openrouter.ai/api/alpha/decisions"
-    api_key: str = ""
-    model: str = "typesafe/jev-1.13"
-
-
-@router.post("/jev/settings", summary="保存当前账户 Jev 配置")
-def jev_settings_save(body: JevSettingsIn, user: dict = Depends(get_current_user)):
-    store = _llm_store(user["id"])
-    key = body.api_key.strip() or store.get("openrouter")["api_key"]
-    if not body.model.strip():
-        raise HTTPException(status_code=422, detail="请填写模型名称")
-    store.save("openrouter", base_url=_service_url(body.base_url), api_key=key, model=body.model.strip())
-    return {"ok": True}
+@router.get("/jev/status", summary="决策模型是否可用、今天还剩几次")
+def jev_status(user: dict = Depends(get_current_user)):
+    client = platform_ai.decision_client()
+    return {"available": client is not None, "model": client.model.split("/")[-1] if client else None,
+            "usage": platform_ai.usage(user, "review")}
 
 
 @router.post("/jev/decide", summary="Jev 结构化决策（Choice / Noul / Score）")
 def jev_decide(body: JevDecideIn, user: dict = Depends(get_current_user)):
     body.options = [item.strip() for item in body.options]
     body.levels = [item.strip() for item in body.levels]
-    client = _jev_client(user["id"])
+    client = platform_ai.decision_client()
+    if client is None:
+        raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能使用。")
+    try:
+        platform_ai.require_quota(user, "review")
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     try:
         if body.type == "choice":
             if not body.question.strip() or len(body.options) < 2 or any(not x.strip() for x in body.options) or len(set(body.options)) != len(body.options):
@@ -2293,6 +2226,7 @@ def jev_decide(body: JevDecideIn, user: dict = Depends(get_current_user)):
                 raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空等级")
             req = ScoreRequest(question=body.question, levels=body.levels, state=body.state)
             resp = _integration_call(lambda: client.score(req))
+        platform_ai.record_use(user, "review")
         return resp.__dict__
     except HTTPException:
         raise
