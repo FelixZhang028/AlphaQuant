@@ -477,7 +477,7 @@ onBeforeUnmount(clearPoll)
           </div>
 
           <p class="mt-3 rounded-xl bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300">
-            行情只更新当前股票池；全市场历史数据请使用下方「高级更新」。证券主表和基准指数使用 AkShare，XTick 暂不支持批量行情更新。
+            行情只更新当前股票池；全市场历史数据请使用下方「高级更新」。行情默认从 BaoStock 下载，证券主表和基准指数使用 AkShare；XTick 只用于专项查询，不用于批量更新。
           </p>
 
           <!-- 基准指数多选 -->
