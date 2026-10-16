@@ -285,6 +285,13 @@ export function updateLocalStock(symbol, payload) {
 export function dataUpdate(payload) {
   return request('/api/v1/data-center/update', { method: 'POST', body: payload, auth: true })
 }
+// 每天自动更新：状态所有人可看，现在运行只有管理员。
+export function dailyUpdateStatus() {
+  return request('/api/v1/data-center/daily-update', { auth: true })
+}
+export function runDailyUpdate() {
+  return request('/api/v1/data-center/daily-update/run', { method: 'POST', body: {}, auth: true })
+}
 export function dataJobs() {
   return request('/api/v1/data-center/jobs', { auth: true })
 }

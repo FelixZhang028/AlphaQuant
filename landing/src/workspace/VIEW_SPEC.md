@@ -131,6 +131,9 @@ const props = defineProps({
 - `compareRuns(runIds)` → `{ comparison:[{run_id,strategy,cumulative_return,max_drawdown,sharpe,sortino,calmar,metrics_reliable}], normalized_nav:[{trade_date, <runId>:number}] }`
 
 ### 数据管理
+- 每天自动更新（2026-10-16）：行情数据所有用户共用一份，由平台在每个交易日 18:30（`FELLOWQUANT_DAILY_UPDATE_TIME`）以后自动更新全市场（后台任务 `datasets:['daily']`，见 `quant_platform/application/daily_update.py`）：先确认当天是交易日、行情已发布，再更新股票列表、全部在市股票的日线（每批 200 只，走和手动更新相同的复权对齐；新上市股票下载全部历史）、分红送转缺口、指数行情、指数成分股、行业分类和历史股票池。一步失败不影响后面的步骤，同一天重新运行时跳过已经完成的步骤和批次；行情没发布或没完成时 30 分钟后再试，最多 4 次，23:30 以后不再启动。`dailyUpdateStatus()` → `{enabled,time,state,text,last:{trade_date,status,market,finished_at,summary,errors,trigger},progress,data:{latest_date,stocks_on_latest,listed}}`（`job_id` 只给管理员）；`runDailyUpdate()` 管理员现在运行。页面：数据更新页顶部「每天自动更新」卡片（`ui/DailyUpdateCard.vue`，文字在 `dailyUpdate.js`）。
+- 只有管理员能下载数据和操作后台任务：`dataUpdate`、`updateLocalStock`、`dataJobs`、`startDataJob`、`stopDataJob`、`dataJobLog`、`runDailyUpdate`、XTick 凭证与查询，其他用户返回 403。普通用户的数据更新页只显示自动更新状态和各类数据的覆盖情况（不显示下载按钮、高级更新和任务记录），本地行情查询不显示「更新行情」，XTick 页只显示说明。
+- 所有后台任务（日线以外的阶段）有卡住保护：15 分钟没有进展就结束进程，由守护进程从断点续传（以前只有全市场日线有）。
 - `dataOverview()` → `{ security_count,configured_symbol_count,coverage_ratio,market_rows,unknown_status_rows,last_market_source,benchmark_symbol,per_symbol:[{symbol,coverage,start_date,end_date,rows}] }`
 - `localMarketList({q,scope:'all'|'universe',page,page_size})` → `{items:[{symbol,name,start_date,end_date,status,status_label,in_universe}],total,page,pages,page_size,downloaded_count,universe_count,universe_downloaded_count}`；全部范围仅列已下载股票，股票池范围也列出未下载标的。按行情/名称/交易日历文件版本缓存摘要，翻页不重复读取行情价格。
 - `localMarketDetail(symbol)` → `{symbol,name,rows,coverage,missing_rows,unknown_rows,duplicate_rows,unexpected_rows,missing_ranges:[{start_date,end_date,days}],missing_range_count,...}`；覆盖率只核对已保存区间，缺失段最多展示 20 段，本地日历不足时标记待核对。

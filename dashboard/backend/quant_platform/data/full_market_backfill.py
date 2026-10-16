@@ -99,6 +99,12 @@ class _ProgressWatchdog:
             if self._deadline is not None:
                 self._deadline = time.monotonic() + self._timeout
 
+    def close(self) -> None:
+        """解除武装：任务结束后不再判超时（守护线程随之退出）。"""
+
+        with self._lock:
+            self._deadline = None
+
     def expired(self) -> bool:
         with self._lock:
             return (
@@ -111,6 +117,9 @@ class _ProgressWatchdog:
         interval = min(self._timeout / 10.0, 5.0)
         while True:
             time.sleep(interval)
+            with self._lock:
+                if self._deadline is None:
+                    return
             if not self.expired():
                 continue
             message = (

@@ -306,15 +306,19 @@ def test_the_job_passes_the_chosen_stocks_to_the_download(tmp_path, monkeypatch)
 
 def test_starting_a_pool_download_sends_the_users_stock_pool(monkeypatch):
     started = []
-    jobs = SimpleNamespace(start=lambda start, end, datasets, symbols=None: started.append((start, end, datasets, symbols)) or {"id": "j", "status": "STARTING"})
+    jobs = SimpleNamespace(start=lambda start, end, datasets, symbols=None, trigger='admin': started.append((start, end, datasets, symbols)) or {"id": "j", "status": "STARTING"})
     monkeypatch.setattr(workspace, "_data_jobs", lambda: jobs)
     pool = ["000001", "600519"]
     monkeypatch.setattr(workspace, "_load_universe_symbols", lambda user_id: pool)
     app = FastAPI()
     app.include_router(workspace.router)
-    app.dependency_overrides[get_current_user] = lambda: {"id": 7}
+    current = {"id": 7, "is_admin": False}
+    app.dependency_overrides[get_current_user] = lambda: current
     client = TestClient(app)
     body = {"start_date": "2015-01-05", "end_date": "2025-08-29", "datasets": ["fundamentals"], "scope": "universe"}
+    # 补历史数据只有管理员能启动。
+    assert client.post("/api/v1/data-center/jobs/start", json=body).status_code == 403 and not started
+    current["is_admin"] = True
     assert client.post("/api/v1/data-center/jobs/start", json=body).status_code == 201
     assert started[-1] == (date(2015, 1, 5), date(2025, 8, 29), ["fundamentals"], ["000001.SZ", "600519.SH"])
     assert client.post("/api/v1/data-center/jobs/start", json={**body, "scope": None}).status_code == 201 and started[-1][3] is None

@@ -304,8 +304,11 @@ class DataCenterService:
         *,
         source_order: list[str] | None = None,
         allow_fallback: bool | None = None,
+        on_symbol: Callable[[str], None] | None = None,
     ) -> DataUpdateResult:
-        """Refresh stock bars using a validated per-update provider order."""
+        """Refresh stock bars using a validated per-update provider order.
+
+        ``on_symbol`` is called after each symbol is fetched (BaoStock only; a heartbeat)."""
 
         selected = symbols or self.configured_symbols
         sources = self.sources.resolve_market_sources(source_order)
@@ -327,6 +330,7 @@ class DataCenterService:
                 end_date,
                 source_order=sources,
                 allow_fallback=fallback_enabled,
+                on_symbol=on_symbol,
             )
             parameters["provider_attempts"] = attempts
             unaligned, source_changed = withheld.unaligned, withheld.source_changed
@@ -760,6 +764,7 @@ class DataCenterService:
         *,
         source_order: list[str] | None = None,
         allow_fallback: bool | None = None,
+        on_symbol: Callable[[str], None] | None = None,
     ) -> tuple[str, Any, list[dict[str, str]], ContinuousAdjustmentRepository]:
         attempts: list[dict[str, str]] = []
         failures: list[str] = []
@@ -775,7 +780,7 @@ class DataCenterService:
                         self.raw_repository,
                         repository,
                         self.sources.baostock_provider(),
-                    ).backfill(symbols, start_date, end_date)
+                    ).backfill(symbols, start_date, end_date, on_symbol=on_symbol)
                 elif source == "xtick":
                     report = XTickRangeBackfill(self.raw_repository, repository).backfill(
                         symbols, start_date, end_date
