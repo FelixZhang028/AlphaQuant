@@ -14,6 +14,7 @@ from quant_platform.accounts.models import CorporateAction
 from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import assess_backtest_validity
+from quant_platform.core import deadline
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.data.corporate_actions import load_corporate_actions
 from quant_platform.data.interfaces import MarketDataRepository
@@ -211,6 +212,7 @@ class BacktestEngine:
         risk_interventions: list[dict[str, object]] = []
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
+            deadline.check()  # 网页请求有时间限制：超时就在两个交易日之间停下
             account.start_day(trade_date)
             for symbol in list(account.positions):
                 delisted = delist_dates.get(symbol)

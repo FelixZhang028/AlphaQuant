@@ -86,7 +86,7 @@ class BacktestRunStore:
 
         self._update(run_id, RunStatus.SUCCESS)
 
-    def fail(self, run_id: str, error: Exception) -> None:
+    def fail(self, run_id: str, error: BaseException) -> None:
         """Preserve a bounded error for a failed run."""
 
         message = f"{type(error).__name__}: {error}"[:2000]

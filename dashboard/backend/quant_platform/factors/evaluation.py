@@ -17,6 +17,7 @@ from datetime import date
 
 import pandas as pd
 
+from quant_platform.core import deadline
 from quant_platform.data.extras import extra_columns
 from quant_platform.data.fundamentals import MISSING_FUNDAMENTALS_MESSAGE, point_in_time
 from quant_platform.data.index_constituents import UNIVERSE_COLUMN, only_members
@@ -132,6 +133,7 @@ class FactorEvaluator:
         if factor_bars.empty:
             raise ValueError("评估区间内没有行情数据")
         values = factor.compute(factor_bars)
+        deadline.check()
         values["date"] = pd.to_datetime(values["date"]).dt.normalize()
         values = values[
             values["date"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))

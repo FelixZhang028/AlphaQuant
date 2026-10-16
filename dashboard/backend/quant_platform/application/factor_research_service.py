@@ -8,6 +8,7 @@ from math import isfinite
 
 import pandas as pd
 
+from quant_platform.core import deadline
 from quant_platform.data.extras import extra_columns
 from quant_platform.data.index_constituents import UNIVERSE_COLUMN
 from quant_platform.factors.base import FactorDefinition
@@ -89,6 +90,7 @@ def research_combination(
         universe["date"] = pd.to_datetime(universe["date"]).dt.normalize()
         frames = {}
         for factor in components:
+            deadline.check()
             values = factor.compute(bars)
             values["date"] = pd.to_datetime(values["date"]).dt.normalize()
             frames[factor.name] = universe.merge(values, on=["date", "symbol"], how="left")

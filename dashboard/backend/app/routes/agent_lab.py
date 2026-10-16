@@ -58,6 +58,7 @@ from quant_platform.ai_research.outcome import later_moves
 
 from ..database import get_conn
 from ..quant import platform_ai
+from ..quant.compute import computing
 from ..quant.runtime import BACKEND_ROOT, market_repository, security_names
 from ..quant.symbols import to_bare, to_canonical
 from ..routes.auth import get_current_user
@@ -248,7 +249,8 @@ def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
     names = security_names()
     name = names.get(symbol) or names.get(to_bare(symbol)) or symbol
     try:
-        stock = stock_facts(market_repository(), symbol, day, name=name)
+        with computing(user):
+            stock = stock_facts(market_repository(), symbol, day, name=name)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
 

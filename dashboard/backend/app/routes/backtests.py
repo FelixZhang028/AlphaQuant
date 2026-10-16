@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 from ..database import _now, get_conn
 from ..quant.benchmark_view import benchmark_comparison, benchmark_options
+from ..quant.compute import computing
 from ..quant.markets import CURRENT_POOL, market_options, use_market
 from ..quant.result_adapter import backtest_run_to_result
 from ..quant.run_evidence import run_directory, with_run_evidence
@@ -143,12 +144,13 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
         strategy_parameters=parameters,
         risk_limits=effective_risk,
     )
-    try:
-        run = service.run(request)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=_friendly_error(exc))
-    except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
-        raise HTTPException(status_code=422, detail=_friendly_error(exc))
+    with computing(user):
+        try:
+            run = service.run(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_friendly_error(exc))
+        except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=_friendly_error(exc))
 
     result = backtest_run_to_result(run, names=security_names())
     result["effective_config"] = {
