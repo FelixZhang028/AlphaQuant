@@ -23,9 +23,9 @@ test('运行时间显示成本地时间，到分钟；读不出时间时显示�
 })
 
 test('策略显示目录里的名称；策略已删除时显示记录里保存的名字', () => {
-  const options = [{ value: 'a_share_momentum', label: 'A股动量策略' }, { value: 'user:mine', label: '我的策略 · Python' }]
+  const options = [{ value: 'a_share_momentum', label: 'A股动量策略' }, { value: 'package:mine', label: '我的策略' }]
   assert.equal(strategyName(options, 'a_share_momentum', 'a_share_momentum'), 'A股动量策略')
-  assert.equal(strategyName(options, 'user:mine', 'user:mine'), '我的策略 · Python')
+  assert.equal(strategyName(options, 'package:mine', 'package:mine'), '我的策略')
   assert.equal(strategyName(options, 'package:gone', '均线趋势'), '均线趋势')
   assert.equal(strategyName([], undefined, ''), '—')
 })

@@ -32,7 +32,6 @@ from quant_platform.factors.evaluation import FactorEvaluator
 from quant_platform.factors.registry import FactorRegistry
 from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.discovery import StrategyCatalog
-from quant_platform.user_strategies.loader import UserStrategyLoader
 
 from ..database import get_conn
 from .symbols import to_canonical
@@ -161,49 +160,13 @@ def user_risk_limits(user_id: int) -> RiskLimits:
     )
 
 
-def _register_user_strategies(catalog: StrategyCatalog, user_id: int, plugin_map: dict | None = None) -> list[str]:
-    """把该用户保存在 SQLite 的自定义策略注册进 catalog，返回错误信息列表。"""
-
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT plugin_name, display_name, code FROM user_strategies WHERE user_id = ?",
-            (user_id,),
-        ).fetchall()
-    errors: list[str] = []
-    loader = UserStrategyLoader()
-    for row in rows:
-        try:
-            result = loader.load_source(row["code"], label=row["plugin_name"])
-        except Exception as exc:  # noqa: BLE001 - 单个策略失败不应阻塞服务
-            errors.append(f"{row['plugin_name']}: {exc}")
-            continue
-        if result.strategies:
-            try:
-                if len(result.strategies) != 1:
-                    errors.append(f"{row['plugin_name']}: 每个策略文件需且仅需注册一个策略")
-                    continue
-                # Saved assets have a stable identity independent of their decorator name.
-                # Two copies of the starter must not replace or shadow each other/builtins.
-                cls = next(iter(result.strategies.values()))
-                plugin = f"user_{row['plugin_name']}"
-                registered = type(cls.__name__, (cls,), {"plugin_name": plugin, "display_name": row["display_name"]})
-                catalog.register_classes({plugin: registered})
-                if plugin_map is not None:
-                    plugin_map[row["plugin_name"]] = plugin
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{row['plugin_name']}: {exc}")
-        for _, message in result.errors:
-            errors.append(f"{row['plugin_name']}: {message}")
-    return errors
-
-
 # --------------------------------------------------------------------------- #
 # 服务工厂
 # --------------------------------------------------------------------------- #
 
 
 def build_backtest_service(user: dict) -> BacktestService:
-    """构造注入了该用户 universe / 自定义策略的回测服务（每请求轻量实例）。"""
+    """构造注入了该用户股票池的回测服务（每请求轻量实例）。"""
 
     with _backend_cwd():
         catalog = StrategyCatalog()
@@ -223,10 +186,6 @@ def build_backtest_service(user: dict) -> BacktestService:
             merged = dict(universe_section.get("filters") or {})
             merged.update(filters)
             universe_section["filters"] = merged
-
-    service.user_strategy_plugins = {}
-    service.user_strategy_errors = tuple(_register_user_strategies(
-        catalog, user["id"], service.user_strategy_plugins))
     return service
 
 

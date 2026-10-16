@@ -255,7 +255,7 @@ onActivated(() => {
           <div class="flex flex-wrap gap-2 whitespace-nowrap text-sm text-indigo-300">
             <button @click="openResearch('backtest-review', { run: row.backtest_id || row.run_id })">查看结果</button>
             <button v-if="row.strategy_reference" @click="openResearch('backtest-review', { strategy: row.strategy_reference, run: row.backtest_id || row.run_id, mode: 'reuse' })">继续研究</button>
-            <button v-if="row.strategy_reference?.startsWith('package:') || row.strategy_reference?.startsWith('user:')" @click="openResearch('strategy-hub', { strategy: row.strategy_reference })">回到策略</button>
+            <button v-if="row.strategy_reference?.startsWith('package:')" @click="openResearch('strategy-hub', { strategy: row.strategy_reference })">回到策略</button>
           </div>
         </template>
         <template #cell-run_id="{ row }">

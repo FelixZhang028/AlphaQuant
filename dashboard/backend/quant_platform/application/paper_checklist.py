@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
-from quant_platform.user_strategies.store import UserStrategyStore
 
 if TYPE_CHECKING:
     from quant_platform.application.paper_service import (
@@ -172,14 +171,6 @@ def _check_version_pinning(
             problems.append("风控配置与当前默认值不一致")
     except Exception:
         pass
-    root = getattr(service.backtests, "user_strategy_root", None)
-    if root is not None:
-        record = UserStrategyStore(root).get(str(account.request.get("strategy_plugin", "")))
-        if record is not None:
-            created_at = datetime.fromisoformat(account.created_at)
-            mtime = datetime.fromtimestamp(record.code_path.stat().st_mtime, UTC)
-            if mtime > created_at:
-                problems.append("策略代码在账户创建后被修改")
     if problems:
         return ChecklistItem(key, title, False, "warning", "；".join(problems) + "。")
     return ChecklistItem(key, title, True, "info", "账户钉住的参数和代码版本未发生变化。")

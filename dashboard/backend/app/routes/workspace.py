@@ -2,7 +2,7 @@
 功能台聚合路由：把 FellowQuant_v3 工作台的各功能模块以 REST 形式聚合到本后端。
 
 模块覆盖（与 v3 工作台对应）：
-- 策略创作中心 / 自然语言建策略 / 零代码策略工作台 / 自定义策略(Python)
+- 策略创作中心 / 自然语言建策略 / 零代码策略工作台
 - 因子研究室 / 智能体分析台
 - 单次回测与复盘（复用 backtests）/ 参数优化与稳健性验证 / 回测记录库
 - 数据管理 / XTick 数据服务 / 风险管理 / 模拟交易 / 股票池管理
@@ -18,7 +18,6 @@ import re
 from dataclasses import replace as dc_replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
 from typing import Any, Literal
 
 import pandas as pd
@@ -534,109 +533,6 @@ def nl_generate(body: NlGenerateIn, user: dict = Depends(get_current_user)):
         "model": model.label if model is not None else None,
         "note": note,
     }
-
-
-# --------------------------------------------------------------------------- #
-# 3. 自定义策略（Python）
-# --------------------------------------------------------------------------- #
-
-_DISALLOWED_IMPORTS = ("subprocess", "socket", "pickle", "ctypes", "multiprocessing")
-
-
-class UserStrategyIn(BaseModel):
-    code: str = Field(..., min_length=1)
-    display_name: str = ""
-    description: str = ""
-    source: str = "editor"
-    risk_acknowledged: bool = False
-
-
-def _analyze(code: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    blockers: list[dict[str, Any]] = []
-    warnings: list[dict[str, Any]] = []
-    for line_no, line in enumerate(code.splitlines(), 1):
-        for mod in _DISALLOWED_IMPORTS:
-            if re.search(rf"\b(import|from)\s+{mod}\b", line):
-                blockers.append({"code": "forbidden_import", "severity": "error", "message": f"禁用模块：{mod}", "line": line_no})
-        if "lookahead" in line or "未来函数" in line:
-            warnings.append({"code": "future_function", "severity": "warning", "message": "疑似未来函数引用", "line": line_no})
-    if "@register_strategy" not in code:
-        blockers.append({"code": "no_register", "severity": "error", "message": "缺少 @register_strategy 装饰器", "line": 0})
-    return blockers, warnings
-
-
-def _parse_params(code: str) -> list[dict[str, Any]]:
-    params: list[dict[str, Any]] = []
-    if "fast" in code.lower():
-        params.append({"name": "fast", "label": "快线周期", "kind": "integer", "default": 5, "minimum": 1, "maximum": 250})
-    if "slow" in code.lower():
-        params.append({"name": "slow", "label": "慢线周期", "kind": "integer", "default": 20, "minimum": 1, "maximum": 500})
-    if "momentum" in code.lower() or "lookback" in code.lower():
-        params.append({"name": "lookback", "label": "动量窗口", "kind": "integer", "default": 20, "minimum": 1, "maximum": 250})
-    if "threshold" in code.lower():
-        params.append({"name": "threshold", "label": "阈值", "kind": "number", "default": 0.0})
-    if not params:
-        params.append({"name": "window", "label": "观察周期", "kind": "integer", "default": 20, "minimum": 1, "maximum": 500})
-    return params
-
-
-@router.post("/user-strategies/preview", summary="校验并预览自定义策略代码")
-def user_strategy_preview(body: UserStrategyIn, user: dict = Depends(get_current_user)):
-    blockers, warnings = _analyze(body.code)
-    plugin_name = re.sub(r"[^A-Za-z0-9_]", "", body.display_name.lower() or "custom_strategy")
-    return {
-        "plugin_name": plugin_name or "custom_strategy",
-        "display_name": body.display_name or "自定义策略",
-        "description": body.description,
-        "parameters": _parse_params(body.code),
-        "safety_report": {"blocked": bool(blockers), "blockers": blockers, "warnings": warnings},
-        "errors": [],
-    }
-
-
-@router.post("/user-strategies", status_code=status.HTTP_201_CREATED, summary="保存自定义策略")
-def user_strategy_save(body: UserStrategyIn, user: dict = Depends(get_current_user)):
-    blockers, warnings = _analyze(body.code)
-    if blockers:
-        raise HTTPException(status_code=422, detail={"blockers": blockers})
-    if warnings and not body.risk_acknowledged:
-        raise HTTPException(status_code=409, detail="存在安全风险提示，请先勾选风险确认。")
-    plugin_name = f"{re.sub(r'[^A-Za-z0-9_]', '', body.display_name.lower())[:32] or 'custom_strategy'}_{uuid4().hex[:8]}"
-    params = _parse_params(body.code)
-    now = _now()
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO user_strategies (user_id, plugin_name, display_name, description, source, code, parameters, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (user["id"], plugin_name, body.display_name or "自定义策略", body.description, body.source, body.code,
-             json.dumps(params, ensure_ascii=False), now, now),
-        )
-    return {"plugin_name": plugin_name, "display_name": body.display_name or "自定义策略",
-            "description": body.description, "source": body.source, "parameters": params}
-
-
-@router.get("/user-strategies", summary="列出自定义策略")
-def user_strategy_list(user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT plugin_name, display_name, description, source, parameters, created_at, updated_at FROM user_strategies WHERE user_id = ? ORDER BY updated_at DESC",
-            (user["id"],),
-        ).fetchall()
-    return {"strategies": [
-        {"plugin_name": r["plugin_name"], "display_name": r["display_name"], "description": r["description"],
-         "source": r["source"], "parameters": json.loads(r["parameters"]), "created_at": r["created_at"], "updated_at": r["updated_at"]}
-        for r in rows
-    ]}
-
-
-@router.delete("/user-strategies/{plugin_name}", status_code=status.HTTP_204_NO_CONTENT, summary="删除自定义策略")
-def user_strategy_delete(plugin_name: str, user: dict = Depends(get_current_user)):
-    with get_conn() as conn:
-        cur = conn.execute(
-            "DELETE FROM user_strategies WHERE plugin_name = ? AND user_id = ?", (plugin_name, user["id"])
-        )
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=404, detail="策略不存在")
-    return None
 
 
 # --------------------------------------------------------------------------- #

@@ -160,20 +160,6 @@ export function nlGenerate(payload) {
   return request('/api/v1/nl/generate', { method: 'POST', body: payload, auth: true })
 }
 
-// ---- 自定义策略（Python）----
-export function previewUserStrategy(payload) {
-  return request('/api/v1/user-strategies/preview', { method: 'POST', body: payload, auth: true })
-}
-export function saveUserStrategy(payload) {
-  return request('/api/v1/user-strategies', { method: 'POST', body: payload, auth: true })
-}
-export function listUserStrategies() {
-  return request('/api/v1/user-strategies', { auth: true })
-}
-export function deleteUserStrategy(name) {
-  return request(`/api/v1/user-strategies/${name}`, { method: 'DELETE', auth: true })
-}
-
 // ---- 因子研究室 ----
 export function listFactors() {
   return request('/api/v1/factors', { auth: true })

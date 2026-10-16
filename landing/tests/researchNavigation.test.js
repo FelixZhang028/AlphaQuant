@@ -21,10 +21,11 @@ test('策略研究五个主入口与两项回测步骤，旧链接仍然可达',
   const group = groups.find((g) => g.label === '策略研究')
   assert.deepEqual(group.items.map((i) => i.label), ['行情图表', '我的策略', '因子研究', '回测与验证', '研究记录'])
   assert.deepEqual(group.items[3].children.map((i) => i.label), ['策略回测', '参数验证'])
-  for (const key of ['strategy-studio', 'custom-strategy']) {
-    assert.ok(allItems.some((i) => i.key === key))
-    assert.equal(navigationItem(key).key, 'strategy-hub')
-  }
+  assert.ok(allItems.some((i) => i.key === 'strategy-studio'))
+  assert.equal(navigationItem('strategy-studio').key, 'strategy-hub')
+  // Python 策略已停用：页面不在了，旧链接落到我的策略。
+  assert.ok(!allItems.some((i) => i.key === 'custom-strategy') && !views['custom-strategy'])
+  assert.equal(resolveView('custom-strategy'), 'strategy-hub')
   // 三种创建方式合并为一页：旧的“自然语言创建”链接落到同一页。
   assert.equal(resolveView('nl-strategy'), 'strategy-studio')
   assert.ok(!allItems.some((i) => i.key === 'nl-strategy'))
@@ -35,7 +36,6 @@ test('策略研究五个主入口与两项回测步骤，旧链接仍然可达',
 })
 test('保存策略引用保持类型与身份，名称不参与匹配', () => {
   assert.equal(strategyReference({ package_id: 'abc', name: '重名' }), 'package:abc')
-  assert.equal(strategyReference({ plugin_name: 'abc', display_name: '重名' }), 'user:abc')
 })
 test('带策略和历史记录的链接刷新后仍能恢复，普通导航清除旧上下文', () => {
   const url = researchUrl('http://localhost/app.html?view=overview&theme=dark&run=9', {
