@@ -24,7 +24,7 @@ export const CONTENT = {
       desc: '三重维度，构筑非凡体系。',
       items: [
         { num: '01', title: '微秒级交易通道', sub: '极速执行 · 高性能撮合引擎 · 每一笔指令以最低延迟抵达市场' },
-        { num: '02', title: '思想快速验证', sub: '智能策略 · 技术指标与机器学习模型 · Python 策略热加载' },
+        { num: '02', title: '思想快速验证', sub: '智能策略 · 技术指标与机器学习模型 · 规则策略免写代码' },
         { num: '03', title: '全天候安全网', sub: '风控护航 · 多层级动态风险控制 · 实时监控持仓、回撤与暴露' },
       ],
     },
@@ -85,7 +85,7 @@ export const CONTENT = {
       desc: 'Three dimensions, one exceptional system.',
       items: [
         { num: '01', title: 'Microsecond Channel', sub: 'Fast execution · high-performance matching engine · every order reaches the market with minimal latency' },
-        { num: '02', title: 'Rapid Validation', sub: 'Smart strategies · technical indicators & ML models · hot-reloadable Python strategies' },
+        { num: '02', title: 'Rapid Validation', sub: 'Smart strategies · technical indicators & ML models · no-code rule strategies' },
         { num: '03', title: 'Round-the-clock Safety Net', sub: 'Risk control · multi-layer dynamic limits · real-time monitoring of positions, drawdown and exposure' },
       ],
     },

@@ -88,12 +88,6 @@ const props = defineProps({
 - `nlProviders()` → `{ providers:[{key,display_name,default_base_url,requires_key,models:[],default_model}] }`
 - `nlGenerate({description,provider,top_n,rebalance})` → `{ definition, explanation, minimum_history_days }`
 
-### 自定义策略（Python）
-- `previewUserStrategy({code,display_name,description,source,risk_acknowledged})` → `{ plugin_name,display_name,description,parameters:[],safety_report:{blocked,blockers:[],warnings:[]},errors:[] }`
-- `saveUserStrategy({code,display_name,description,source,risk_acknowledged})` → `{ plugin_name,display_name,description,source,parameters:[] }`
-- `listUserStrategies()` → `{ strategies:[{plugin_name,display_name,description,source,parameters,created_at,updated_at}] }`
-- `deleteUserStrategy(name)`
-
 ### 因子研究室
 - `listFactors()` → `{ factors:[{name,display_name,category,description,formula,required_fields:[],min_history,direction,version}] }`
 - `evaluateFactor({factor_name,start_date,end_date,horizon,n_groups})` → `{ factor_name,horizon,n_groups,ic_mean,ic_ir,rank_ic_mean,rank_ic_ir,long_short_mean,first_half_ic,second_half_ic,turnover_mean,daily_ic:[{date,ic,rank_ic}],group_mean_returns:{G1:..,G2:..},notes }`
@@ -110,11 +104,11 @@ const props = defineProps({
 
 ### 策略研究导航与统一回测流程（2026-10-10）
 
-- 主栏目为「行情图表」「我的策略」「因子研究」「回测与验证」「研究记录」。创建入口只有「新建规则策略」和「Python 策略」两个；旧直达链接继续有效，`nl-strategy` 落到新建规则策略页。
+- 主栏目为「行情图表」「我的策略」「因子研究」「回测与验证」「研究记录」。创建入口只有「新建规则策略」一个；旧直达链接继续有效，`nl-strategy` 落到新建规则策略页。Python 策略已停用（服务器不运行用户写的代码），旧链接 `custom-strategy` 落到我的策略，研究记录里旧的 `user:` 引用回测时提示已停用。
 - 新建规则策略是一页一张表单：从模板开始、用一句话描述、自己填，三种方式都把规则填进同一张可编辑的表单（每个条件可选周期，可与数值或另一个指标比较，最多 10 条）。页面实时显示后端读出的“这个策略的意思”，保存的就是表单里的规则。`mode=template|describe|blank` 选择开始方式，旧的 `mode=builder` 等同 `blank`。
-- 我的策略汇总规则与 Python 资产，支持名称搜索、规则策略复制、行内确认删除。创建页只负责保存，保存后「去回测」进入统一配置页，不自动执行。
+- 我的策略列出规则策略，支持名称搜索、规则策略复制、行内确认删除。创建页只负责保存，保存后「去回测」进入统一配置页，不自动执行。
 - 回测与验证分为策略回测、参数验证两页；参数验证在同一页先做参数优化、再做样本外验证，共用基准回测与候选参数。风控设置只在回测表单里折叠出现这一处（独立的风险管理页已删除），未保存修改会阻止运行。回测结果的概览包含全部收益与风险指标。完整审计附于结果，外部成交核查位于高级工具。旧链接 `walk-forward`、`risk-management` 分别落到参数验证页和策略回测页。
-- 模板的规则在表单里可见、可改，副本保持规则一致。统一回测记录保存策略引用与实际执行配置；Python 资产使用独立身份，名称相同或代码装饰器相同也不会覆盖另一个资产。
+- 模板的规则在表单里可见、可改，副本保持规则一致。统一回测记录保存策略引用与实际执行配置。
 - 因子研究默认三个栏目：因子库、单因子评估、组合研究。组合页完成选因子、权重/区间配置和评估；原合成评估作为高级方式保留。
 - 因子库可以筛选（`ui/FactorFilter.vue`、`factorFilters.js`）：按来源（内置、Alpha101、自定义……）和类型（动量与趋势、反转与价格位置、波动与风险、成交与流动性、K线与量价关系……）两排，每一项后面是点下去以后的因子数。筛选项来自因子自己的 `source` 和 `logical_category` 字段，以后增加新的来源或类型时会自动出现。组合研究里选因子的列表共用同一个筛选条件，已经选中的因子即使不符合条件也留在列表里；单因子评估的下拉框按来源分组。目前有 23 个内置因子和 100 个 Alpha101 因子（101 个里只差需要市值的 #56）；其中 18 个要和同行业比较，需要先下载行业分类，没有下载时评估会提示去下载。内置因子里，价值与估值 4 个、换手类 2 个、净资产收益率（TTM）和净利率（TTM）需要先下载估值与换手率；毛利率、资产负债率、两个同比增长因子和总市值需要先下载财务数据。
 - 历史回测只在研究记录里列出。策略回测页的结果区只显示一次回测：刚运行的，或从研究记录打开的（链接里的 `run`）；没有 `run` 时显示一句说明。运行完成后把 `run` 写进链接，刷新和后退可恢复；在「策略回测」与「参数验证」两个标签之间切换时带着这次回测。

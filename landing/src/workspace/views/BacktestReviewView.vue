@@ -262,7 +262,6 @@ async function loadCatalog() {
       ...(packages.items || []).map((p) => ({ value: `package:${p.package_id}`, label: `${p.name} · 规则策略`, top_n: p.top_n, rebalance: p.rebalance })),
       ...catalog.items,
     ]
-    catalogErrors.value = catalog.errors || []
     markets.value = catalog.markets || []
     form.market = usableMarket(form.market, markets.value)
     const requested = props.routeContext.strategy
@@ -307,7 +306,7 @@ onActivated(async () => {
     <!-- 标题 -->
     <div class="glass glass-sheen rounded-2xl p-6">
       <h1 class="text-xl font-bold text-white">策略回测</h1>
-      <p class="mt-2 text-sm text-slate-400">统一配置规则策略与 Python 策略，确认后再运行。</p>
+      <p class="mt-2 text-sm text-slate-400">选择策略，设置日期、资金和风控，确认后再运行。</p>
       <button class="mt-3 text-sm text-indigo-300" @click="openResearch('strategy-hub')">← 返回我的策略</button>
     </div>
 

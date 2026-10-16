@@ -12,7 +12,6 @@ from quant_platform.application.backtest_service import BacktestRequest
 from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.discovery import StrategyCatalog
 from quant_platform.strategies.templates import beginner_templates
-from quant_platform.user_strategies.starter import STARTER_STRATEGY_CODE
 from test_research_integrity import api, save_run
 
 
@@ -21,7 +20,6 @@ def workflow(api, monkeypatch):
     client, connect, root = api
     with connect() as conn:
         conn.execute("CREATE TABLE strategy_packages (id INTEGER PRIMARY KEY, user_id INTEGER, package_id TEXT, name TEXT, definition TEXT, top_n INTEGER, rebalance TEXT, source TEXT, created_at TEXT)")
-        conn.execute("CREATE TABLE user_strategies (id INTEGER PRIMARY KEY, user_id INTEGER, plugin_name TEXT, display_name TEXT, description TEXT, source TEXT, code TEXT, parameters TEXT, created_at TEXT, updated_at TEXT, UNIQUE(user_id, plugin_name))")
     captured = []
     catalog = StrategyCatalog()
     metadata = catalog.metadata()
@@ -35,7 +33,7 @@ def workflow(api, monkeypatch):
             fills=pd.DataFrame(), positions=pd.DataFrame(), run_id="spy"))
 
     service = SimpleNamespace(default_request=lambda: defaults, available_strategies=lambda: catalog.metadata(),
-                              run=run, runs_root=root / 'runs', user_strategy_plugins={})
+                              run=run, runs_root=root / 'runs')
     for module in [workspace, backtests]:
         monkeypatch.setattr(module, "build_backtest_service", lambda _: service)
         monkeypatch.setattr(module, "local_data_bounds", lambda: (date(2020, 1, 1), date(2026, 1, 1)))
@@ -103,34 +101,22 @@ def test_unavailable_and_foreign_saved_strategies_never_fall_back(workflow):
     with connect() as conn:
         conn.execute('UPDATE strategy_packages SET user_id = 2')
     assert client.post('/api/v1/backtests', json=payload(f"package:{saved['package_id']}")).status_code == 404
-    assert client.post('/api/v1/backtests', json=payload('user:missing')).status_code == 422
+    assert client.post('/api/v1/backtests', json=payload('no_such_strategy')).status_code == 422
     assert not captured
 
 
-def test_two_chinese_named_python_assets_remain_distinct_and_reach_their_plugins(workflow):
-    client, _, captured, catalog, service = workflow
-    assets = []
-    for name in ['测试策略甲', '测试策略乙']:
-        response = client.post('/api/v1/user-strategies', json={'code': STARTER_STRATEGY_CODE,
-            'display_name': name, 'risk_acknowledged': True})
-        assert response.status_code == 201, response.text
-        assets.append(response.json())
-    assert assets[0]['plugin_name'] != assets[1]['plugin_name']
-    assert len(client.get('/api/v1/user-strategies').json()['strategies']) == 2
-    assert not runtime._register_user_strategies(catalog, 1, service.user_strategy_plugins)
+def test_python_strategies_are_gone_and_old_references_explain_why(workflow):
+    # 用户写的 Python 代码不再在服务器上运行：没有保存、预览的接口，目录里也没有 Python 策略。
+    client, _, captured, *_ = workflow
+    code = 'print(1)'
+    assert client.post('/api/v1/user-strategies', json={'code': code, 'display_name': 'x'}).status_code in (404, 405)
+    assert client.post('/api/v1/user-strategies/preview', json={'code': code}).status_code in (404, 405)
+    assert client.get('/api/v1/user-strategies').status_code in (404, 405)
     items = client.get('/api/v1/backtests/catalog').json()['items']
-    for asset in assets:
-        reference = f"user:{asset['plugin_name']}"
-        item = next(i for i in items if i['value'] == reference)
-        assert item['label'] == f"{asset['display_name']} · Python"
-        assert {p['name'] for p in item['parameters']} == {'fast', 'slow', 'momentum'}
-        response = client.post('/api/v1/backtests', json={**payload(reference), 'strategy_parameters': {'fast': 8}})
-        assert response.status_code == 201, response.text
-        assert captured[-1].strategy_plugin == service.user_strategy_plugins[asset['plugin_name']]
-        assert captured[-1].strategy_parameters['fast'] == 8
-    assert captured[0].strategy_plugin != captured[1].strategy_plugin
-    assert client.post('/api/v1/backtests', json={**payload(reference), 'strategy_parameters': {'typo': 8}}).status_code == 422
-    assert len(captured) == 2
+    assert items and not any(i['value'].startswith('user:') or 'Python' in i['label'] for i in items)
+    response = client.post('/api/v1/backtests', json=payload('user:old_strategy'))
+    assert response.status_code == 422 and 'Python 策略已经停用' in response.json()['detail']
+    assert not captured
 
 
 def test_options_show_each_templates_real_rules_and_the_window_range_of_every_indicator(workflow):

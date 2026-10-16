@@ -21,5 +21,5 @@ export function openResearch(view, context = {}) {
 }
 
 export function strategyReference(asset) {
-  return asset.package_id ? `package:${asset.package_id}` : `user:${asset.plugin_name}`
+  return `package:${asset.package_id}`
 }

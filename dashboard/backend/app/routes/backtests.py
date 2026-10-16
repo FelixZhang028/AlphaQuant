@@ -57,6 +57,9 @@ class BacktestIn(BaseModel):
 def _resolve_plugin(service, strategy_name: str) -> str:
     """Unknown strategies must never silently execute another strategy."""
 
+    if strategy_name.startswith("user:"):
+        # 以前的 Python 策略引用（研究记录里的“回到策略”、旧链接）。
+        raise HTTPException(status_code=422, detail="Python 策略已经停用，请改用规则策略或因子组合策略。")
     for metadata in service.available_strategies():
         if strategy_name in (metadata.display_name, metadata.plugin_name):
             return metadata.plugin_name
@@ -116,12 +119,7 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
     service = build_backtest_service(user)
     use_market(service, body.market)
     reference = body.strategy.strip()
-    if reference.startswith("user:"):
-        plugin = getattr(service, "user_strategy_plugins", {}).get(reference.removeprefix("user:"))
-        if not plugin:
-            raise HTTPException(status_code=422, detail="该 Python 策略未能加载，请检查代码和注册标识；未执行其他策略。")
-    else:
-        plugin = _resolve_plugin(service, reference)
+    plugin = _resolve_plugin(service, reference)
     defaults = service.default_request()
     metadata = next(m for m in service.available_strategies() if m.plugin_name == plugin)
     parameters = defaults.strategy_parameters if plugin == defaults.strategy_plugin else metadata.defaults()
@@ -177,7 +175,6 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
 @router.get("/catalog", summary="可执行策略目录")
 def backtest_catalog(user: dict = Depends(get_current_user)):
     service = build_backtest_service(user)
-    user_plugins = getattr(service, "user_strategy_plugins", {})
     metadata = {m.plugin_name: m for m in service.available_strategies()}
     def item(m, value, label):
         return {"value": value, "label": label,
@@ -185,11 +182,8 @@ def backtest_catalog(user: dict = Depends(get_current_user)):
                 "defaults": service.default_request().strategy_parameters
                     if m.plugin_name == service.default_request().strategy_plugin else m.defaults()}
     items = [item(m, m.plugin_name, m.display_name)
-             for m in metadata.values() if m.plugin_name not in user_plugins.values() and m.plugin_name != "rule_builder"]
-    items.extend(item(metadata[plugin], f"user:{saved}", f"{metadata[plugin].display_name} · Python")
-                 for saved, plugin in user_plugins.items())
+             for m in metadata.values() if m.plugin_name != "rule_builder"]
     return {"items": items,
-            "errors": list(getattr(service, "user_strategy_errors", ())),
             "default": service.default_request().strategy_plugin,
             "market": CURRENT_POOL,
             "markets": market_options()}

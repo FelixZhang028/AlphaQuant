@@ -212,7 +212,7 @@ async function onForgotSubmit() {
 
 const features = [
   { t: '极速撮合引擎', d: '微秒级延迟，Rust 高性能通道' },
-  { t: '智能策略热加载', d: 'Python 策略秒级验证迭代' },
+  { t: '规则策略免写代码', d: '模板、一句话或表单，几分钟搭好就能回测' },
   { t: '全天候风控', d: '动态回撤与暴露监控' },
 ]
 </script>

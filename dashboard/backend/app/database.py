@@ -86,20 +86,6 @@ def init_db() -> None:
                 UNIQUE(user_id, package_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
-            CREATE TABLE IF NOT EXISTS user_strategies (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id      INTEGER NOT NULL,
-                plugin_name  TEXT    NOT NULL,
-                display_name TEXT    NOT NULL,
-                description  TEXT    NOT NULL DEFAULT '',
-                source       TEXT    NOT NULL DEFAULT 'editor',
-                code         TEXT    NOT NULL,
-                parameters   TEXT    NOT NULL DEFAULT '[]',   -- JSON 参数 schema
-                created_at   TEXT    NOT NULL,
-                updated_at   TEXT    NOT NULL,
-                UNIQUE(user_id, plugin_name),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
             CREATE TABLE IF NOT EXISTS custom_factors (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id      INTEGER NOT NULL,
