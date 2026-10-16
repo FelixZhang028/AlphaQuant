@@ -55,6 +55,12 @@ class StrategyContext:
         if missing:
             raise DataQualityError(f"Strategy is missing required fields: {missing}")
 
+    @property
+    def available_fields(self) -> frozenset[str]:
+        """The columns this view can return."""
+
+        return frozenset(self._history.columns)
+
     def history(
         self,
         fields: Iterable[str],

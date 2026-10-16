@@ -25,6 +25,15 @@ SECTOR_NAMES = {
     "O": "居民服务、修理和其他服务业", "P": "教育", "Q": "卫生和社会工作", "R": "文化、体育和娱乐业", "S": "综合",
 }
 COLUMNS = ["symbol", "date", "industry", "sector", "source", "ingested_at"]
+# 可以接到每根日线上的两列：当天的大类（如 ``J66货币金融服务``）和门类（如 ``J``）。
+INDUSTRY_COLUMNS = ("industry", "sector")
+
+
+def industry_columns(fields) -> list[str]:
+    """The industry columns among the fields a factor or strategy asks for."""
+
+    wanted = set(fields)
+    return [column for column in INDUSTRY_COLUMNS if column in wanted]
 
 
 def normalize_baostock_industry(frame: pd.DataFrame) -> pd.DataFrame:

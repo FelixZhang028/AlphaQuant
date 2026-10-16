@@ -1,8 +1,8 @@
-"""A verified subset of the 101 Formulaic Alphas, computed from daily bars.
+"""The 101 Formulaic Alphas computed from daily bars, all but #56 (market cap).
 
 Source: https://arxiv.org/abs/1601.00991 (Appendix A). Each formula below is the paper's,
-with the paper's operator definitions. 82 of the 101 need only daily price and volume, and all
-82 are here; the other 19 need an industry classification (18) or market cap (#56).
+with the paper's operator definitions. 82 of the 101 need only daily price and volume, 18 more
+need an industry classification, and #56 needs market cap (not here yet).
 
 Conventions, chosen so that no value depends on data after its own date:
 
@@ -16,6 +16,18 @@ Conventions, chosen so that no value depends on data after its own date:
   whose price/volume window spans such a day is left missing rather than computed from a
   jump that never traded (``span`` below is the number of day-to-day steps the window covers).
   Other stocks' cross-sectional ranks on that day still count the affected stock.
+- Windows longer than 200 days (24, 32, 36, 37, 48) would cross the yearly dividend of almost
+  every stock, so these use each day's forward-adjusted prices instead: on day t every price in
+  the window is put on day t's basis (``Panel.adjusted`` / ``Panel.on_today``). The ratio of two
+  factors depends only on the actions between their days, so nothing later is used.
+- ``indneutralize(x, IndClass.level)`` subtracts the day's group mean. Groups are the CSRC
+  classification in force that day: ``sector`` is the 门类 (19), ``industry`` the 大类;
+  there is no finer level, so ``subindustry`` is the 大类 too (the paper allows different
+  classifications per level). When fewer than ``MIN_GROUP`` stocks of a 大类 have a value that
+  day, the stock is compared with its whole 门类; when the 门类 has fewer too, it has no value.
+  A neutralized series that a time-series operator reads (delta, correlation) keeps the group
+  mean from jumping when a peer pays a dividend, splits, resumes trading or changes group
+  (``Panel.neutralize_series``).
 - ``rank`` is the cross-sectional average percentile rank within the supplied universe; when
   the bars carry an ``in_universe`` mark (an index's members on each day), only that day's
   members are ranked (``scale`` too);
@@ -41,11 +53,14 @@ import numpy as np
 import pandas as pd
 
 from quant_platform.data.index_constituents import UNIVERSE_COLUMN
+from quant_platform.data.industry import MISSING_INDUSTRY_MESSAGE
 from quant_platform.factors.base import FactorDefinition, melt_wide, pivot_field
 from quant_platform.factors.builtins import BuiltinFactor
 
 # 复权因子相邻两天的变化超过这个比例，就认为这一天发生了除权除息。
 ACTION_THRESHOLD = 1e-3
+# 行业内比较至少要有这么多只股票；不够时和整个门类比较。
+MIN_GROUP = 5
 
 Frame = pd.DataFrame
 
@@ -227,6 +242,21 @@ def covariance(x: Frame, y: Frame, d: float) -> Frame:
     return result.where(~(_flat(x, d) | _flat(y, d)) | result.isna(), 0.0).round(MOMENT_DECIMALS)
 
 
+def _group_stats(values: np.ndarray, codes: np.ndarray, groups: int) -> tuple[np.ndarray, np.ndarray]:
+    """For each cell [day, stock]: the mean of its group's values that day and how many there are.
+
+    ``codes`` gives each cell's group (``-1``: none); only cells with a value count."""
+
+    days, width = values.shape[0], max(groups, 1)
+    key = np.arange(days)[:, None] * width + np.where(codes >= 0, codes, 0)
+    counted = ~np.isnan(values) & (codes >= 0)
+    sums = np.bincount(key[counted], weights=values[counted], minlength=days * width)
+    counts = np.bincount(key[counted], minlength=days * width)
+    known = codes >= 0
+    mean = np.where(known, sums[key] / np.maximum(counts[key], 1), np.nan)
+    return mean, np.where(known, counts[key], 0)
+
+
 # --------------------------------------------------------------------------- #
 # Inputs (paper, Appendix A.2)
 # --------------------------------------------------------------------------- #
@@ -312,6 +342,94 @@ class Panel:
             return values
         crossed = action.rolling(span, min_periods=1).max() > 0
         return values.where(~crossed.reindex(index=values.index, columns=values.columns, fill_value=False))
+
+    # ----------------------------------------------------------------------- #
+    # Each day's forward-adjusted prices (the long-window formulas)
+    # ----------------------------------------------------------------------- #
+
+    def _factor(self, like: Frame) -> Frame:
+        """The adjustment factor of each day, shaped like ``like``; 1 when the bars carry none."""
+
+        if "adj_factor" not in self._bars.columns:
+            return pd.DataFrame(1.0, index=like.index, columns=like.columns)
+        factor = self._field("adj_factor")
+        return factor.where(factor > 0).reindex(index=like.index, columns=like.columns)
+
+    def adjusted(self, x: Frame, kind: str = "price") -> Frame:
+        """``x`` on one basis across dividends and splits: prices times the factor, volumes divided by it.
+
+        Within a window these differ from the window's last-day forward-adjusted values only by one
+        constant, so ratios, correlations and ranks are the ones on that day's basis."""
+
+        return x * self._factor(x) if kind == "price" else x / self._factor(x)
+
+    def on_today(self, x: Frame) -> Frame:
+        """A price amount on the ``adjusted`` basis, expressed on each day's own basis."""
+
+        return x / self._factor(x)
+
+    # ----------------------------------------------------------------------- #
+    # indneutralize
+    # ----------------------------------------------------------------------- #
+
+    def _codes(self, column: str, like: Frame) -> tuple[np.ndarray, int]:
+        """Integer group codes (``-1`` where unknown) for each cell of ``like``."""
+
+        key = f"codes:{column}"
+        if key not in self._cache:
+            if column not in self._bars.columns or not self._bars[column].notna().any():
+                raise ValueError(MISSING_INDUSTRY_MESSAGE)
+            frame = self._bars[["trade_date", "symbol", column]].copy()
+            frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.normalize()
+            frame[column] = frame[column].astype(object).where(frame[column].notna(), None)
+            self._cache[key] = frame.groupby(["trade_date", "symbol"])[column].last().unstack("symbol").sort_index()
+        labels = self._cache[key].reindex(index=like.index, columns=like.columns)
+        codes, uniques = pd.factorize(labels.to_numpy(dtype=object).ravel())
+        return codes.reshape(labels.shape), len(uniques)
+
+    def _peer_mean(self, values: Frame, level: str) -> np.ndarray:
+        """Each cell's group mean on its day: the stock's 大类 when at least ``MIN_GROUP`` of its stocks
+        have a value that day, otherwise its 门类 when that has, otherwise missing."""
+
+        x = values.to_numpy(dtype=float)
+        sector_mean, sector_count = _group_stats(x, *self._codes("sector", values))
+        sector_mean = np.where(sector_count >= MIN_GROUP, sector_mean, np.nan)
+        if level == "sector":
+            return sector_mean
+        industry_mean, industry_count = _group_stats(x, *self._codes("industry", values))
+        return np.where(industry_count >= MIN_GROUP, industry_mean, sector_mean)
+
+    def neutralize(self, x: Frame, level: str) -> Frame:
+        """The paper's indneutralize: ``x`` minus its group's mean that day (``level``: sector, industry, subindustry)."""
+
+        x = _cross_section(x)
+        return x - self._peer_mean(x, level)
+
+    def neutralize_series(self, x: Frame, kind: str, level: str) -> Frame:
+        """indneutralize for a series a time-series operator then reads (delta, correlation).
+
+        On the first day of each run of values a stock has, it is ``x`` minus its group mean, as
+        defined. After that the stock's group mean moves by the mean of the members' changes from
+        the day before, each change measured on that day's basis (``kind``: price, volume or
+        amount). So a peer's dividend or split, a peer resuming from a suspension, or a stock
+        joining or leaving the group does not make the mean jump. The operators that read the
+        series only use differences within a window, and those are the paper's whenever no such
+        event happens.
+        """
+
+        x = _cross_section(x)
+        before, factor = x.shift(1), self._factor(x)
+        if kind == "price":
+            before = before * factor.shift(1) / factor
+        elif kind == "volume":
+            before = before * factor / factor.shift(1)
+        step = self._peer_mean(x - before, level)
+        start = (x.notna() & x.shift(1).isna()).to_numpy()
+        moves = np.where(start, self._peer_mean(x, level), step)
+        total = np.nancumsum(moves, axis=0)
+        # 每段从开头那天的组平均算起：减去这一段开始之前累计的变化。
+        offset = pd.DataFrame(np.where(start, total - np.nan_to_num(moves), np.nan), index=x.index, columns=x.columns).ffill()
+        return (x - (total - offset.to_numpy())).where(np.isfinite(moves))
 
 
 # --------------------------------------------------------------------------- #
@@ -540,9 +658,11 @@ def _alpha022(p: Panel) -> Frame:
 
 # ((((delta((sum(close, 100) / 100), 100) / delay(close, 100)) < 0.05) || (... == 0.05))
 #   ? (-1 * (close - ts_min(close, 100))) : (-1 * delta(close, 3)))
+# 窗口 200 天：按当天的前复权价计算（价格先换到同一基准，差值再换回当天的基准）。
 def _alpha024(p: Panel) -> Frame:
-    drift = delta(ts_sum(p.close, 100) / 100, 100) / delay(p.close, 100)
-    near_low, recent = -(p.close - ts_min(p.close, 100)), -delta(p.close, 3)
+    close = p.adjusted(p.close)
+    drift = delta(ts_sum(close, 100) / 100, 100) / delay(close, 100)
+    near_low, recent = -p.on_today(close - ts_min(close, 100)), -p.on_today(delta(close, 3))
     return choose(drift <= 0.05, near_low, recent, drift, near_low, recent)
 
 
@@ -578,7 +698,9 @@ def _alpha031(p: Panel) -> Frame:
 
 # (scale(((sum(close, 7) / 7) - close)) + (20 * scale(correlation(vwap, delay(close, 5), 230))))
 def _alpha032(p: Panel) -> Frame:
-    return scale(ts_sum(p.close, 7) / 7 - p.close) + 20 * scale(correlation(p.vwap, delay(p.close, 5), 230))
+    close = p.adjusted(p.close)
+    return (scale(p.on_today(ts_sum(close, 7) / 7 - close))
+            + 20 * scale(correlation(p.adjusted(p.vwap), delay(close, 5), 230)))
 
 
 # ((Ts_Rank(volume, 32) * (1 - Ts_Rank(((close + high) - low), 16))) * (1 - Ts_Rank(returns, 32)))
@@ -590,16 +712,18 @@ def _alpha035(p: Panel) -> Frame:
 #   + (0.73 * rank(Ts_Rank(delay((-1 * returns), 6), 5)))) + rank(abs(correlation(vwap, adv20, 6))))
 #   + (0.6 * rank((((sum(close, 200) / 200) - open) * (close - open)))))
 def _alpha036(p: Panel) -> Frame:
-    return (2.21 * rank(correlation(p.close - p.open, delay(p.volume, 1), 15))
+    close, open_ = p.adjusted(p.close), p.adjusted(p.open)
+    return (2.21 * rank(correlation(close - open_, delay(p.adjusted(p.volume, "volume"), 1), 15))
             + 0.7 * rank(p.open - p.close)
             + 0.73 * rank(ts_rank(delay(-p.returns, 6), 5))
-            + rank(correlation(p.vwap, p.adv(20), 6).abs())
-            + 0.6 * rank((ts_sum(p.close, 200) / 200 - p.open) * (p.close - p.open)))
+            + rank(correlation(p.adjusted(p.vwap), p.adv(20), 6).abs())
+            + 0.6 * rank(p.on_today(ts_sum(close, 200) / 200 - open_) * (p.close - p.open)))
 
 
 # (rank(correlation(delay((open - close), 1), close, 200)) + rank((open - close)))
 def _alpha037(p: Panel) -> Frame:
-    return rank(correlation(delay(p.open - p.close, 1), p.close, 200)) + rank(p.open - p.close)
+    close = p.adjusted(p.close)
+    return rank(correlation(delay(p.adjusted(p.open) - close, 1), close, 200)) + rank(p.open - p.close)
 
 
 # 原式：((-1 * rank((delta(close, 7) * (1 - rank(decay_linear((volume / adv20), 9)))))) * (1 + rank(sum(returns, 250))))
@@ -866,6 +990,153 @@ def _alpha099(p: Panel) -> Frame:
     return less(left, rank(correlation(p.low, p.volume, 6.28259))) * -1
 
 
+# --------------------------------------------------------------------------- #
+# Third batch: the 18 formulas that compare a stock with its industry (IndNeutralize).
+# ``p.neutralize`` is the same-day definition; ``p.neutralize_series`` is for a series that
+# delta / correlation then read over a window.
+# --------------------------------------------------------------------------- #
+
+
+# (indneutralize(((correlation(delta(close, 1), delta(delay(close, 1), 1), 250) * delta(close, 1)) / close),
+#   IndClass.subindustry) / sum(((delta(close, 1) / delay(close, 1))^2), 250))
+# 窗口 250 天：按当天的前复权价计算；delta(close, 1) / delay(close, 1) 就是真实收益。
+def _alpha048(p: Panel) -> Frame:
+    close = p.adjusted(p.close)
+    change = delta(close, 1)
+    persistence = correlation(change, delay(change, 1), 250)
+    return p.neutralize(persistence * change / close, "subindustry") / ts_sum(p.returns ** 2, 250)
+
+
+# (-1 * Ts_Rank(decay_linear(correlation(IndNeutralize(vwap, IndClass.sector), volume, 3.92795), 7.89291), 5.50322))
+def _alpha058(p: Panel) -> Frame:
+    vwap = p.neutralize_series(p.vwap, "price", "sector")
+    return -ts_rank(decay_linear(correlation(vwap, p.volume, 3.92795), 7.89291), 5.50322)
+
+
+# (-1 * Ts_Rank(decay_linear(correlation(IndNeutralize(((vwap * 0.728317) + (vwap * (1 - 0.728317))), IndClass.industry),
+#   volume, 4.25197), 16.2289), 8.19648))
+def _alpha059(p: Panel) -> Frame:
+    vwap = p.neutralize_series(_mix(p.vwap, p.vwap, 0.728317), "price", "industry")
+    return -ts_rank(decay_linear(correlation(vwap, p.volume, 4.25197), 16.2289), 8.19648)
+
+
+# ((rank(decay_linear(delta(IndNeutralize(close, IndClass.industry), 2.25164), 8.22237))
+#   - rank(decay_linear(correlation(((vwap * 0.318108) + (open * (1 - 0.318108))), sum(adv180, 37.2467), 13.557), 12.2883))) * -1)
+def _alpha063(p: Panel) -> Frame:
+    first = rank(decay_linear(delta(p.neutralize_series(p.close, "price", "industry"), 2.25164), 8.22237))
+    second = rank(decay_linear(correlation(_mix(p.vwap, p.open, 0.318108), ts_sum(p.adv(180), 37.2467), 13.557), 12.2883))
+    return (first - second) * -1
+
+
+# ((rank((high - ts_min(high, 2.14593)))^rank(correlation(IndNeutralize(vwap, IndClass.sector),
+#   IndNeutralize(adv20, IndClass.subindustry), 6.02936))) * -1)
+def _alpha067(p: Panel) -> Frame:
+    pair = correlation(p.neutralize_series(p.vwap, "price", "sector"),
+                       p.neutralize_series(p.adv(20), "amount", "subindustry"), 6.02936)
+    return power(rank(p.high - ts_min(p.high, 2.14593)), rank(pair)) * -1
+
+
+# ((rank(ts_max(delta(IndNeutralize(vwap, IndClass.industry), 2.72412), 4.79344))
+#   ^Ts_Rank(correlation(((close * 0.490655) + (vwap * (1 - 0.490655))), adv20, 4.92416), 9.0615)) * -1)
+def _alpha069(p: Panel) -> Frame:
+    base = rank(ts_max(delta(p.neutralize_series(p.vwap, "price", "industry"), 2.72412), 4.79344))
+    return power(base, ts_rank(correlation(_mix(p.close, p.vwap, 0.490655), p.adv(20), 4.92416), 9.0615)) * -1
+
+
+# ((rank(delta(vwap, 1.29456))^Ts_Rank(correlation(IndNeutralize(close, IndClass.industry), adv50, 17.8256), 17.9171)) * -1)
+def _alpha070(p: Panel) -> Frame:
+    exponent = ts_rank(correlation(p.neutralize_series(p.close, "price", "industry"), p.adv(50), 17.8256), 17.9171)
+    return power(rank(delta(p.vwap, 1.29456)), exponent) * -1
+
+
+# (max(rank(decay_linear(delta(vwap, 1.24383), 11.8259)),
+#   Ts_Rank(decay_linear(Ts_Rank(correlation(IndNeutralize(low, IndClass.sector), adv81, 8.14941), 19.569), 17.1543), 19.383)) * -1)
+def _alpha076(p: Panel) -> Frame:
+    low = p.neutralize_series(p.low, "price", "sector")
+    second = ts_rank(decay_linear(ts_rank(correlation(low, p.adv(81), 8.14941), 19.569), 17.1543), 19.383)
+    return elementwise_max(rank(decay_linear(delta(p.vwap, 1.24383), 11.8259)), second) * -1
+
+
+# (rank(delta(IndNeutralize(((close * 0.60733) + (open * (1 - 0.60733))), IndClass.sector), 1.23438))
+#   < rank(correlation(Ts_Rank(vwap, 3.60973), Ts_Rank(adv150, 9.18637), 14.6644)))
+def _alpha079(p: Panel) -> Frame:
+    left = rank(delta(p.neutralize_series(_mix(p.close, p.open, 0.60733), "price", "sector"), 1.23438))
+    return less(left, rank(correlation(ts_rank(p.vwap, 3.60973), ts_rank(p.adv(150), 9.18637), 14.6644)))
+
+
+# ((rank(Sign(delta(IndNeutralize(((open * 0.868128) + (high * (1 - 0.868128))), IndClass.industry), 4.04545)))
+#   ^Ts_Rank(correlation(high, adv10, 5.11456), 5.53756)) * -1)
+def _alpha080(p: Panel) -> Frame:
+    base = rank(np.sign(delta(p.neutralize_series(_mix(p.open, p.high, 0.868128), "price", "industry"), 4.04545)))
+    return power(base, ts_rank(correlation(p.high, p.adv(10), 5.11456), 5.53756)) * -1
+
+
+# (min(rank(decay_linear(delta(open, 1.46063), 14.8717)),
+#   Ts_Rank(decay_linear(correlation(IndNeutralize(volume, IndClass.sector), ((open * 0.634196) + (open * (1 - 0.634196))), 17.4842),
+#   6.92131), 13.4283)) * -1)
+def _alpha082(p: Panel) -> Frame:
+    volume = p.neutralize_series(p.volume, "volume", "sector")
+    second = ts_rank(decay_linear(correlation(volume, _mix(p.open, p.open, 0.634196), 17.4842), 6.92131), 13.4283)
+    return elementwise_min(rank(decay_linear(delta(p.open, 1.46063), 14.8717)), second) * -1
+
+
+# (max(rank(decay_linear(delta(((close * 0.369701) + (vwap * (1 - 0.369701))), 1.91233), 2.65461)),
+#   Ts_Rank(decay_linear(abs(correlation(IndNeutralize(adv81, IndClass.industry), close, 13.4132)), 4.89768), 14.4535)) * -1)
+def _alpha087(p: Panel) -> Frame:
+    first = rank(decay_linear(delta(_mix(p.close, p.vwap, 0.369701), 1.91233), 2.65461))
+    pair = correlation(p.neutralize_series(p.adv(81), "amount", "industry"), p.close, 13.4132)
+    return elementwise_max(first, ts_rank(decay_linear(pair.abs(), 4.89768), 14.4535)) * -1
+
+
+# (Ts_Rank(decay_linear(correlation(((low * 0.967285) + (low * (1 - 0.967285))), adv10, 6.94279), 5.51607), 3.79744)
+#   - Ts_Rank(decay_linear(delta(IndNeutralize(vwap, IndClass.industry), 3.48158), 10.1466), 15.3012))
+def _alpha089(p: Panel) -> Frame:
+    first = ts_rank(decay_linear(correlation(_mix(p.low, p.low, 0.967285), p.adv(10), 6.94279), 5.51607), 3.79744)
+    second = ts_rank(decay_linear(delta(p.neutralize_series(p.vwap, "price", "industry"), 3.48158), 10.1466), 15.3012)
+    return first - second
+
+
+# ((rank((close - ts_max(close, 4.66719)))^Ts_Rank(correlation(IndNeutralize(adv40, IndClass.subindustry), low, 5.38375), 3.21856)) * -1)
+def _alpha090(p: Panel) -> Frame:
+    exponent = ts_rank(correlation(p.neutralize_series(p.adv(40), "amount", "subindustry"), p.low, 5.38375), 3.21856)
+    return power(rank(p.close - ts_max(p.close, 4.66719)), exponent) * -1
+
+
+# ((Ts_Rank(decay_linear(decay_linear(correlation(IndNeutralize(close, IndClass.industry), volume, 9.74928), 16.398), 3.83219), 4.8667)
+#   - rank(decay_linear(correlation(vwap, adv30, 4.01303), 2.6809))) * -1)
+def _alpha091(p: Panel) -> Frame:
+    pair = correlation(p.neutralize_series(p.close, "price", "industry"), p.volume, 9.74928)
+    first = ts_rank(decay_linear(decay_linear(pair, 16.398), 3.83219), 4.8667)
+    return (first - rank(decay_linear(correlation(p.vwap, p.adv(30), 4.01303), 2.6809))) * -1
+
+
+# (Ts_Rank(decay_linear(correlation(IndNeutralize(vwap, IndClass.industry), adv81, 17.4193), 19.848), 7.54455)
+#   / rank(decay_linear(delta(((close * 0.524434) + (vwap * (1 - 0.524434))), 2.77377), 16.2664)))
+def _alpha093(p: Panel) -> Frame:
+    top = ts_rank(decay_linear(correlation(p.neutralize_series(p.vwap, "price", "industry"), p.adv(81), 17.4193), 19.848), 7.54455)
+    return top / rank(decay_linear(delta(_mix(p.close, p.vwap, 0.524434), 2.77377), 16.2664))
+
+
+# ((rank(decay_linear(delta(IndNeutralize(((low * 0.721001) + (vwap * (1 - 0.721001))), IndClass.industry), 3.3705), 20.4523))
+#   - Ts_Rank(decay_linear(Ts_Rank(correlation(Ts_Rank(low, 7.87871), Ts_Rank(adv60, 17.255), 4.97547), 18.5925), 15.7152), 6.71659)) * -1)
+def _alpha097(p: Panel) -> Frame:
+    first = rank(decay_linear(delta(p.neutralize_series(_mix(p.low, p.vwap, 0.721001), "price", "industry"), 3.3705), 20.4523))
+    pair = correlation(ts_rank(p.low, 7.87871), ts_rank(p.adv(60), 17.255), 4.97547)
+    return (first - ts_rank(decay_linear(ts_rank(pair, 18.5925), 15.7152), 6.71659)) * -1
+
+
+# (0 - (1 * (((1.5 * scale(indneutralize(indneutralize(rank(((((close - low) - (high - close)) / (high - low)) * volume)),
+#   IndClass.subindustry), IndClass.subindustry))) - scale(indneutralize((correlation(close, rank(adv20), 5)
+#   - rank(ts_argmin(close, 30))), IndClass.subindustry))) * (volume / adv20))))
+# 最后的 volume / adv20 换成 成交额 / adv20。
+def _alpha100(p: Panel) -> Frame:
+    pressure = (((p.close - p.low) - (p.high - p.close)) / (p.high - p.low) * p.volume).replace([np.inf, -np.inf], np.nan)
+    first = scale(p.neutralize(p.neutralize(rank(pressure), "subindustry"), "subindustry"))
+    trend = correlation(p.close, rank(p.adv(20)), 5) - rank(ts_argmin(p.close, 30))
+    second = scale(p.neutralize(trend, "subindustry"))
+    return -((1.5 * first - second) * (p.amount / p.adv(20)))
+
+
 _OHLC = ("raw_open", "raw_high", "raw_low", "raw_close")
 
 
@@ -952,9 +1223,10 @@ _C = ("raw_close",)
 _V = ("raw_high", "raw_low", "volume", "amount")      # vwap 要用到的列
 _ALL = ("raw_open", "raw_high", "raw_low", "raw_close", "volume", "amount")
 _AMOUNT_NOTE = "（volume 换成当天的成交额 amount，单位才和 adv 一致）"
-# 窗口超过 200 个交易日：A股多数股票每年分红一次，窗口几乎总会跨过除息日，这样的值按约定置空。
-_LONG_NOTE = "（窗口超过 200 天，多数股票的窗口会跨过一年一次的除息日，这些日子没有值）"
+# 窗口超过 200 个交易日：A股多数股票每年分红一次，窗口几乎总会跨过除息日，所以按当天的前复权价计算。
+_LONG_NOTE = "（窗口很长，每天都按当天的前复权价计算，所以跨过除权除息日也有值）"
 _SPARSE_NOTE = "（内层 3 天的相关系数里，成交额的 4 日排名常常几天不变，相关系数没有定义，多数日子没有值）"
+_SPARSE_NOTE_97 = "（内层 4 天的相关系数里，60 日平均成交额的 17 日排名常常几天不变，相关系数没有定义，多数日子没有值）"
 
 # 编号, 名称, 类别, span（价量窗口跨过的相邻交易日步数）, history（算出第一个值需要的交易日数）, 用到的列, 公式。
 _SECOND_BATCH: tuple[_Formula, ...] = (
@@ -962,7 +1234,7 @@ _SECOND_BATCH: tuple[_Formula, ...] = (
              "rank(Ts_ArgMax(SignedPower(((returns < 0) ? stddev(returns, 20) : close), 2.), 5)) - 0.5", _alpha001),
     _Formula(7, "放量时的7日价格变化排名", "量价", 66, 67, ("raw_close", "amount"),
              "(adv20 < volume) ? (-1 * ts_rank(abs(delta(close, 7)), 60)) * sign(delta(close, 7)) : -1" + _AMOUNT_NOTE, _alpha007),
-    _Formula(8, "开盘价与收益乘积的10日变化", "动量", 14, 16, ("raw_open",),
+    _Formula(8, "开盘价与收益乘积的10日变化", "动量", 14, 16, ("raw_open", "raw_close"),
              "-rank((sum(open, 5) * sum(returns, 5)) - delay(sum(open, 5) * sum(returns, 5), 10))", _alpha008),
     _Formula(17, "收盘价位置、价格加速度与相对成交额", "量价", 9, 24, ("raw_close", "amount"),
              "-rank(ts_rank(close, 10)) * rank(delta(delta(close, 1), 1)) * rank(ts_rank(volume / adv20, 5))" + _AMOUNT_NOTE, _alpha017),
@@ -973,7 +1245,7 @@ _SECOND_BATCH: tuple[_Formula, ...] = (
              "((1 < volume / adv20) || (volume / adv20 == 1) ? 1 : -1))" + _AMOUNT_NOTE, _alpha021),
     _Formula(22, "量价相关性变化与价格波动", "量价", 19, 20, ("raw_high", "raw_close", "volume"),
              "-(delta(correlation(high, volume, 5), 5) * rank(stddev(close, 20)))", _alpha022),
-    _Formula(24, "百日均线变化慢时看距百日低点，否则看3日变化", "反转", 199, 200, _C,
+    _Formula(24, "百日均线变化慢时看距百日低点，否则看3日变化", "反转", 0, 200, _C,
              "((delta(sum(close, 100) / 100, 100) / delay(close, 100)) <= 0.05) ? -(close - ts_min(close, 100)) : -delta(close, 3)" + _LONG_NOTE, _alpha024),
     _Formula(26, "成交量与最高价时序排名的相关性高点", "量价", 10, 11, ("raw_high", "volume"),
              "-ts_max(correlation(ts_rank(volume, 5), ts_rank(high, 5), 5), 3)", _alpha026),
@@ -987,15 +1259,15 @@ _SECOND_BATCH: tuple[_Formula, ...] = (
     _Formula(31, "10日价格变化的衰减排名与短期反转", "反转", 19, 31, ("raw_low", "raw_close", "amount"),
              "rank(rank(rank(decay_linear(-rank(rank(delta(close, 10))), 10)))) + rank(-delta(close, 3)) "
              "+ sign(scale(correlation(adv20, low, 12)))", _alpha031),
-    _Formula(32, "收盘价偏离7日均线与长期均价相关性", "反转", 234, 235, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
+    _Formula(32, "收盘价偏离7日均线与长期均价相关性", "反转", 0, 235, ("raw_high", "raw_low", "raw_close", "volume", "amount"),
              "scale(sum(close, 7) / 7 - close) + 20 * scale(correlation(vwap, delay(close, 5), 230))" + _LONG_NOTE, _alpha032),
     _Formula(35, "成交量、价格区间与收益的时序位置", "量价", 31, 33, ("raw_high", "raw_low", "raw_close", "volume"),
              "Ts_Rank(volume, 32) * (1 - Ts_Rank((close + high) - low, 16)) * (1 - Ts_Rank(returns, 32))", _alpha035),
-    _Formula(36, "五项量价特征的加权组合", "量价", 199, 200, _ALL,
+    _Formula(36, "五项量价特征的加权组合", "量价", 0, 200, _ALL,
              "2.21 * rank(correlation(close - open, delay(volume, 1), 15)) + 0.7 * rank(open - close) "
              "+ 0.73 * rank(Ts_Rank(delay(-returns, 6), 5)) + rank(abs(correlation(vwap, adv20, 6))) "
              "+ 0.6 * rank((sum(close, 200) / 200 - open) * (close - open))" + _LONG_NOTE, _alpha036),
-    _Formula(37, "昨日K线实体与收盘价的长期相关性", "K线", 200, 201, ("raw_open", "raw_close"),
+    _Formula(37, "昨日K线实体与收盘价的长期相关性", "K线", 0, 201, ("raw_open", "raw_close"),
              "rank(correlation(delay(open - close, 1), close, 200)) + rank(open - close)" + _LONG_NOTE, _alpha037),
     _Formula(39, "7日价格变化、相对成交额与年度收益", "动量", 7, 251, ("raw_close", "amount"),
              "-rank(delta(close, 7) * (1 - rank(decay_linear(volume / adv20, 9)))) * (1 + rank(sum(returns, 250)))" + _AMOUNT_NOTE, _alpha039),
@@ -1014,7 +1286,7 @@ _SECOND_BATCH: tuple[_Formula, ...] = (
              "-ts_max(rank(correlation(rank(volume), rank(vwap), 5)), 5)", _alpha050),
     _Formula(51, "前后10日价格斜率之差（阈值 -0.05）", "反转", 20, 21, _C,
              "x = (delay(close, 20) - delay(close, 10)) / 10 - (delay(close, 10) - close) / 10；x < -0.05 ? 1 : -(close - delay(close, 1))", _alpha051),
-    _Formula(52, "最低价回升、中长期收益与成交量位置", "动量", 9, 241, ("raw_low", "volume"),
+    _Formula(52, "最低价回升、中长期收益与成交量位置", "动量", 9, 241, ("raw_low", "raw_close", "volume"),
              "(-ts_min(low, 5) + delay(ts_min(low, 5), 5)) * rank((sum(returns, 240) - sum(returns, 20)) / 220) * ts_rank(volume, 5)", _alpha052),
     _Formula(55, "12日价格位置与成交量的排名相关性", "量价", 16, 17, ("raw_high", "raw_low", "raw_close", "volume"),
              "-correlation(rank((close - ts_min(low, 12)) / (ts_max(high, 12) - ts_min(low, 12))), rank(volume), 6)", _alpha055),
@@ -1087,7 +1359,71 @@ _SECOND_BATCH: tuple[_Formula, ...] = (
              "(rank(correlation(sum((high + low) / 2, 19.8975), sum(adv60, 19.8975), 8.8136)) < rank(correlation(low, volume, 6.28259))) * -1", _alpha099),
 )
 
-FORMULAS = tuple(sorted(FORMULAS + _SECOND_BATCH, key=lambda item: item.number))
+_IND = ("industry", "sector")
+_IND_NOTE = "（sector 用证监会门类，industry、subindustry 都用大类；当天同大类不到 5 只股票时和整个门类比较，门类也不到 5 只就没有值）"
+_PRICE = ("raw_high", "raw_low", "raw_close", "volume", "amount")
+
+_THIRD_BATCH: tuple[_Formula, ...] = (
+    _Formula(48, "价格变化的持续性（行业内比较）", "动量", 0, 252, ("raw_close", *_IND),
+             "indneutralize((correlation(delta(close, 1), delta(delay(close, 1), 1), 250) * delta(close, 1)) / close, IndClass.subindustry) "
+             "/ sum((delta(close, 1) / delay(close, 1))^2, 250)" + _IND_NOTE + _LONG_NOTE, _alpha048),
+    _Formula(58, "均价（门类内比较）与成交量的相关性", "量价", 12, 13, (*_V, *_IND),
+             "-Ts_Rank(decay_linear(correlation(IndNeutralize(vwap, IndClass.sector), volume, 3.92795), 7.89291), 5.50322)" + _IND_NOTE, _alpha058),
+    _Formula(59, "均价（大类内比较）与成交量的相关性", "量价", 25, 26, (*_V, *_IND),
+             "-Ts_Rank(decay_linear(correlation(IndNeutralize(vwap * 0.728317 + vwap * (1 - 0.728317), IndClass.industry), volume, 4.25197), 16.2289), 8.19648)"
+             + _IND_NOTE, _alpha059),
+    _Formula(63, "收盘价变化（大类内比较）减均价与长期成交额的相关性", "量价", 23, 239, (*_ALL, *_IND),
+             "(rank(decay_linear(delta(IndNeutralize(close, IndClass.industry), 2.25164), 8.22237)) "
+             "- rank(decay_linear(correlation(vwap * 0.318108 + open * (1 - 0.318108), sum(adv180, 37.2467), 13.557), 12.2883))) * -1" + _IND_NOTE, _alpha063),
+    _Formula(67, "最高价离低点的位置，以行业内量价相关性为次方", "量价", 5, 25, (*_V, *_IND),
+             "(rank(high - ts_min(high, 2.14593))^rank(correlation(IndNeutralize(vwap, IndClass.sector), IndNeutralize(adv20, IndClass.subindustry), 6.02936))) * -1"
+             + _IND_NOTE, _alpha067),
+    _Formula(69, "均价变化高点（大类内比较），以收盘均价与成交额相关性为次方", "量价", 11, 31, (*_PRICE, *_IND),
+             "(rank(ts_max(delta(IndNeutralize(vwap, IndClass.industry), 2.72412), 4.79344))"
+             "^Ts_Rank(correlation(close * 0.490655 + vwap * (1 - 0.490655), adv20, 4.92416), 9.0615)) * -1" + _IND_NOTE, _alpha069),
+    _Formula(70, "均价变化，以收盘价（大类内比较）与成交额相关性为次方", "量价", 32, 82, (*_PRICE, *_IND),
+             "(rank(delta(vwap, 1.29456))^Ts_Rank(correlation(IndNeutralize(close, IndClass.industry), adv50, 17.8256), 17.9171)) * -1" + _IND_NOTE, _alpha070),
+    _Formula(76, "均价变化与最低价（门类内比较）成交额相关性取大", "量价", 59, 140, (*_V, *_IND),
+             "max(rank(decay_linear(delta(vwap, 1.24383), 11.8259)), "
+             "Ts_Rank(decay_linear(Ts_Rank(correlation(IndNeutralize(low, IndClass.sector), adv81, 8.14941), 19.569), 17.1543), 19.383)) * -1" + _IND_NOTE, _alpha076),
+    _Formula(79, "收盘开盘价变化（门类内比较）和均价与成交额时序相关性比较", "量价", 15, 171, (*_ALL, *_IND),
+             "rank(delta(IndNeutralize(close * 0.60733 + open * (1 - 0.60733), IndClass.sector), 1.23438)) "
+             "< rank(correlation(Ts_Rank(vwap, 3.60973), Ts_Rank(adv150, 9.18637), 14.6644))" + _IND_NOTE, _alpha079),
+    _Formula(80, "开盘最高价变化方向（大类内比较），以最高价与成交额相关性为次方", "量价", 8, 18, ("raw_open", "raw_high", "amount", *_IND),
+             "(rank(Sign(delta(IndNeutralize(open * 0.868128 + high * (1 - 0.868128), IndClass.industry), 4.04545)))"
+             "^Ts_Rank(correlation(high, adv10, 5.11456), 5.53756)) * -1" + _IND_NOTE, _alpha080),
+    _Formula(82, "开盘价变化与成交量（门类内比较）开盘价相关性取小", "量价", 33, 34, ("raw_open", "volume", *_IND),
+             "min(rank(decay_linear(delta(open, 1.46063), 14.8717)), "
+             "Ts_Rank(decay_linear(correlation(IndNeutralize(volume, IndClass.sector), open * 0.634196 + open * (1 - 0.634196), 17.4842), 6.92131), 13.4283)) * -1"
+             + _IND_NOTE, _alpha082),
+    _Formula(87, "收盘均价变化与成交额（大类内比较）收盘价相关性取大", "量价", 28, 109, (*_PRICE, *_IND),
+             "max(rank(decay_linear(delta(close * 0.369701 + vwap * (1 - 0.369701), 1.91233), 2.65461)), "
+             "Ts_Rank(decay_linear(abs(correlation(IndNeutralize(adv81, IndClass.industry), close, 13.4132)), 4.89768), 14.4535)) * -1" + _IND_NOTE, _alpha087),
+    _Formula(89, "最低价与成交额相关性减均价变化（大类内比较）", "量价", 26, 27, (*_V, *_IND),
+             "Ts_Rank(decay_linear(correlation(low * 0.967285 + low * (1 - 0.967285), adv10, 6.94279), 5.51607), 3.79744) "
+             "- Ts_Rank(decay_linear(delta(IndNeutralize(vwap, IndClass.industry), 3.48158), 10.1466), 15.3012)" + _IND_NOTE, _alpha089),
+    _Formula(90, "收盘价离高点的位置，以成交额（行业内比较）与最低价相关性为次方", "量价", 6, 46, ("raw_low", "raw_close", "amount", *_IND),
+             "(rank(close - ts_max(close, 4.66719))^Ts_Rank(correlation(IndNeutralize(adv40, IndClass.subindustry), low, 5.38375), 3.21856)) * -1"
+             + _IND_NOTE, _alpha090),
+    _Formula(91, "收盘价（大类内比较）与成交量相关性减均价与成交额相关性", "量价", 28, 34, (*_PRICE, *_IND),
+             "(Ts_Rank(decay_linear(decay_linear(correlation(IndNeutralize(close, IndClass.industry), volume, 9.74928), 16.398), 3.83219), 4.8667) "
+             "- rank(decay_linear(correlation(vwap, adv30, 4.01303), 2.6809))) * -1" + _IND_NOTE, _alpha091),
+    _Formula(93, "均价（大类内比较）与成交额相关性比收盘均价变化", "量价", 40, 121, (*_PRICE, *_IND),
+             "Ts_Rank(decay_linear(correlation(IndNeutralize(vwap, IndClass.industry), adv81, 17.4193), 19.848), 7.54455) "
+             "/ rank(decay_linear(delta(close * 0.524434 + vwap * (1 - 0.524434), 2.77377), 16.2664))" + _IND_NOTE, _alpha093),
+    _Formula(97, "低价均价变化（大类内比较）减最低价与成交额的时序相关性", "量价", 45, 115, (*_V, *_IND),
+             "(rank(decay_linear(delta(IndNeutralize(low * 0.721001 + vwap * (1 - 0.721001), IndClass.industry), 3.3705), 20.4523)) "
+             "- Ts_Rank(decay_linear(Ts_Rank(correlation(Ts_Rank(low, 7.87871), Ts_Rank(adv60, 17.255), 4.97547), 18.5925), 15.7152), 6.71659)) * -1"
+             + _IND_NOTE + _SPARSE_NOTE_97, _alpha097),
+    _Formula(100, "日内买卖力量与趋势（行业内比较）乘相对成交额", "量价", 29, 30, (*_PRICE, *_IND),
+             "-((1.5 * scale(indneutralize(indneutralize(rank(((close - low) - (high - close)) / (high - low) * volume), IndClass.subindustry), IndClass.subindustry)) "
+             "- scale(indneutralize(correlation(close, rank(adv20), 5) - rank(ts_argmin(close, 30)), IndClass.subindustry))) * (volume / adv20))"
+             + _IND_NOTE + _AMOUNT_NOTE, _alpha100),
+)
+
+FORMULAS = tuple(sorted(FORMULAS + _SECOND_BATCH + _THIRD_BATCH, key=lambda item: item.number))
+# 有复权因子时每个公式都会用到：识别除权除息日、计算真实收益、按当天的前复权价计算长窗口。
+_ADJUSTMENT = ("adj_factor", "adjusted_close", UNIVERSE_COLUMN)
 
 
 def alpha101_factors() -> list[FactorDefinition]:
@@ -1098,6 +1434,7 @@ def alpha101_factors() -> list[FactorDefinition]:
             description=f"{item.title}。按原公式计算，正向输出；A股有效性需独立评估。",
             formula=item.formula,
             required_fields=item.fields,
+            optional_fields=_ADJUSTMENT,
             min_history=item.history,
             category=item.category,
             source="Alpha101",

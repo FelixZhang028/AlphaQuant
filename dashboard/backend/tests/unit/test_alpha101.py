@@ -170,8 +170,9 @@ def computed(bars, number):
 
 
 def test_every_formula_has_a_reference_and_the_library_lists_them_all():
-    assert sorted({**REFERENCE, **REFERENCE_SECOND}) == [item.number for item in FORMULAS]
-    assert len(FORMULAS) == 82 == len({item.number for item in FORMULAS})
+    assert sorted({**REFERENCE, **REFERENCE_SECOND, **REFERENCE_THIRD}) == [item.number for item in FORMULAS]
+    assert len(FORMULAS) == 100 == len({item.number for item in FORMULAS})
+    assert 56 not in {item.number for item in FORMULAS}
     registered = {f.name: f for f in default_registry().list() if f.source == "Alpha101"}
     assert sorted(registered) == [f"alpha101_{item.number:03d}" for item in FORMULAS]
     assert all(f.direction == 1 and f.source_url.endswith("1601.00991") and f.formula for f in registered.values())
@@ -268,6 +269,11 @@ def test_a_vwap_outside_the_days_range_is_rejected_as_a_unit_mismatch():
 # --------------------------------------------------------------------------- #
 
 
+# 行业：S0-S4 同一大类（5 只，够在大类内比较）；S5、S6 另一大类（只有 2 只，和整个门类 C 比较）；
+# S7-S9 在门类 J（只有 3 只，没有值）。
+INDUSTRY = {0: "C13", 1: "C13", 2: "C13", 3: "C13", 4: "C13", 5: "C27", 6: "C27", 7: "J66", 8: "J66", 9: "J66"}
+
+
 def make_lively_bars(days, stocks=10, seed=3):
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range("2024-01-02", periods=days)
@@ -281,7 +287,8 @@ def make_lively_bars(days, stocks=10, seed=3):
             volume = float(rng.integers(5_000, 90_000)) + rng.uniform(0, 1)
             vwap = low + rng.uniform(0.2, 0.8) * (high - low)
             rows.append({"symbol": f"S{s}", "trade_date": day, "raw_open": open_, "raw_high": high, "raw_low": low,
-                         "raw_close": close[t], "volume": volume, "amount": vwap * volume, "adj_factor": 1.0, "adjusted_close": close[t]})
+                         "raw_close": close[t], "volume": volume, "amount": vwap * volume, "adj_factor": 1.0, "adjusted_close": close[t],
+                         "industry": INDUSTRY[s], "sector": INDUSTRY[s][0]})
     return pd.DataFrame(rows)
 
 
@@ -370,9 +377,26 @@ class Market:
         self.r = np.full(self.c.shape, NAN)
         self.r[1:] = adjusted[1:] / adjusted[:-1] - 1
         self.hl2 = (self.h + self.l) / 2
+        first = bars.drop_duplicates("symbol").set_index("symbol").sort_index()
+        self.industry, self.sector = first["industry"].tolist(), first["sector"].tolist()
 
     def adv(self, d):
         return r_window(self.amt, d, np.mean)
+
+    def neutral(self, x, level):
+        """indneutralize: minus the day's mean of the stock's 大类 (at least 5 values that day), else of its 门类
+        (at least 5), else missing. sector-level groups use the 门类 only."""
+        out = np.full(x.shape, NAN)
+        for t in range(x.shape[0]):
+            valid = [j for j in range(x.shape[1]) if not math.isnan(x[t, j])]
+            for s in valid:
+                same_industry = [j for j in valid if self.industry[j] == self.industry[s]]
+                same_sector = [j for j in valid if self.sector[j] == self.sector[s]]
+                if level != "sector" and len(same_industry) >= 5:
+                    out[t, s] = x[t, s] - np.mean(x[t, same_industry])
+                elif len(same_sector) >= 5:
+                    out[t, s] = x[t, s] - np.mean(x[t, same_sector])
+        return out
 
 
 def ref_slope(m):
@@ -509,25 +533,84 @@ REFERENCE_SECOND = {
     99: lambda m: r_lt(r_rank(r_corr_f(r_sum_f(m.hl2, 19.8975), r_sum_f(m.adv(60), 19.8975), 8.8136)),
                        r_rank(r_corr_f(m.l, m.v, 6.28259))) * -1,
 }
+
+
+def ref048(m):
+    change = r_delta(m.c, 1)
+    inner = (r_corr(change, r_delta(r_delay(m.c, 1), 1), 250) * change) / m.c
+    return m.neutral(inner, "subindustry") / r_sum((r_delta(m.c, 1) / r_delay(m.c, 1)) ** 2, 250)
+
+
+def ref100(m):
+    pressure = m.neutral(m.neutral(r_rank(inf_to_nan((((m.c - m.l) - (m.h - m.c)) / (m.h - m.l)) * m.v)), "subindustry"), "subindustry")
+    trend = m.neutral(r_corr(m.c, r_rank(m.adv(20)), 5) - r_rank(r_argmin(m.c, 30)), "subindustry")
+    return 0 - (1 * (((1.5 * r_scale(pressure)) - r_scale(trend)) * (m.amt / m.adv(20))))
+
+
+# 第三批：需要行业的 18 个公式（m.neutral 是论文的 indneutralize，按当天的值减去同组平均）。
+REFERENCE_THIRD = {
+    48: ref048,
+    58: lambda m: -1 * r_ts_rank_f(r_decay(r_corr_f(m.neutral(m.w, "sector"), m.v, 3.92795), 7.89291), 5.50322),
+    59: lambda m: -1 * r_ts_rank_f(r_decay(r_corr_f(m.neutral(mix(m.w, m.w, 0.728317), "industry"), m.v, 4.25197), 16.2289), 8.19648),
+    63: lambda m: (r_rank(r_decay(r_delta_f(m.neutral(m.c, "industry"), 2.25164), 8.22237))
+                   - r_rank(r_decay(r_corr_f(mix(m.w, m.o, 0.318108), r_sum_f(m.adv(180), 37.2467), 13.557), 12.2883))) * -1,
+    67: lambda m: r_pow(r_rank(m.h - r_min_f(m.h, 2.14593)),
+                        r_rank(r_corr_f(m.neutral(m.w, "sector"), m.neutral(m.adv(20), "subindustry"), 6.02936))) * -1,
+    69: lambda m: r_pow(r_rank(r_max_f(r_delta_f(m.neutral(m.w, "industry"), 2.72412), 4.79344)),
+                        r_ts_rank_f(r_corr_f(mix(m.c, m.w, 0.490655), m.adv(20), 4.92416), 9.0615)) * -1,
+    70: lambda m: r_pow(r_rank(r_delta_f(m.w, 1.29456)), r_ts_rank_f(r_corr_f(m.neutral(m.c, "industry"), m.adv(50), 17.8256), 17.9171)) * -1,
+    76: lambda m: np.maximum(
+        r_rank(r_decay(r_delta_f(m.w, 1.24383), 11.8259)),
+        r_ts_rank_f(r_decay(r_ts_rank_f(r_corr_f(m.neutral(m.l, "sector"), m.adv(81), 8.14941), 19.569), 17.1543), 19.383)) * -1,
+    79: lambda m: r_lt(r_rank(r_delta_f(m.neutral(mix(m.c, m.o, 0.60733), "sector"), 1.23438)),
+                       r_rank(r_corr_f(r_ts_rank_f(m.w, 3.60973), r_ts_rank_f(m.adv(150), 9.18637), 14.6644))),
+    80: lambda m: r_pow(r_rank(np.sign(r_delta_f(m.neutral(mix(m.o, m.h, 0.868128), "industry"), 4.04545))),
+                        r_ts_rank_f(r_corr_f(m.h, m.adv(10), 5.11456), 5.53756)) * -1,
+    82: lambda m: np.minimum(
+        r_rank(r_decay(r_delta_f(m.o, 1.46063), 14.8717)),
+        r_ts_rank_f(r_decay(r_corr_f(m.neutral(m.v, "sector"), mix(m.o, m.o, 0.634196), 17.4842), 6.92131), 13.4283)) * -1,
+    87: lambda m: np.maximum(
+        r_rank(r_decay(r_delta_f(mix(m.c, m.w, 0.369701), 1.91233), 2.65461)),
+        r_ts_rank_f(r_decay(np.abs(r_corr_f(m.neutral(m.adv(81), "industry"), m.c, 13.4132)), 4.89768), 14.4535)) * -1,
+    89: lambda m: (r_ts_rank_f(r_decay(r_corr_f(mix(m.l, m.l, 0.967285), m.adv(10), 6.94279), 5.51607), 3.79744)
+                   - r_ts_rank_f(r_decay(r_delta_f(m.neutral(m.w, "industry"), 3.48158), 10.1466), 15.3012)),
+    90: lambda m: r_pow(r_rank(m.c - r_max_f(m.c, 4.66719)),
+                        r_ts_rank_f(r_corr_f(m.neutral(m.adv(40), "subindustry"), m.l, 5.38375), 3.21856)) * -1,
+    91: lambda m: (r_ts_rank_f(r_decay(r_decay(r_corr_f(m.neutral(m.c, "industry"), m.v, 9.74928), 16.398), 3.83219), 4.8667)
+                   - r_rank(r_decay(r_corr_f(m.w, m.adv(30), 4.01303), 2.6809))) * -1,
+    93: lambda m: (r_ts_rank_f(r_decay(r_corr_f(m.neutral(m.w, "industry"), m.adv(81), 17.4193), 19.848), 7.54455)
+                   / r_rank(r_decay(r_delta_f(mix(m.c, m.w, 0.524434), 2.77377), 16.2664))),
+    97: lambda m: (r_rank(r_decay(r_delta_f(m.neutral(mix(m.l, m.w, 0.721001), "industry"), 3.3705), 20.4523))
+                   - r_ts_rank_f(r_decay(r_ts_rank_f(r_corr_f(r_ts_rank_f(m.l, 7.87871), r_ts_rank_f(m.adv(60), 17.255), 4.97547), 18.5925),
+                                         15.7152), 6.71659)) * -1,
+    100: ref100,
+}
+LIVELY = {**REFERENCE_SECOND, **REFERENCE_THIRD}
+
 # 在随机行情上几乎没有值的公式：内层是很短的相关系数，一边常常几天不变（相关系数没有定义）。
-SPARSE = {96}
+SPARSE = {96, 97}
+# 第一天有没有值取决于行情：10 只股票的 rank(adv20) 常常 5 天不变，内层的相关系数没有定义。
+LATE_START = {100}
 
 
 def lively_days(item):
     return item.history + 40
 
 
-@pytest.mark.parametrize("number", sorted(REFERENCE_SECOND))
-def test_second_batch_matches_the_day_by_day_reference(number):
+@pytest.mark.parametrize("number", sorted(LIVELY))
+def test_second_and_third_batch_match_the_day_by_day_reference(number):
     item = next(item for item in FORMULAS if item.number == number)
     bars = make_lively_bars(lively_days(item))
-    expected = REFERENCE_SECOND[number](Market(bars))
+    expected = LIVELY[number](Market(bars))
     expected = np.where(np.isinf(expected), NAN, expected)
     actual = computed(bars, number)
     if number not in SPARSE:
         assert np.isfinite(actual).sum() > 40, "the formula should produce values on this market"
         first = next(t for t in range(len(actual)) if np.isfinite(actual[t]).any())
-        assert first == item.history - 1, f"first value on day {first + 1}, declared {item.history}"
+        if number in LATE_START:
+            assert first >= item.history - 1
+        else:
+            assert first == item.history - 1, f"first value on day {first + 1}, declared {item.history}"
     np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-9, equal_nan=True)
 
 
@@ -550,6 +633,50 @@ def test_after_an_ex_date_the_values_match_a_market_already_on_the_new_basis(ite
     values, reference = computed(split, item.number), computed(rebased, item.number)
     assert np.isnan(values[ex:ex + item.span, 3]).all()
     np.testing.assert_allclose(values[ex + item.span:], reference[ex + item.span:], rtol=1e-7, atol=1e-10, equal_nan=True)
+    # 除权之前的值和从来没有除权的市场一样：没有用到以后的除权。
+    np.testing.assert_allclose(values[:ex], computed(plain, item.number)[:ex], rtol=1e-9, atol=1e-12, equal_nan=True)
+    if item.span == 0 and item.history < ex:
+        assert np.isfinite(values[ex - 5:ex + 5, 3]).all(), "按当天前复权价计算的公式，跨过除权日也有值"
+
+
+def test_a_peers_split_or_return_from_suspension_does_not_move_the_industry_mean():
+    # 六只股票同一大类，价格都不变。S1 从第 4 天起 10 送 10（价格减半、成交量加倍），S2 第 3 天停牌。
+    days = pd.bdate_range("2025-01-02", periods=6)
+    rows = []
+    for s in range(6):
+        for t, day in enumerate(days):
+            if s == 2 and t == 2:
+                continue
+            split = s == 1 and t >= 3
+            price, volume = (10.0 + s) / (2 if split else 1), 100.0 * (2 if split else 1)
+            factor = 1.0 if split or s != 1 else 0.5
+            rows.append({"symbol": f"S{s}", "trade_date": day, "raw_open": price, "raw_high": price, "raw_low": price, "raw_close": price,
+                         "volume": volume, "amount": price * volume, "adj_factor": factor, "adjusted_close": price * factor,
+                         "industry": "C13", "sector": "C"})
+    p = Panel(pd.DataFrame(rows))
+    same_day, series = p.neutralize(p.close, "industry"), p.neutralize_series(p.close, "price", "industry")
+    assert same_day["S0"].diff().abs().max() > 0.5                        # 当天的平均值跟着停牌、送转跳动
+    assert series["S0"].diff().dropna().abs().max() < 1e-12                 # 组平均只随真实的价格变化移动
+    assert series.iloc[0].tolist() == pytest.approx(same_day.iloc[0].tolist())
+    # 停牌那天没有值；复牌后从当天的组平均重新算起。
+    assert np.isnan(series.loc[days[2], "S2"]) and series.loc[days[3], "S2"] == pytest.approx(same_day.loc[days[3], "S2"])
+    volume = p.neutralize_series(p.volume, "volume", "industry")
+    assert volume["S0"].diff().dropna().abs().max() < 1e-12
+
+
+def test_small_industries_are_compared_with_their_sector_and_an_unknown_industry_has_no_value():
+    bars = make_lively_bars(5)
+    p = Panel(bars)
+    value = p.neutralize(p.close, "industry")
+    close = p.close
+    assert value["S0"].tolist() == pytest.approx((close["S0"] - close[["S0", "S1", "S2", "S3", "S4"]].mean(axis=1)).tolist())
+    assert value["S5"].tolist() == pytest.approx((close["S5"] - close[[f"S{i}" for i in range(7)]].mean(axis=1)).tolist())
+    assert value[["S7", "S8", "S9"]].isna().all().all()                     # 门类 J 只有 3 只
+    sector = p.neutralize(p.close, "sector")
+    assert sector["S0"].tolist() == pytest.approx((close["S0"] - close[[f"S{i}" for i in range(7)]].mean(axis=1)).tolist())
+    with pytest.raises(ValueError, match="行业分类"):
+        unclassified = Panel(bars.drop(columns=["industry", "sector"]))
+        unclassified.neutralize(unclassified.close, "industry")
 
 
 def test_new_operators_by_hand():
@@ -574,3 +701,14 @@ def test_new_operators_by_hand():
     chosen = alpha101.choose(a > 2, a, b, a, b)
     assert chosen["a"].tolist()[:3] == [4.0, 3.0, 1.0] and np.isnan(chosen["a"].iloc[3])
     assert alpha101.less(x[["a"]], 2.5)["a"].tolist() == [1.0, 0.0, 1.0, 0.0]
+
+
+@pytest.mark.parametrize("item", FORMULAS, ids=lambda item: f"alpha{item.number:03d}")
+def test_each_formula_needs_only_the_columns_it_declares(item):
+    # 回测时策略只取因子声明的列（可选列有就带上）：少声明一列，回测里就算不出来。
+    bars = make_lively_bars(lively_days(item))
+    factor = next(f for f in alpha101_factors() if f.name == f"alpha101_{item.number:03d}")
+    columns = ["symbol", "trade_date", *factor.required_fields, *(c for c in factor.optional_fields if c in bars.columns)]
+    narrow = factor.compute(bars[list(dict.fromkeys(columns))])
+    full = factor.compute(bars)
+    pd.testing.assert_frame_equal(narrow, full)

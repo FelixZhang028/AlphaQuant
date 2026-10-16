@@ -66,6 +66,8 @@ class FactorDefinition:
     source: str = "内置"
     feature_type: str = "单因子"
     source_url: str = ""
+    # 有就用、没有也能算的列（例如复权因子）；回测按需取历史时一并带上。
+    optional_fields: tuple[str, ...] = field(default_factory=tuple)
 
     @abstractmethod
     def compute(self, bars: pd.DataFrame) -> pd.DataFrame:
