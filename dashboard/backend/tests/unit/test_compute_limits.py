@@ -1,6 +1,7 @@
 """Heavy computations share the server: one per user, a few at once, a time limit, and reuse of results."""
 import threading
 import time
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -10,11 +11,13 @@ from fastapi.testclient import TestClient
 from app.quant import compute
 from app.routes import backtests, workspace
 from app.routes.auth import get_current_user
-from quant_platform.application.backtest_service import BacktestService
+from quant_platform.application.backtest_service import BacktestRequest, BacktestService
 from quant_platform.core import deadline
 from quant_platform.core.deadline import ComputationTimeout
 from quant_platform.factors.evaluation import FactorEvaluator
 from quant_platform.factors.registry import default_registry
+from quant_platform.risk.config import RiskLimits
+from quant_platform.strategies.discovery import StrategyCatalog
 from test_factor_index_universe import DAYS, HS300, market
 
 
@@ -169,9 +172,19 @@ def test_evaluating_the_same_factor_again_is_answered_from_memory(client, monkey
     assert len(evaluated) == 2
 
 
-def test_a_user_with_a_computation_running_is_told_to_wait(client):
+def test_a_user_with_a_computation_running_is_told_to_wait(client, monkeypatch):
+    # 回测接口先检查本地数据和策略，再占计算名额：这里给它一个不会真的运行的回测服务。
+    catalog = StrategyCatalog()
+    defaults = BacktestRequest(catalog.metadata()[0].plugin_name, "t", catalog.metadata()[0].defaults(),
+                               date(2025, 1, 6), date(2025, 3, 31), 1e5, 5, "weekly")
+    ran = []
+    service = SimpleNamespace(default_request=lambda: defaults, available_strategies=catalog.metadata, run=ran.append)
+    monkeypatch.setattr(backtests, "build_backtest_service", lambda _: service)
+    monkeypatch.setattr(backtests, "local_data_bounds", lambda: (DAYS[0].date(), DAYS[-1].date()))
+    monkeypatch.setattr(backtests, "use_market", lambda service, market: None)
+    monkeypatch.setattr(backtests, "user_risk_limits", lambda _: RiskLimits())
     body = {"factor_name": "momentum_20", "start_date": DAYS[25].date().isoformat(), "end_date": DAYS[-1].date().isoformat(), "universe": HS300}
-    backtest = {"strategy": "a_share_momentum", "market": "当前股票池", "from_date": "2025-01-06", "to_date": "2025-03-31",
+    backtest = {"strategy": defaults.strategy_plugin, "market": "当前股票池", "from_date": "2025-01-06", "to_date": "2025-03-31",
                 "initial_capital": 100000, "max_positions": 5, "rebalance": "weekly"}
     holding = threading.Event()
     release = threading.Event()
@@ -191,4 +204,4 @@ def test_a_user_with_a_computation_running_is_told_to_wait(client):
     finally:
         release.set()
         worker.join()
-    assert client.post("/api/v1/factors/evaluate", json=body).status_code == 200
+    assert client.post("/api/v1/factors/evaluate", json=body).status_code == 200 and not ran
