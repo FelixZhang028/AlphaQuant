@@ -45,6 +45,7 @@ from ..quant.research_runs import (
     walk_forward_range,
 )
 from ..quant import daily_schedule
+from ..quant.compute import cached, computing
 from ..quant.runtime import (
     BACKEND_ROOT,
     CONFIG_PATH,
@@ -387,14 +388,15 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
         initial_cash=body.initial_cash,
         risk_limits=dc_replace(user_risk_limits(user["id"]), max_positions=package.top_n),
     )
-    try:
-        run = studio.run(package, base_request=base)
-    except ConfigurationError as exc:
-        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
-    except Exception as exc:  # noqa: BLE001 - 回测引擎内部错误统一转 422
-        raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
+    with computing(user):
+        try:
+            run = studio.run(package, base_request=base)
+        except ConfigurationError as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
+        except Exception as exc:  # noqa: BLE001 - 回测引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
 
     result = backtest_run_to_result(run, names=security_names())
     result["effective_config"] = {
@@ -737,15 +739,21 @@ def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"因子不存在：{body.factor_name}")
     start, end = _clamped_range(body.start_date, body.end_date)
     repository, symbols = _factor_scope(user, body.universe, start, end)
-    evaluator = build_factor_evaluator() if body.universe == CURRENT_POOL else FactorEvaluator(repository)
-    try:
-        report = evaluator.evaluate(
-            factor, start, end, symbols=symbols,
-            horizon=body.horizon, n_groups=body.n_groups, neutralization=body.neutralization,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
-    return factor_report_to_dict(report)
+
+    def evaluate() -> dict[str, Any]:
+        evaluator = build_factor_evaluator() if body.universe == CURRENT_POOL else FactorEvaluator(repository)
+        try:
+            report = evaluator.evaluate(
+                factor, start, end, symbols=symbols,
+                horizon=body.horizon, n_groups=body.n_groups, neutralization=body.neutralization,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        return factor_report_to_dict(report)
+
+    # 同样的因子、范围和日期，在同一份数据上算过就直接返回。
+    request = {"body": body.model_dump(), "range": [start, end], "symbols": symbols, "factor": repr(factor)}
+    return cached("factor_evaluate", user, request, market_repository().root, evaluate)
 
 
 @router.post("/factors/composite", summary="多因子合成并评估")
@@ -762,6 +770,13 @@ def factor_composite(body: FactorCompositeIn, user: dict = Depends(get_current_u
     start, end = _clamped_range(body.start_date, body.end_date)
     split = start + timedelta(days=int((end-start).days*0.7))
     repository, symbols = _factor_scope(user, body.universe, start, end)
+    request = {"body": body.model_dump(), "range": [start, end], "symbols": symbols, "factors": [repr(f) for f in components]}
+    return cached("factor_composite", user, request, market_repository().root,
+                  lambda: _factor_composite(body, components, repository, symbols, start, end, split))
+
+
+def _factor_composite(body: FactorCompositeIn, components: tuple, repository: Any, symbols: list[str] | None,
+                      start: date, end: date, split: date) -> dict[str, Any]:
     try:
         train_end = date.fromisoformat(body.train_end) if body.train_end else split
         test_start = date.fromisoformat(body.test_start) if body.test_start else train_end + timedelta(days=1)
@@ -824,7 +839,14 @@ def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_use
     train_start = max(train_start, local_start)
     test_end = min(test_end, local_end)
     repository, symbols = _factor_scope(user, body.universe, train_start, test_end)
+    request = {"body": body.model_dump(), "range": [train_start, train_end, test_start, test_end], "symbols": symbols,
+               "factors": [repr(f) for f in components]}
+    return cached("factor_research", user, request, market_repository().root,
+                  lambda: _factor_research(body, components, repository, symbols, train_start, train_end, test_start, test_end))
 
+
+def _factor_research(body: FactorResearchIn, components: list, repository: Any, symbols: list[str] | None,
+                     train_start: date, train_end: date, test_start: date, test_end: date) -> dict[str, Any]:
     try:
         result = research_combination(
             repository,
@@ -961,14 +983,15 @@ class OptimizeIn(BaseModel):
 @router.post("/research/optimize", summary="参数优化：每组候选参数运行一次真实回测")
 def research_optimize(body: OptimizeIn, user: dict = Depends(get_current_user)):
     service, base, metadata, engine_run_id = _research_baseline(body.baseline_run_id, user)
-    try:
-        grid = parameter_grid(metadata, body.parameter_grid)
-        return run_optimization(service, base, grid, objective=body.objective,
-                                max_drawdown_limit=body.max_drawdown_limit, baseline_run_id=engine_run_id)
-    except ResearchInputError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
-        raise HTTPException(status_code=422, detail=f"参数优化失败：{_sanitize_detail(exc)}")
+    with computing(user):
+        try:
+            grid = parameter_grid(metadata, body.parameter_grid)
+            return run_optimization(service, base, grid, objective=body.objective,
+                                    max_drawdown_limit=body.max_drawdown_limit, baseline_run_id=engine_run_id)
+        except ResearchInputError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=f"参数优化失败：{_sanitize_detail(exc)}")
 
 
 class WalkForwardIn(BaseModel):
@@ -992,16 +1015,17 @@ def research_walk_forward(body: WalkForwardIn, user: dict = Depends(get_current_
     # 基准回测的区间通常不够长；滚动验证改用本地最近的一段行情，其余配置与基准一致。
     start, end = walk_forward_range(bounds, training_months=body.training_months, test_months=body.test_months,
                                     step_months=body.step_months, max_windows=body.max_windows)
-    try:
-        grid = parameter_grid(metadata, body.parameter_grid)
-        return run_walk_forward(service, dc_replace(base, start_date=start, end_date=end), grid,
-                                objective=body.objective, training_months=body.training_months,
-                                test_months=body.test_months, step_months=body.step_months,
-                                max_windows=body.max_windows, baseline_run_id=engine_run_id)
-    except ResearchInputError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
-        raise HTTPException(status_code=422, detail=f"滚动验证失败：{_sanitize_detail(exc)}")
+    with computing(user):
+        try:
+            grid = parameter_grid(metadata, body.parameter_grid)
+            return run_walk_forward(service, dc_replace(base, start_date=start, end_date=end), grid,
+                                    objective=body.objective, training_months=body.training_months,
+                                    test_months=body.test_months, step_months=body.step_months,
+                                    max_windows=body.max_windows, baseline_run_id=engine_run_id)
+        except ResearchInputError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=f"滚动验证失败：{_sanitize_detail(exc)}")
 
 
 @router.get("/runs", summary="回测记录库列表")
@@ -1319,17 +1343,18 @@ def forensics_check(req: ForensicsCheckRequest, user: dict = Depends(get_current
     if parsed.trades.duplicated(["date", "symbol", "side", "quantity", "price"]).any():
         duplicates = parsed.trades[parsed.trades.duplicated(["date", "symbol", "side", "quantity", "price"], keep=False)].index.tolist()
 
-    try:
-        from quant_platform.core.config import load_app_config
+    with computing(user):
+        try:
+            from quant_platform.core.config import load_app_config
 
-        config = load_app_config(str(CONFIG_PATH))
-        root = Path(str(config["data"]["repository"])).resolve()
-        if not root.exists():
-            raise FileNotFoundError(f"数据目录不存在：{root}")
-        master, bars = load_evidence(root, parsed.trades)
-        findings = check_trades(parsed.trades, master, bars, req.basis == "未复权")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"本地数据暂时无法读取，请检查数据目录是否已初始化")
+            config = load_app_config(str(CONFIG_PATH))
+            root = Path(str(config["data"]["repository"])).resolve()
+            if not root.exists():
+                raise FileNotFoundError(f"数据目录不存在：{root}")
+            master, bars = load_evidence(root, parsed.trades)
+            findings = check_trades(parsed.trades, master, bars, req.basis == "未复权")
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"本地数据暂时无法读取，请检查数据目录是否已初始化")
 
     finding_records = findings.to_dict(orient="records")
     counts = {label: int((findings["结论"] == label).sum()) for label in ORDER}

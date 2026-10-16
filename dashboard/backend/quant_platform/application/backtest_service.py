@@ -13,6 +13,7 @@ from quant_platform.backtest.engine import BacktestEngine
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.run_store import BacktestRunStore
 from quant_platform.core.config import load_app_config, load_yaml, require_mapping
+from quant_platform.core.deadline import ComputationTimeout
 from quant_platform.data.index_constituents import (
     CHECKS_TABLE,
     CONSTITUENTS_TABLE,
@@ -272,7 +273,7 @@ class BacktestService:
             output = result.save(self.runs_root, snapshot)
             store.complete(run_id)
             return BacktestRun(result=result, output_dir=output, config_snapshot=snapshot)
-        except Exception as exc:
+        except (Exception, ComputationTimeout) as exc:
             store.fail(run_id, exc)
             raise
 
