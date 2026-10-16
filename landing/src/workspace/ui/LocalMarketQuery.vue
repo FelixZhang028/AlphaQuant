@@ -6,7 +6,8 @@ import SectionCard from './SectionCard.vue'
 import DataTable from './DataTable.vue'
 import FormField from './FormField.vue'
 
-const props = defineProps({ notify: { type: Function, default: () => {} } })
+// admin：只有管理员能单独更新某只股票；其他人的数据每天自动更新。
+const props = defineProps({ notify: { type: Function, default: () => {} }, admin: { type: Boolean, default: false } })
 const emit = defineEmits(['changed'])
 const searchText = ref('')
 const query = ref('')
@@ -162,7 +163,7 @@ onActivated(() => load())
         <template #cell-actions="{ row }">
           <div class="flex items-center justify-end gap-3 whitespace-nowrap">
             <button type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row)">详情</button>
-            <button type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row, true)">更新行情</button>
+            <button v-if="admin" type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row, true)">更新行情</button>
             <span v-if="row.in_universe" class="text-xs text-slate-500">已在股票池</span>
             <button v-else type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="!!addingSymbol" @click="addStock(row)">{{ addingSymbol === row.symbol ? '加入中…' : '加入股票池' }}</button>
           </div>
@@ -198,8 +199,8 @@ onActivated(() => load())
         </ul>
         <p v-if="detail.missing_range_count > 20" class="text-xs text-slate-400">共 {{ detail.missing_range_count }} 段缺失，以上显示前 20 段；可按完整区间重新更新。</p>
       </div>
-      <button v-if="!showUpdate" type="button" class="mt-4 text-sm text-indigo-300 hover:underline" @click="showUpdate = true">选择日期并更新行情</button>
-      <form v-if="showUpdate" class="mt-4 border-t border-white/10 pt-4" @submit.prevent="updateStock">
+      <button v-if="admin && !showUpdate" type="button" class="mt-4 text-sm text-indigo-300 hover:underline" @click="showUpdate = true">选择日期并更新行情</button>
+      <form v-if="admin && showUpdate" class="mt-4 border-t border-white/10 pt-4" @submit.prevent="updateStock">
         <p class="mb-3 text-xs text-slate-400">仅更新 {{ selected.name }} 的行情，不改变股票池。{{ selected.rows ? '默认从已有行情末尾前 7 天补到今天' : '默认下载近一年行情' }}；补齐历史缺口时请调整开始日期。</p>
         <div class="grid gap-4 sm:grid-cols-2">
           <FormField label="更新开始日期" type="date" v-model="startDate" :disabled="updating" />

@@ -12,6 +12,7 @@ import {
 } from '../../api.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
+import DailyUpdateCard from '../ui/DailyUpdateCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import FormField from '../ui/FormField.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -20,6 +21,8 @@ const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
+// 数据由平台每天自动更新；下载、补历史数据和后台任务只有管理员能操作。
+const isAdmin = computed(() => !!props.user?.is_admin)
 
 // ===========================================================================
 // 日常更新（自原数据资产页迁移；来源顺序/基准多选保持不变）
@@ -432,7 +435,7 @@ function clearPoll() {
 }
 onActivated(async () => {
   viewActive = true
-  await Promise.all([loadOverview(), loadJobs(), loadLoop()])
+  await Promise.all(isAdmin.value ? [loadOverview(), loadJobs(), loadLoop()] : [loadLoop()])
   schedulePoll()
 })
 onDeactivated(clearPoll)
@@ -445,11 +448,13 @@ onBeforeUnmount(clearPoll)
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <h1 class="text-xl font-bold text-white">数据更新</h1>
-      <p class="mt-1 text-sm text-slate-400">日常只需更新当前股票池。需要全市场历史数据时，再展开高级更新。</p>
+      <p class="mt-1 text-sm text-slate-400">{{ isAdmin ? '平台每个交易日自动更新全市场数据；下面的工具用来补历史数据、单独更新和查看后台任务。' : '数据由平台每个交易日自动更新，不需要你操作；这里可以看到每类数据的情况。' }}</p>
     </div>
 
+    <DailyUpdateCard :admin="isAdmin" :notify="notify" @finished="loadLoop" />
+
     <!-- 日常更新 -->
-    <SectionCard title="更新当前股票池" hint="默认同步股票池行情、股票信息和基准指数；可在下方调整">
+    <SectionCard v-if="isAdmin" title="更新当前股票池" hint="默认同步股票池行情、股票信息和基准指数；可在下方调整">
       <p class="text-sm text-slate-300">{{ overviewLoading ? '正在读取股票池…' : overview ? `当前股票池 ${overview.configured_symbol_count} 只股票` : '股票池信息暂时不可用' }} · {{ form.start_date }} 至 {{ form.end_date }}</p>
       <p class="mt-2 text-sm text-slate-400">默认更新近一年行情，保留已有历史数据。首次研究更早的区间，可在下方调整日期。</p>
       <p v-if="overviewError" class="mt-3 text-sm text-rose-300">{{ overviewError }} <button type="button" class="underline" @click="loadOverview">重新读取</button></p>
@@ -547,11 +552,11 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-white">估值与换手率</h2>
           <p class="mt-1 text-sm text-slate-300">{{ indicatorText }}</p>
         </div>
-        <button v-if="indicators.missing_symbols > 0" type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin && indicators.missing_symbols > 0" type="button" :disabled="!!activeJob"
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="fillIndicators">{{ activeJob ? '后台任务运行中…' : '补全历史数据' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">市盈率、市净率、市销率、市现率和换手率，价值类和换手类因子要用到。以后每次更新行情会自动带上；这里补的是以前下载的行情，在后台运行，每只股票一次请求，不会改动已有的行情。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">市盈率、市净率、市销率、市现率和换手率，价值类和换手类因子要用到。以后每次更新行情会自动带上；这里补的是以前下载的行情，在后台运行，每只股票一次请求，不会改动已有的行情。</p>
     </section>
     <section v-if="fundamentals" class="glass rounded-2xl p-5" aria-label="财务数据">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -559,11 +564,11 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-white">财务数据</h2>
           <p class="mt-1 text-sm text-slate-300">{{ fundamentalsText }}</p>
         </div>
-        <button type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="downloadPoolFundamentals">{{ activeJob ? '后台任务运行中…' : '下载股票池的财务数据' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">季度财报里的毛利率、同比增长、负债率和总股本，质量、成长和规模类因子要用到；每份财报从公告日起才会被使用。每只股票约 15 秒，已有的报告期不会重复下载。全市场大约需要 20 多个小时，可以在「高级更新」里选择「财务数据」后台下载，中断后可以继续。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">季度财报里的毛利率、同比增长、负债率和总股本，质量、成长和规模类因子要用到；每份财报从公告日起才会被使用。每只股票约 15 秒，已有的报告期不会重复下载。全市场大约需要 20 多个小时，可以在「高级更新」里选择「财务数据」后台下载，中断后可以继续。</p>
     </section>
     <section v-if="industry" class="glass rounded-2xl p-5" aria-label="行业分类">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -571,11 +576,11 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-white">行业分类</h2>
           <p class="mt-1 text-sm text-slate-300">{{ industryText }}</p>
         </div>
-        <button type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
     </section>
     <section v-if="barGapText" class="glass rounded-2xl border border-amber-400/30 p-5" aria-label="行情不完整的股票">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -583,11 +588,11 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-amber-200">有股票的行情不完整</h2>
           <p class="mt-1 text-sm text-slate-300">{{ barGapText }}</p>
         </div>
-        <button type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
           class="rounded-full border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-50"
           @click="repairBarGaps">{{ activeJob ? '后台任务运行中…' : '补全这些股票的行情' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">缺的那几年里，这些股票不会出现在回测、因子评估和指数成分股里，结果会不完整。补全时每只股票整段重新下载，通常每只几秒钟，数据源慢的时候会更久；在后台运行，每补完 10 只保存一次，中断后再点一次只补剩下的。补完后这一栏会消失。如果数据源确实没有某只股票更早的行情，它会一直留在这里。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">缺的那几年里，这些股票不会出现在回测、因子评估和指数成分股里，结果会不完整。补全时每只股票整段重新下载，通常每只几秒钟，数据源慢的时候会更久；在后台运行，每补完 10 只保存一次，中断后再点一次只补剩下的。补完后这一栏会消失。如果数据源确实没有某只股票更早的行情，它会一直留在这里。</p>
     </section>
     <section v-if="actionGapText" class="glass rounded-2xl p-5" aria-label="分红送转记录">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -595,11 +600,11 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-white">分红送转记录</h2>
           <p class="mt-1 text-sm text-slate-300">{{ actionGapText }}</p>
         </div>
-        <button v-if="actionGaps.to_check" type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin && actionGaps.to_check" type="button" :disabled="!!activeJob"
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="fillActionGaps">{{ activeJob ? '后台任务运行中…' : '补全分红送转记录' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">回测持有的股票分红、送股时，按这些记录把现金和新股计入账户。日常更新用的数据源对已经退市的股票不返回记录，这里改用 BaoStock 补查，只查有缺口的股票和年份，通常几分钟；查过的年份不再重复查。配股不在这两个数据源里，回测会按复权因子推算成现金，并在结果的数据状态里列出。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">回测持有的股票分红、送股时，按这些记录把现金和新股计入账户。日常更新用的数据源对已经退市的股票不返回记录，这里改用 BaoStock 补查，只查有缺口的股票和年份，通常几分钟；查过的年份不再重复查。配股不在这两个数据源里，回测会按复权因子推算成现金，并在结果的数据状态里列出。</p>
     </section>
     <section v-if="indexConstituents" class="glass rounded-2xl p-5" aria-label="指数成分股">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -607,14 +612,14 @@ onBeforeUnmount(clearPoll)
           <h2 class="text-base font-semibold text-white">指数成分股</h2>
           <p v-for="line in indexConstituentsLines" :key="line" class="mt-1 text-sm text-slate-300">{{ line }}</p>
         </div>
-        <button type="button" :disabled="!!activeJob"
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
           class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
           @click="downloadIndexConstituents">{{ activeJob ? '后台任务运行中…' : hasIndexConstituents ? '更新指数成分股' : '下载指数成分股' }}</button>
       </div>
-      <p class="mt-2 text-xs text-slate-500">沪深300、上证50、中证500 在历史上每一天的成分股。下载后，回测的「股票范围」可以选择指数：每个调仓日只在当时的成分股里选股，不会用今天的名单去回测过去。第一次下载大约需要 10 分钟，在后台运行，中断后可以继续；以后只核对新的几周，几秒钟就能完成。成分股半年调整一次，核对日期落后回测结束日一个月以上时，需要先更新。</p>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">沪深300、上证50、中证500 在历史上每一天的成分股。下载后，回测的「股票范围」可以选择指数：每个调仓日只在当时的成分股里选股，不会用今天的名单去回测过去。第一次下载大约需要 10 分钟，在后台运行，中断后可以继续；以后只核对新的几周，几秒钟就能完成。成分股半年调整一次，核对日期落后回测结束日一个月以上时，需要先更新。</p>
     </section>
-    <p v-if="jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
-    <section v-if="activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">
+    <p v-if="isAdmin && jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
+    <section v-if="isAdmin && activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">
       <h2 class="mb-4 text-sm font-semibold text-white">全市场回填正在后台运行</h2>
       <p class="mb-4 text-sm text-slate-400">关闭页面不影响后台回填；可随时在高级更新中查看记录和日志。</p>
       <!-- 活跃任务进度 -->
@@ -634,7 +639,7 @@ onBeforeUnmount(clearPoll)
         <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
           <div class="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500" :style="{ width: `${progressPct}%` }" />
         </div>
-        <p class="mt-2 text-xs text-slate-500">
+        <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">
           最近进展：{{ activeJob.progress?.updated_at || '等待首批数据' }} · 本阶段失败：{{
             activeJob.progress?.failed || 0
           }} · 自动重试：{{ activeJob.retries || 0 }} 次
@@ -645,7 +650,7 @@ onBeforeUnmount(clearPoll)
       </div>
 
     </section>
-    <details class="glass rounded-2xl p-5" :open="advancedOpen" @toggle="toggleAdvanced">
+    <details v-if="isAdmin" class="glass rounded-2xl p-5" :open="advancedOpen" @toggle="toggleAdvanced">
       <summary class="cursor-pointer text-lg font-semibold text-white">高级更新：历史回填、任务记录与日志</summary>
       <div class="mt-5 space-y-6">
         <!-- 全市场回填任务（迁移自 AlphaQuant data_job_panel） -->

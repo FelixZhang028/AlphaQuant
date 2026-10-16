@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 
@@ -86,9 +87,11 @@ class BaoStockRangeBackfill:
         self.provider = provider or BaoStockDataProvider()
 
     def backfill(
-        self, symbols: list[str], start_date: date, end_date: date
+        self, symbols: list[str], start_date: date, end_date: date, *, on_symbol: Callable[[str], None] | None = None
     ) -> DataQualityReport:
-        """Fetch raw/qfq bars, status fields, listing metadata, and derived limits."""
+        """Fetch raw/qfq bars, status fields, listing metadata, and derived limits.
+
+        ``on_symbol`` is called after each symbol's requests (a long task uses it as a heartbeat)."""
 
         try:
             metadata = self.provider.get_security_metadata(symbols)
@@ -105,6 +108,8 @@ class BaoStockRangeBackfill:
                 frame = self.fetch_symbol(symbol, start_date, end_date, master)
                 if not frame.empty:
                     frames.append(frame)
+                if on_symbol is not None:
+                    on_symbol(symbol)
         finally:
             self.provider.close()
 

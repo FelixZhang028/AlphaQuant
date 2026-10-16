@@ -132,6 +132,15 @@ class DividendProvider:
         pass
 
 
+def test_each_fetched_symbol_is_reported_as_it_completes(tmp_path):
+    # 每日更新靠它判断任务没有卡住：每下载完一只股票报一次。
+    seen = []
+    view = ContinuousAdjustmentRepository(ParquetMarketDataRepository(tmp_path / "market"))
+    BaoStockRangeBackfill(RawDataRepository(tmp_path / "raw"), view, DividendProvider()).backfill(
+        [SYMBOL], date(2026, 9, 22), date(2026, 9, 23), on_symbol=seen.append)
+    assert seen == [SYMBOL]
+
+
 def test_incremental_baostock_updates_stay_continuous_across_a_dividend(tmp_path):
     repo = ParquetMarketDataRepository(tmp_path / "market")
     raw = RawDataRepository(tmp_path / "raw")

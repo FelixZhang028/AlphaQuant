@@ -10,27 +10,43 @@ WebSocket：ws://localhost:8000/ws/dashboard
 """
 import logging
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import init_db
+from .quant.daily_schedule import DailyScheduler
 from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
 from .routes.auth import router as auth_router
 from .routes.backtests import router as backtests_router
 from .routes.stats import router as stats_router
 from .routes.strategies import router as strategies_router
+from .routes.workspace import _data_jobs
 from .routes.workspace import router as workspace_router
 from .ws import router as ws_router
 
 logger = logging.getLogger("uvicorn.error")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）。
+    scheduler = DailyScheduler(_data_jobs())
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
+
+
 app = FastAPI(
     title="智投引擎 · 后端",
     description="为官网/功能台/管理后台提供认证与实时监控数据（当前业务指标为模拟数据，可替换为真实数据源）",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 

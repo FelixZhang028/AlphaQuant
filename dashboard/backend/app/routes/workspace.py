@@ -44,6 +44,7 @@ from ..quant.research_runs import (
     tunable_parameters,
     walk_forward_range,
 )
+from ..quant import daily_schedule
 from ..quant.runtime import (
     BACKEND_ROOT,
     CONFIG_PATH,
@@ -70,6 +71,7 @@ from ..quant.rules import (
 )
 from ..quant.symbols import to_bare, to_canonical
 from ..routes.agent_lab import _llm_store
+from ..routes.admin import require_admin
 from ..routes.auth import get_current_user
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
 from quant_platform.application.strategy_studio_service import (
@@ -77,6 +79,7 @@ from quant_platform.application.strategy_studio_service import (
     StrategyStudioService,
 )
 from quant_platform.application.benchmarks import BENCHMARKS
+from quant_platform.application.data_jobs import exclusive
 from quant_platform.application.factor_research_service import research_combination
 from quant_platform.data.index_constituents import INDEX_UNIVERSES, IndexUniverseRepository
 from quant_platform.factors.evaluation import FactorEvaluator
@@ -1495,14 +1498,15 @@ class SingleStockUpdateIn(BaseModel):
 
 
 @router.post("/data-center/market/{symbol}/update", summary="更新单只股票行情，不改变股票池")
-def local_market_update(symbol: str, body: SingleStockUpdateIn, user: dict = Depends(get_current_user)):
+def local_market_update(symbol: str, body: SingleStockUpdateIn, user: dict = Depends(require_admin)):
     if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
         raise HTTPException(status_code=422, detail="请提供有效的六位股票代码")
     if body.start_date > body.end_date or body.end_date > date.today():
         raise HTTPException(status_code=422, detail="请检查起止日期，结束日期不能晚于今天")
     service = build_data_center_service(user)
     try:
-        with DATA_UPDATE_LOCK, _backend_cwd():
+        # 文件锁：和每天的自动更新、后台任务互斥，不会同时写同一份行情。
+        with DATA_UPDATE_LOCK, exclusive(market_repository().root / ".update.lock"), _backend_cwd():
             result = service.update_market_data(body.start_date, body.end_date, symbols=[to_canonical(symbol)])
     except Exception as exc:
         raise HTTPException(status_code=502, detail=_sanitize_detail(exc))
@@ -1511,7 +1515,7 @@ def local_market_update(symbol: str, body: SingleStockUpdateIn, user: dict = Dep
 
 
 @router.post("/data-center/update", summary="运行数据更新")
-def data_update(body: dict[str, Any], user: dict = Depends(get_current_user)):
+def data_update(body: dict[str, Any], user: dict = Depends(require_admin)):
     try:
         start = date.fromisoformat(str(body.get("start_date") or ""))
     except ValueError:
@@ -1589,7 +1593,7 @@ _DATA_JOB_STATUS_LABELS = {
 
 
 @router.get("/data-center/jobs", summary="全市场回填任务列表与进度")
-def data_jobs_list(user: dict = Depends(get_current_user)):
+def data_jobs_list(user: dict = Depends(require_admin)):
     records = _data_jobs().records()
     for record in records:
         record["status_label"] = _DATA_JOB_STATUS_LABELS.get(record.get("status", ""), record.get("status", ""))
@@ -1597,7 +1601,7 @@ def data_jobs_list(user: dict = Depends(get_current_user)):
 
 
 @router.post("/data-center/jobs/start", status_code=status.HTTP_201_CREATED, summary="启动全市场回填任务")
-def data_jobs_start(body: dict[str, Any], user: dict = Depends(get_current_user)):
+def data_jobs_start(body: dict[str, Any], user: dict = Depends(require_admin)):
     try:
         start = date.fromisoformat(str(body.get("start_date") or ""))
         end = date.fromisoformat(str(body.get("end_date") or ""))
@@ -1617,7 +1621,7 @@ def data_jobs_start(body: dict[str, Any], user: dict = Depends(get_current_user)
 
 
 @router.post("/data-center/jobs/{job_id}/stop", summary="停止全市场回填任务")
-def data_jobs_stop(job_id: str, user: dict = Depends(get_current_user)):
+def data_jobs_stop(job_id: str, user: dict = Depends(require_admin)):
     try:
         _data_jobs().stop(job_id)
     except ValueError as exc:
@@ -1626,10 +1630,38 @@ def data_jobs_stop(job_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.get("/data-center/jobs/{job_id}/log", summary="全市场回填任务日志（最近 32KB，已脱敏）")
-def data_jobs_log(job_id: str, user: dict = Depends(get_current_user)):
+def data_jobs_log(job_id: str, user: dict = Depends(require_admin)):
     from quant_platform.core.diagnostics import redact_text
 
     return {"log": redact_text(_data_jobs().log(job_id))}
+
+
+@router.get("/data-center/daily-update", summary="每天自动更新的状态（所有用户可看）")
+def daily_update_status(user: dict = Depends(get_current_user)):
+    payload = daily_schedule.status(_data_jobs().records())
+    repository = market_repository()
+    summary = repository.daily_bar_summary()
+    coverage = {"latest_date": None, "stocks_on_latest": 0, "listed": 0}
+    if not summary.empty:
+        latest = summary["end"].max()
+        coverage = {"latest_date": latest.date().isoformat(), "stocks_on_latest": int((summary["end"] == latest).sum())}
+        master = repository.read_table("security_master")
+        if not master.empty and "delist_date" in master.columns:
+            coverage["listed"] = int(master["delist_date"].isna().sum())
+    payload["data"] = coverage
+    if not user.get("is_admin"):
+        payload.pop("job_id", None)
+    return payload
+
+
+@router.post("/data-center/daily-update/run", status_code=status.HTTP_201_CREATED, summary="现在就运行今天的每日更新（管理员）")
+def daily_update_run(user: dict = Depends(require_admin)):
+    today = daily_schedule.china_now().date()
+    try:
+        job = _data_jobs().start(today, today, [daily_schedule.DATASET], trigger="admin")
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
+    return job
 
 
 @router.get("/data-center/closed-loop", summary="全市场数据闭环落地状态（只读，不访问外网）")
@@ -1841,7 +1873,7 @@ def xtick_status(user: dict = Depends(get_current_user)):
 
 
 @router.post("/xtick/credentials", summary="保存 XTick 凭证")
-def xtick_credentials_save(body: dict[str, Any], user: dict = Depends(get_current_user)):
+def xtick_credentials_save(body: dict[str, Any], user: dict = Depends(require_admin)):
     token = str(body.get("token", "")).strip()
     base_url = str(body.get("base_url", "")).strip() or _XTICK_DEFAULT_BASE_URL
     if not token:
@@ -1851,7 +1883,7 @@ def xtick_credentials_save(body: dict[str, Any], user: dict = Depends(get_curren
 
 
 @router.post("/xtick/request", summary="请求 XTick 接口（真实调用，自动解包 ZIP 响应）")
-def xtick_request(body: dict[str, Any], user: dict = Depends(get_current_user)):
+def xtick_request(body: dict[str, Any], user: dict = Depends(require_admin)):
     token, base_url = _xtick_resolve()
     if not token:
         raise HTTPException(status_code=428, detail="尚未配置 XTick Token，请先保存凭证或设置环境变量 XTICK_TOKEN")

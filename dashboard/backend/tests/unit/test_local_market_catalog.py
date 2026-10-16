@@ -142,7 +142,8 @@ def test_kline_never_draws_incomplete_prices_or_invents_adjustment(repo):
 def client(repo, monkeypatch):
     app = FastAPI()
     app.include_router(workspace.router)
-    app.dependency_overrides[get_current_user] = lambda: {"id": 123}
+    app.state.user = {"id": 123, "is_admin": False}
+    app.dependency_overrides[get_current_user] = lambda: app.state.user
     monkeypatch.setattr(workspace, "market_repository", lambda: repo)
     monkeypatch.setattr(workspace, "_load_universe_symbols", lambda _: ["000001", "000002"])
     with TestClient(app) as test_client:
@@ -167,7 +168,12 @@ def test_single_stock_update_never_downloads_the_whole_pool_or_changes_it(client
     monkeypatch.setattr(workspace, "build_data_center_service", lambda _: service)
     save_pool = Mock()
     monkeypatch.setattr(workspace, "_save_universe", save_pool)
-    response = client.post("/api/v1/data-center/market/600519/update", json={"start_date": "2026-01-05", "end_date": "2026-01-09"})
+    # 下载数据只有管理员能做：普通用户的数据每天自动更新。
+    body = {"start_date": "2026-01-05", "end_date": "2026-01-09"}
+    assert client.post("/api/v1/data-center/market/600519/update", json=body).status_code == 403
+    service.update_market_data.assert_not_called()
+    client.app.state.user = {"id": 123, "is_admin": True}
+    response = client.post("/api/v1/data-center/market/600519/update", json=body)
     assert response.status_code == 200 and response.json()["status"] == "SUCCESS"
     service.update_market_data.assert_called_once_with(date(2026, 1, 5), date(2026, 1, 9), symbols=["600519.SH"])
     save_pool.assert_not_called()
