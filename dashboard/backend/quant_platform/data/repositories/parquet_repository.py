@@ -19,6 +19,7 @@ from quant_platform.data.fundamentals import (
     point_in_time,
 )
 from quant_platform.data.indicators import INDICATOR_COLUMNS, INDICATOR_TABLE
+from quant_platform.data.industry import EXPOSURES_TABLE, INDUSTRY_COLUMNS, industry_on
 from quant_platform.data.interfaces import MarketDataRepository
 from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
 
@@ -87,6 +88,7 @@ class ParquetMarketDataRepository(MarketDataRepository):
 
         Valuation and turnover indicators are matched on the day. Financial-report columns are
         matched point in time: each bar gets the newest report already published that day.
+        ``industry`` / ``sector`` are the classification in force that day.
         A bar without a value keeps the bar and gets a missing value.
         """
 
@@ -94,10 +96,16 @@ class ParquetMarketDataRepository(MarketDataRepository):
         asked = set(extras)
         daily = [column for column in INDICATOR_COLUMNS if column in asked]
         quarterly = [column for column in FUNDAMENTAL_COLUMNS if column in asked]
-        if not daily and not quarterly:
+        industry = [column for column in INDUSTRY_COLUMNS if column in asked]
+        if not daily and not quarterly and not industry:
             return bars
         if bars.empty:
-            return bars.reindex(columns=[*bars.columns, *daily, *quarterly])
+            return bars.reindex(columns=[*bars.columns, *daily, *quarterly, *industry])
+        if industry:
+            changes = self.read_table(EXPOSURES_TABLE)
+            days = pd.DataFrame({"symbol": bars["symbol"].to_numpy(), "date": bars["trade_date"].to_numpy()})
+            for column in industry:
+                bars[column] = industry_on(days, changes, column).to_numpy()
         if daily:
             stored = self.get_daily_indicators(symbols, start_date, end_date, columns=daily)
             bars = bars.merge(stored, on=["symbol", "trade_date"], how="left")

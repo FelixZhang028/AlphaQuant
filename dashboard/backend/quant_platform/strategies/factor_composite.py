@@ -133,7 +133,10 @@ class FactorCompositeStrategy(Strategy):
         return frozenset(field for factor in self._components for field in factor.required_fields)
 
     def generate_signals(self, context: StrategyContext) -> list[Signal]:
-        fields = sorted({field for factor in self._components for field in factor.required_fields})
+        fields = {field for factor in self._components for field in factor.required_fields}
+        # 复权因子等可选列：行情里有就一起取，因子据此识别除权除息日、计算真实收益。
+        fields |= {field for factor in self._components for field in factor.optional_fields} & context.available_fields
+        fields = sorted(fields)
         lookback = max(factor.min_history for factor in self._components) + 1
         history = context.history(fields=fields, lookback=lookback)
         if history.empty:

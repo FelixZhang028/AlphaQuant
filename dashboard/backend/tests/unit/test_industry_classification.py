@@ -23,9 +23,12 @@ from quant_platform.data.industry import (
     normalize_baostock_industry,
 )
 from quant_platform.data.industry_backfill import BaoStockIndustryBackfill
+from quant_platform.data.extras import extra_columns
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
 from quant_platform.factors.evaluation import FactorEvaluator
 from quant_platform.factors.registry import default_registry
+from quant_platform.strategies.context import StrategyContext
+from quant_platform.strategies.factor_composite import FactorCompositeStrategy
 
 BANK, LIQUOR, BATTERY, SOFTWARE = "J66货币金融服务", "C15酒、饮料和精制茶制造业", "C38电气机械和器材制造业", "I65软件和信息技术服务业"
 
@@ -270,3 +273,54 @@ def test_the_route_accepts_the_four_neutralization_choices(monkeypatch):
     assert client.post("/api/v1/factors/evaluate", json={"factor_name": "momentum_20"}).status_code == 422 and asked[-1] == "none"
     bad = client.post("/api/v1/factors/evaluate", json={"factor_name": "momentum_20", "neutralization": "sector"})
     assert bad.status_code == 422 and len(asked) == 5
+
+
+# --------------------------------------------------------------------------- #
+# Alpha101 formulas that compare a stock with its industry
+# --------------------------------------------------------------------------- #
+
+
+def lively(repo):
+    """The same market with volumes that change every day (the formulas correlate with them)."""
+
+    bars = repo.get_daily_bars()
+    bars["volume"] = np.random.default_rng(9).integers(50_000, 150_000, len(bars)).astype(float)
+    bars["amount"] = bars["raw_close"] * bars["volume"]
+    repo.save_table("daily_bars", bars)
+    return repo
+
+
+def test_bars_carry_the_industry_known_on_each_day(tmp_path):
+    repo = market(tmp_path, classified=SYMBOLS[:12])
+    moved = pd.DataFrame([{"symbol": SYMBOLS[0], "date": DAYS[20], "industry": SOFTWARE, "sector": "I", "source": "baostock"}])
+    repo.save_table(EXPOSURES_TABLE, pd.concat([repo.read_table(EXPOSURES_TABLE), moved], ignore_index=True))
+    bars = repo.get_daily_bars(extras=["industry", "sector"])
+    first = bars[bars["symbol"] == SYMBOLS[0]].set_index("trade_date")
+    assert first.loc[DAYS[19], "industry"] == INDUSTRIES[0] and first.loc[DAYS[20], ["industry", "sector"]].tolist() == [SOFTWARE, "I"]
+    assert bars.loc[bars["symbol"] == SYMBOLS[14], "industry"].isna().all()   # 没有分类的股票
+    assert "industry" not in repo.get_daily_bars().columns                 # 不要就不读
+
+
+def test_alpha101_industry_formulas_are_evaluated_and_say_when_the_classification_is_missing(tmp_path):
+    repo = lively(market(tmp_path))
+    factor = default_registry().get("alpha101_059")
+    assert {"industry", "sector"} <= set(factor.required_fields)
+    report = FactorEvaluator(repo).evaluate(factor, DAYS[27].date(), DAYS[-2].date(), horizon=1, n_groups=3)
+    assert len(report.daily_ic) > 5
+    bare = ParquetMarketDataRepository(tmp_path / "bare")
+    bare.save_table("daily_bars", repo.get_daily_bars())
+    with pytest.raises(ValueError) as error:
+        FactorEvaluator(bare).evaluate(factor, DAYS[27].date(), DAYS[-2].date(), horizon=1, n_groups=3)
+    assert str(error.value) == MISSING_INDUSTRY_MESSAGE
+
+
+def test_a_backtest_strategy_gets_the_industry_and_the_adjustment_columns(tmp_path, monkeypatch):
+    strategy = FactorCompositeStrategy.from_parameters("s", {"factors_json": '[{"name": "alpha101_058", "weight": 1.0}]'})
+    assert extra_columns(strategy.data_fields) == ["industry", "sector"]    # 回测引擎据此把行业接到行情上
+    repo = lively(market(tmp_path))
+    context = StrategyContext.create(DAYS[-1].date(), repo.get_daily_bars(extras=["industry", "sector"]), SYMBOLS)
+    asked, original = [], StrategyContext.history
+    monkeypatch.setattr(StrategyContext, "history", lambda self, fields, **options: asked.append(set(fields)) or original(self, fields, **options))
+    strategy.generate_signals(context)
+    # 复权因子不是必需的列，但行情里有就一起取：因子靠它识别除权除息日、计算真实收益。
+    assert {"adj_factor", "adjusted_close", "industry", "sector"} <= asked[0]
