@@ -24,7 +24,7 @@ export const CONTENT = {
       desc: '三重维度，构筑非凡体系。',
       items: [
         { num: '01', title: '微秒级交易通道', sub: '极速执行 · 高性能撮合引擎 · 每一笔指令以最低延迟抵达市场' },
-        { num: '02', title: '思想快速验证', sub: '智能策略 · 技术指标与机器学习模型 · Python 策略热加载' },
+        { num: '02', title: '思想快速验证', sub: '智能策略 · 技术指标与机器学习模型 · 规则策略免写代码' },
         { num: '03', title: '全天候安全网', sub: '风控护航 · 多层级动态风险控制 · 实时监控持仓、回撤与暴露' },
       ],
     },
@@ -33,7 +33,7 @@ export const CONTENT = {
       desc: '三种方式，开启量化之旅。',
       items: [
         { num: '01', title: '可视化回测', sub: '向量化毫秒级回测 · 20+ 绩效指标 · 资金曲线与持仓可视化', href: '/app.html?view=backtest-review' },
-        { num: '02', title: 'XTick 数据服务', sub: '官方接口动态生成表单 · 行情因子一键查询 · 导出 CSV', href: '/app.html?view=xtick-data' },
+        { num: '02', title: '本地数据中心', sub: 'BaoStock 免费行情 · 全市场含退市股 · 指数历史成分股、财务与行业数据', href: '/app.html?view=data-management' },
         { num: '03', title: '零代码策略', sub: '一句话生成结构化策略 · 六种模板 · 积木编辑器', href: '/app.html?view=strategy-studio' },
       ],
     },
@@ -50,7 +50,7 @@ export const CONTENT = {
     footer: {
       links: [
         { label: '可视化回测', href: '/app.html?view=backtest-review' },
-        { label: 'XTick 数据服务', href: '/app.html?view=xtick-data' },
+        { label: '本地数据中心', href: '/app.html?view=data-management' },
         { label: '零代码策略', href: '/app.html?view=strategy-studio' },
         { label: '因子实验室', href: '/app.html?view=factor-lab' },
         { label: 'AI 研究员', href: '/app.html?view=agent-lab' },
@@ -85,7 +85,7 @@ export const CONTENT = {
       desc: 'Three dimensions, one exceptional system.',
       items: [
         { num: '01', title: 'Microsecond Channel', sub: 'Fast execution · high-performance matching engine · every order reaches the market with minimal latency' },
-        { num: '02', title: 'Rapid Validation', sub: 'Smart strategies · technical indicators & ML models · hot-reloadable Python strategies' },
+        { num: '02', title: 'Rapid Validation', sub: 'Smart strategies · technical indicators & ML models · no-code rule strategies' },
         { num: '03', title: 'Round-the-clock Safety Net', sub: 'Risk control · multi-layer dynamic limits · real-time monitoring of positions, drawdown and exposure' },
       ],
     },
@@ -94,7 +94,7 @@ export const CONTENT = {
       desc: 'Three ways to begin your quant journey.',
       items: [
         { num: '01', title: 'Visual Backtesting', sub: 'Vectorized millisecond backtests · 20+ performance metrics · equity curve & position visualization', href: '/app.html?view=backtest-review' },
-        { num: '02', title: 'XTick Data Service', sub: 'Dynamic forms from official APIs · one-click factor queries · CSV export', href: '/app.html?view=xtick-data' },
+        { num: '02', title: 'Local Data Center', sub: 'Free BaoStock market data · whole market incl. delisted stocks · historical index members, financials and industries', href: '/app.html?view=data-management' },
         { num: '03', title: 'No-code Strategies', sub: 'Structured strategies from one sentence · six templates · block editor', href: '/app.html?view=strategy-studio' },
       ],
     },
@@ -111,7 +111,7 @@ export const CONTENT = {
     footer: {
       links: [
         { label: 'Visual Backtesting', href: '/app.html?view=backtest-review' },
-        { label: 'XTick Data Service', href: '/app.html?view=xtick-data' },
+        { label: 'Local Data Center', href: '/app.html?view=data-management' },
         { label: 'No-code Strategies', href: '/app.html?view=strategy-studio' },
         { label: 'Factor Lab', href: '/app.html?view=factor-lab' },
         { label: 'AI Researcher', href: '/app.html?view=agent-lab' },

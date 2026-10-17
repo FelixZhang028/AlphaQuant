@@ -26,6 +26,8 @@ from quant_platform.data.baostock_backfill import (
     BaoStockRangeBackfill,
     normalize_baostock_master,
 )
+from quant_platform.data.bar_gaps import stocks_missing_history
+from quant_platform.data.indicators import INDICATOR_TABLE, split_daily_indicators
 from quant_platform.data.normalizers import canonical_symbol
 from quant_platform.data.quality import inspect_daily_bars
 from quant_platform.data.repositories.parquet_repository import (
@@ -97,6 +99,12 @@ class _ProgressWatchdog:
             if self._deadline is not None:
                 self._deadline = time.monotonic() + self._timeout
 
+    def close(self) -> None:
+        """解除武装：任务结束后不再判超时（守护线程随之退出）。"""
+
+        with self._lock:
+            self._deadline = None
+
     def expired(self) -> bool:
         with self._lock:
             return (
@@ -109,6 +117,9 @@ class _ProgressWatchdog:
         interval = min(self._timeout / 10.0, 5.0)
         while True:
             time.sleep(interval)
+            with self._lock:
+                if self._deadline is None:
+                    return
             if not self.expired():
                 continue
             message = (
@@ -323,6 +334,74 @@ class FullMarketBackfill:
             "failed": failed,
             "rows_this_run": rows_this_run,
             "status_counts": status_counts,
+        }
+
+    def repair_bar_gaps(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        batch_size: int = 10,
+        progress: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        """重新下载行情不完整的股票：行情开始得比上市晚，或者完全没有行情。
+
+        要补的股票由本地数据自己算出来，不依赖断点文件；每只股票整段重新下载，
+        所以同一只股票的复权因子仍然是同一个基准。每 10 只保存一次：中途停下后
+        再运行，只剩下还没补的股票。补完后重建历史股票池和退市结算。
+        """
+
+        master = self._require_master()
+        gaps = stocks_missing_history(
+            self.market_repository.daily_bar_summary(), master, start_date, end_date
+        )
+        symbols = gaps["symbol"].tolist()
+        failed: dict[str, str] = {}
+        done: list[str] = []
+        status_counts: dict[str, int] = {}
+        rows = 0
+        if progress:
+            progress("bar_gaps", 0, len(symbols))
+        if not symbols:
+            return {"total": 0, "done": 0, "failed": failed, "rows_this_run": 0, "still_missing": []}
+        provider = self._ensure_provider()
+        provider.login()
+        frames: list[pd.DataFrame] = []
+        consecutive_failures = 0
+        try:
+            for symbol in symbols:
+                try:
+                    frame = self._range().fetch_symbol(symbol, start_date, end_date, master)
+                    consecutive_failures = 0
+                    if not frame.empty:
+                        frames.append(frame)
+                    done.append(symbol)
+                except Exception as exc:  # noqa: BLE001 - 一只失败不影响其他股票
+                    consecutive_failures += 1
+                    failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]
+                    logger.warning("补全行情失败：%s（%s）", symbol, exc)
+                    if consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
+                        break
+                if len(frames) >= batch_size:
+                    rows += self._flush_bars(frames, status_counts)
+                    frames = []
+                if progress:
+                    progress("bar_gaps", len(done) + len(failed), len(symbols))
+            rows += self._flush_bars(frames, status_counts)
+        finally:
+            provider.close()
+        if rows:
+            self.build_universe_membership()
+            self.build_delisting_settlements()
+        remaining = stocks_missing_history(
+            self.market_repository.daily_bar_summary(), master, start_date, end_date
+        )
+        return {
+            "total": len(symbols),
+            "done": len(done),
+            "failed": failed,
+            "rows_this_run": rows,
+            "still_missing": remaining["symbol"].tolist(),
         }
 
     # ── 步骤 3：全市场分红送配（AkShare 分批 + 断点续传） ───────────────
@@ -765,6 +844,7 @@ class FullMarketBackfill:
         if not frames:
             return 0
         daily = pd.concat(frames, ignore_index=True).sort_values(["trade_date", "symbol"])
+        daily, indicators = split_daily_indicators(daily, "baostock")
         report = inspect_daily_bars(daily)
         for key, value in report.status_counts.items():
             status_counts[key] = status_counts.get(key, 0) + int(value)
@@ -778,4 +858,5 @@ class FullMarketBackfill:
         )
         self.market_repository.save_table("trade_calendar", calendar)
         self.market_repository.save_table("daily_bars", daily)
+        self.market_repository.save_table(INDICATOR_TABLE, indicators)
         return len(daily)

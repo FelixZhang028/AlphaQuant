@@ -34,3 +34,9 @@ landing/temp_img_small.jpg
 landing/40a470b69105efe2f9ea458436c12225.jpg
 landing/promo_video.mp4
 *.bak.js
+# Local outputs, scratch files and tool state
+outputs/
+tmp/
+.claude/
+landing/.vite/
+pytest_out.txt

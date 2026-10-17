@@ -1,9 +1,9 @@
-name: FellowQuant v4 checks
+name: FellowQuant checks
 on:
   push:
-    branches: [fellowquant_v4]
+    branches: [main, fellowquant_v4, fq-v5]
   pull_request:
-    branches: [fellowquant_v4]
+    branches: [main, fellowquant_v4, fq-v5]
 permissions:
   contents: read
 jobs:
@@ -36,4 +36,6 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
       - run: npm ci
+      - if: matrix.directory == 'landing'
+        run: node --test tests/*.test.js
       - run: npm run build

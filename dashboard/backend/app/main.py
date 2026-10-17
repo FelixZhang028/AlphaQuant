@@ -10,27 +10,44 @@ WebSocket：ws://localhost:8000/ws/dashboard
 """
 import logging
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .database import init_db
+from .quant.daily_schedule import DailyScheduler
 from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
 from .routes.auth import router as auth_router
 from .routes.backtests import router as backtests_router
 from .routes.stats import router as stats_router
 from .routes.strategies import router as strategies_router
+from .routes.workspace import _data_jobs
 from .routes.workspace import router as workspace_router
 from .ws import router as ws_router
 
 logger = logging.getLogger("uvicorn.error")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）。
+    scheduler = DailyScheduler(_data_jobs())
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
+
+
 app = FastAPI(
     title="智投引擎 · 后端",
     description="为官网/功能台/管理后台提供认证与实时监控数据（当前业务指标为模拟数据，可替换为真实数据源）",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 
@@ -54,6 +71,18 @@ def _sanitize_error(exc: Exception) -> str:
     if not text or len(text) < 2:
         return "服务器内部错误，请稍后重试"
     return text
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """参数校验失败：不返回 pydantic 的英文/代码层细节，统一友好提示。"""
+    # Pydantic errors include raw input, which can contain passwords and API keys.
+    fields = [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()[:3]]
+    logger.info("Validation error on %s %s: %s", request.method, request.url.path, fields)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "请求参数不正确，请检查输入后重试"},
+    )
 
 
 @app.exception_handler(Exception)

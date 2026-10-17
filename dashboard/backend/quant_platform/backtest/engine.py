@@ -10,9 +10,11 @@ from uuid import uuid4
 import pandas as pd
 
 from quant_platform.accounts.account import Account
+from quant_platform.accounts.models import CorporateAction
 from quant_platform.backtest.analytics import analyze_backtest
 from quant_platform.backtest.result import BacktestResult
 from quant_platform.backtest.validity import assess_backtest_validity
+from quant_platform.core import deadline
 from quant_platform.core.exceptions import BacktestValidityError
 from quant_platform.data.corporate_actions import load_corporate_actions
 from quant_platform.data.interfaces import MarketDataRepository
@@ -30,6 +32,7 @@ from quant_platform.risk.basic_rules import (
 )
 from quant_platform.risk.config import RiskLimits
 from quant_platform.signals.models import Signal
+from quant_platform.data.extras import extra_columns, require_extra_data
 from quant_platform.strategies.base import Strategy
 from quant_platform.strategies.context import StrategyContext
 from quant_platform.universe.base import Universe
@@ -108,13 +111,19 @@ class BacktestEngine:
             if not universe_symbols:
                 raise BacktestValidityError("回测区间内没有可验证的历史成分")
         load_start = self._warmup_start_date(start_date)
+        # 策略用到估值、换手率或财务数据时，把这几列接到行情上。
+        extra = extra_columns(
+            set(self.strategy.required_fields) | set(getattr(self.strategy, "data_fields", ()))
+        )
         bars = self.repository.get_daily_bars(
             symbols=list(universe_symbols) if universe_symbols else None,
             start_date=load_start,
             end_date=end_date,
+            **({"extras": extra} if extra else {}),
         )
         if bars.empty:
             raise ValueError("No daily bars available for backtest")
+        require_extra_data(bars, extra)
         bars["trade_date"] = pd.to_datetime(bars["trade_date"]).dt.normalize()
         bars = bars.sort_values("trade_date").reset_index(drop=True)
         master = self.repository.read_table("security_master")
@@ -129,9 +138,16 @@ class BacktestEngine:
         if not self.fixed_universe:
             absent = set(universe_symbols) - set(bars.symbol)
             if absent:
+                names = "、".join(sorted(absent)[:10]) + ("等" if len(absent) > 10 else "")
                 raise BacktestValidityError(
-                    f"历史成分缺少行情（不可删除后继续回测）：{sorted(absent)}"
+                    f"这段时间的成分股里有 {len(absent)} 只在本地完全没有行情：{names}。"
+                    "去掉它们再回测会让结果偏高，所以没有运行。请先下载这些股票的行情，或者换一个不包含它们的回测区间。"
                 )
+        members_missing_bars = (
+            self.universe.members_missing_bars(bars, start_date, end_date)
+            if hasattr(self.universe, "members_missing_bars")
+            else []
+        )
         if hasattr(self.universe, "prepare"):
             self.universe.prepare(bars)
         # Opening capacity is capped by prior observed daily volume AND today's
@@ -192,8 +208,11 @@ class BacktestEngine:
         risk_rows: list[dict[str, object]] = []
 
         missing_adj_factor_events = 0
+        implied_actions: list[dict[str, object]] = []
+        risk_interventions: list[dict[str, object]] = []
         unobserved_action_symbols: set[str] = set()
         for index, trade_date in enumerate(dates):
+            deadline.check()  # 网页请求有时间限制：超时就在两个交易日之间停下
             account.start_day(trade_date)
             for symbol in list(account.positions):
                 delisted = delist_dates.get(symbol)
@@ -223,9 +242,19 @@ class BacktestEngine:
                     and not isclose(previous, current, rel_tol=1e-7)
                     and symbol not in unobserved_action_symbols
                 ):
-                    raise BacktestValidityError(
-                        f"MISSING_CORPORATE_ACTION: {symbol} {trade_date} 复权因子变化，"
-                        "缺少分红/送转明细，不能用复权价格代替现金结算"
+                    # 没有分红送转记录（多半是配股）：按复权因子推算成现金，并在结果里写明。
+                    # 因子变大 r 倍，相当于除权前的价格里有 1 - 1/r 是派给股东的价值。
+                    close = last_closing_prices.get(symbol)
+                    ratio = current / previous
+                    if ratio <= 1 or close is None or not isfinite(close) or close <= 0:
+                        raise BacktestValidityError(
+                            f"MISSING_CORPORATE_ACTION: {symbol} {trade_date} 复权因子变小或缺少前一天的收盘价，"
+                            "又没有分红送转记录，无法推算持仓的变化，所以没有继续回测。"
+                        )
+                    cash = close * (1 - 1 / ratio)
+                    day_actions = [*day_actions, CorporateAction(symbol=symbol, ex_date=trade_date, cash_per_share=cash)]
+                    implied_actions.append(
+                        {"symbol": symbol, "ex_date": trade_date, "ratio": ratio, "cash_per_share": cash}
                     )
             unobserved_action_symbols.difference_update(day_factors)
             todays_orders = pending.pop(trade_date, [])
@@ -350,7 +379,17 @@ class BacktestEngine:
                 )
                 pending[next_date] = corrective_orders
                 continue
-            if daily_risk.action == PortfolioRiskAction.STOP_NEW:
+            # 回撤停止线的「停止新开仓」交给下面的目标检查：不买新股票，但已有持仓照常卖出或减少，
+            # 否则持仓会一直冻结。单日亏损等其他原因的暂停仍然跳过这一天，并记下来。
+            drawdown_stop = (
+                self.risk_limits.drawdown_action == "stop_new"
+                and snapshot.drawdown <= -self.risk_limits.max_drawdown
+            )
+            if daily_risk.action == PortfolioRiskAction.STOP_NEW and not drawdown_stop:
+                if trade_date in rebalance_dates and index + 1 < len(dates):
+                    risk_interventions.append(
+                        {"trade_date": trade_date, "decision": "REJECT", "reasons": daily_risk.reasons}
+                    )
                 continue
 
             if trade_date not in rebalance_dates or index + 1 >= len(dates):
@@ -377,13 +416,19 @@ class BacktestEngine:
                     reference=TargetPosition(self.strategy.strategy_id, trade_date, "", 0),
                 )
             all_signals.extend(signals)
-            all_targets.extend(targets)
             evaluation = evaluate_target_risk(
                 targets,
                 self.risk_limits,
                 current_drawdown=snapshot.drawdown,
                 industry_map=industry_map,
+                current_weights=weights,
             )
+            # 记下真正用来下单的目标：调整过的用调整后的；被拒绝的仍记策略原来的目标，方便核对。
+            all_targets.extend(evaluation.targets if evaluation.decision != RiskDecision.REJECT else targets)
+            if evaluation.decision != RiskDecision.PASS:
+                risk_interventions.append(
+                    {"trade_date": trade_date, "decision": evaluation.decision.value, "reasons": evaluation.reasons}
+                )
             risk_rows.append(
                 {
                     "trade_date": trade_date,
@@ -400,8 +445,9 @@ class BacktestEngine:
                     "current_drawdown": evaluation.current_drawdown,
                 }
             )
-            if evaluation.decision != RiskDecision.PASS:
+            if evaluation.decision == RiskDecision.REJECT:
                 continue
+            targets = list(evaluation.targets)
             next_date = dates[index + 1]
             orders = self.order_generator.generate(
                 targets=targets,
@@ -444,6 +490,9 @@ class BacktestEngine:
             missing_adj_factor_rows=missing_adj_factor_events,
             evaluation_mode=self.evaluation_mode,
             fixed_universe=self.fixed_universe,
+            members_missing_bars=members_missing_bars,
+            implied_actions=implied_actions,
+            risk_interventions=risk_interventions,
         )
         if validity.blocks_completion:
             errors = "；".join(
@@ -500,7 +549,11 @@ class BacktestEngine:
             risk_events=risk_frame,
             summary=analytics.summary,
             validity=validity.to_dict(),
-            corporate_actions=pd.DataFrame([asdict(action) for action in corporate_actions]),
+            # 推算出来的那几次也写进运行明细，标明来源，方便核对。
+            corporate_actions=pd.DataFrame(
+                [{**asdict(action), "source": "record"} for action in corporate_actions]
+                + [{**item, "source": "implied_from_adj_factor"} for item in implied_actions]
+            ),
         )
 
     @staticmethod

@@ -20,6 +20,7 @@ from typing import Any
 
 from quant_platform.application.backtest_service import BacktestService
 from quant_platform.application.data_service import DataCenterService
+from quant_platform.core.config import load_yaml, require_mapping
 from quant_platform.data.repositories.parquet_repository import (
     ParquetMarketDataRepository,
 )
@@ -31,7 +32,6 @@ from quant_platform.factors.evaluation import FactorEvaluator
 from quant_platform.factors.registry import FactorRegistry
 from quant_platform.risk.config import RiskLimits
 from quant_platform.strategies.discovery import StrategyCatalog
-from quant_platform.user_strategies.loader import UserStrategyLoader
 
 from ..database import get_conn
 from .symbols import to_canonical
@@ -99,15 +99,7 @@ def local_market_ready() -> bool:
 def local_data_bounds() -> tuple[date, date] | None:
     """本地 daily_bars 的 (最早, 最晚) 交易日；无数据时返回 None。"""
 
-    bars = market_repository().read_table("daily_bars")
-    if bars.empty:
-        return None
-    import pandas as pd
-
-    dates = pd.to_datetime(bars["trade_date"], errors="coerce").dropna()
-    if dates.empty:
-        return None
-    return dates.min().date(), dates.max().date()
+    return market_repository().daily_bar_bounds()
 
 
 # --------------------------------------------------------------------------- #
@@ -131,6 +123,16 @@ def _user_universe(user_id: int) -> tuple[list[str], dict[str, Any]]:
         "minimum_average_amount": row["minimum_average_amount"],
     }
     return symbols, filters
+
+
+def default_universe_settings() -> tuple[list[str], dict[str, Any]]:
+    """未保存股票池时，页面沿用回测与数据服务使用的配置默认值。"""
+
+    app = load_yaml(CONFIG_PATH)
+    config = load_yaml(_abs(require_mapping(app, "universe")["config"]))
+    universe = require_mapping(config, "universe")
+    symbols = [to_canonical(str(symbol)) for symbol in universe.get("symbols", [])]
+    return symbols, dict(universe.get("filters") or {})
 
 
 def user_universe_symbols(user_id: int) -> list[str]:
@@ -158,39 +160,13 @@ def user_risk_limits(user_id: int) -> RiskLimits:
     )
 
 
-def _register_user_strategies(catalog: StrategyCatalog, user_id: int) -> list[str]:
-    """把该用户保存在 SQLite 的自定义策略注册进 catalog，返回错误信息列表。"""
-
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT plugin_name, code FROM user_strategies WHERE user_id = ?",
-            (user_id,),
-        ).fetchall()
-    errors: list[str] = []
-    loader = UserStrategyLoader()
-    for row in rows:
-        try:
-            result = loader.load_source(row["code"], label=row["plugin_name"])
-        except Exception as exc:  # noqa: BLE001 - 单个策略失败不应阻塞服务
-            errors.append(f"{row['plugin_name']}: {exc}")
-            continue
-        if result.strategies:
-            try:
-                catalog.register_classes(result.strategies)
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{row['plugin_name']}: {exc}")
-        for _, message in result.errors:
-            errors.append(f"{row['plugin_name']}: {message}")
-    return errors
-
-
 # --------------------------------------------------------------------------- #
 # 服务工厂
 # --------------------------------------------------------------------------- #
 
 
 def build_backtest_service(user: dict) -> BacktestService:
-    """构造注入了该用户 universe / 自定义策略的回测服务（每请求轻量实例）。"""
+    """构造注入了该用户股票池的回测服务（每请求轻量实例）。"""
 
     with _backend_cwd():
         catalog = StrategyCatalog()
@@ -210,10 +186,6 @@ def build_backtest_service(user: dict) -> BacktestService:
             merged = dict(universe_section.get("filters") or {})
             merged.update(filters)
             universe_section["filters"] = merged
-
-    service.user_strategy_errors = tuple(
-        (message,) for message in _register_user_strategies(catalog, user["id"])
-    )
     return service
 
 

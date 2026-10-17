@@ -4,6 +4,7 @@ import { weknoraChat, weknoraKnowledgeBases, weknoraQuery, weknoraSaveSettings, 
 import SectionCard from '../ui/SectionCard.vue'
 
 const props = defineProps({
+  embedded: { type: Boolean, default: false },
   settingsOnly: { type: Boolean, default: false },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
@@ -126,13 +127,14 @@ async function doQuery() {
 
 <template>
   <div class="space-y-5">
-    <div>
-      <h1 class="text-2xl font-semibold text-white">知识库问答</h1>
+    <div v-if="!embedded && !settingsOnly" class="glass glass-sheen rounded-2xl p-6">
+      <h2 class="text-xl font-bold text-white">文档问答</h2>
       <p class="mt-1 text-sm text-slate-400">
-        基于 WeKnora RAG 知识库的检索增强问答。未配置 WeKnora 服务时自动使用离线演示数据。
+        选择文档知识库进行问答或检索，并核对引用来源。
       </p>
     </div>
 
+    <p v-if="embedded" class="text-sm text-slate-400">从已接入的文档知识库中问答与检索；研究经验在另一个标签中单独维护。</p>
     <!-- Config status -->
     <div
       :class="[
@@ -144,13 +146,13 @@ async function doQuery() {
     >
       <div class="flex items-center gap-2">
         <span class="inline-block h-2 w-2 rounded-full" :class="configured ? 'bg-emerald-400' : 'bg-amber-400'" />
-        {{ connectionError ? '服务连接失败，请检查配置' : configured ? 'WeKnora 服务已配置' : '演示模式：未配置 WeKnora 服务地址' }}
+        {{ connectionError ? '服务连接失败，请检查配置' : configured ? '文档服务已配置' : '演示模式：尚未连接文档服务，显示示例资料与回答' }}
       </div>
       <button
         @click="showConfig = !showConfig"
         class="rounded-md border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/5"
       >
-        {{ showConfig ? '收起' : '配置' }}
+        {{ showConfig ? '收起配置' : '服务配置' }}
       </button>
     </div>
 
@@ -293,7 +295,7 @@ async function doQuery() {
             />
           </div>
           <div class="w-28">
-            <label class="mb-1.5 block text-xs font-medium text-slate-400">Top-K</label>
+            <label class="mb-1.5 block text-xs font-medium text-slate-400">返回条数</label>
             <input
               v-model.number="topK"
               type="number"

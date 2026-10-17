@@ -1,5 +1,10 @@
 // 后端 API 封装（FastAPI，默认 http://127.0.0.1:8000）
 // 可用环境变量 VITE_API_BASE 覆盖
+import { checkSavedSession } from './sessionState.js'
+import { sanitizeError } from './errorMessage.js'
+
+export { sanitizeError }
+
 export const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const TOKEN_KEY = 'zt_token'
@@ -22,41 +27,6 @@ export function getLocalUser() {
   } catch {
     return null
   }
-}
-
-/**
- * 清洗后端返回的错误信息，去除技术细节（traceback、异常类名、文件路径），
- * 只保留用户可读的中文提示。
- */
-export function sanitizeError(raw) {
-  if (!raw) return '请求失败，请稍后重试'
-  let msg = String(raw).trim()
-  // 去除 Python traceback 前缀，只保留最后一行有意义的消息
-  if (msg.includes('Traceback (most recent call last):')) {
-    const lines = msg.split('\n').filter((l) => l.trim() && !l.startsWith('Traceback'))
-    // 找最后一行不含 File/line/in 的
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim()
-      if (line && !line.startsWith('File "') && !line.startsWith('  ')) {
-        msg = line
-        break
-      }
-    }
-  }
-  // 去除 Python 异常类名前缀：ValueError: xxx / KeyError: xxx / Exception: xxx
-  msg = msg.replace(/^(?:[A-Z]\w*(?:Error|Exception|Warning|Interrupt)|[A-Z]\w*Error):\s*/i, '')
-  // 去除引擎错误码前缀：MISSING_CORPORATE_ACTION: xxx / INVALID_DATE: xxx
-  msg = msg.replace(/^[A-Z][A-Z_]{2,}:\s*/, '')
-  // 去除文件路径和行号：xxx.py:123 / File "xxx.py", line 123
-  msg = msg.replace(/File ["'][^"']+["'],\s*line\s*\d+[^)]*/g, '').trim()
-  msg = msg.replace(/[\w./\\-]+\.py:\d+:\s*/g, '').trim()
-  // 去除残留的英文技术短语
-  msg = msg.replace(/^KeyError:\s*['"]?/i, '').trim()
-  // 如果清洗后为空或全是英文技术内容，用通用提示
-  if (!msg || msg.length < 2 || /^[\W_]+$/.test(msg)) {
-    return '请求失败，请稍后重试'
-  }
-  return msg
 }
 
 async function request(path, { method = 'GET', body, auth = false } = {}) {
@@ -101,6 +71,15 @@ export async function login({ email, password }) {
 export function me() {
   return request('/api/v1/auth/me', { auth: true })
 }
+export async function restoreSession() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const session = await checkSavedSession({ readToken: getToken, fetchUser: me, clear: clearSession })
+    if (session.status === 'changed') continue
+    if (session.status === 'authenticated') localStorage.setItem(USER_KEY, JSON.stringify(session.user))
+    return session
+  }
+  return { status: 'unavailable', user: null, error: new Error('登录状态正在变化，请重试') }
+}
 export function forgotRequest({ name, email }) {
   return request('/api/v1/auth/forgot/request', { method: 'POST', body: { name, email } })
 }
@@ -129,8 +108,14 @@ export function deleteStrategy(id) {
 export function submitBacktest(payload) {
   return request('/api/v1/backtests', { method: 'POST', body: payload, auth: true })
 }
-export function listBacktests() {
-  return request('/api/v1/backtests', { auth: true })
+export function getBacktestBenchmark(id, symbol) {
+  return request(`/api/v1/backtests/${id}/benchmark?${new URLSearchParams({ symbol })}`, { auth: true })
+}
+export function getBacktestReview(id) {
+  return request(`/api/v1/backtests/${id}/ai-review`, { auth: true })
+}
+export function runBacktestReview(id) {
+  return request(`/api/v1/backtests/${id}/ai-review`, { method: 'POST', auth: true })
 }
 export function getBacktest(id) {
   return request(`/api/v1/backtests/${id}`, { auth: true })
@@ -160,9 +145,6 @@ export function deletePackage(id) {
 export function preflightPackage(payload) {
   return request('/api/v1/packages/preflight', { method: 'POST', body: payload, auth: true })
 }
-export function packageRiskScore(id) {
-  return request(`/api/v1/packages/${id}/risk-score`, { auth: true })
-}
 export function backtestPackage(id, payload) {
   return request(`/api/v1/packages/${id}/backtest`, { method: 'POST', body: payload || {}, auth: true })
 }
@@ -171,25 +153,11 @@ export function studioOptions() {
 }
 
 // ---- 自然语言建策略 ----
-export function nlProviders() {
-  return request('/api/v1/nl/providers', { auth: true })
+export function nlStatus() {
+  return request('/api/v1/nl/status', { auth: true })
 }
 export function nlGenerate(payload) {
   return request('/api/v1/nl/generate', { method: 'POST', body: payload, auth: true })
-}
-
-// ---- 自定义策略（Python）----
-export function previewUserStrategy(payload) {
-  return request('/api/v1/user-strategies/preview', { method: 'POST', body: payload, auth: true })
-}
-export function saveUserStrategy(payload) {
-  return request('/api/v1/user-strategies', { method: 'POST', body: payload, auth: true })
-}
-export function listUserStrategies() {
-  return request('/api/v1/user-strategies', { auth: true })
-}
-export function deleteUserStrategy(name) {
-  return request(`/api/v1/user-strategies/${name}`, { method: 'DELETE', auth: true })
 }
 
 // ---- 因子研究室 ----
@@ -198,6 +166,9 @@ export function listFactors() {
 }
 export function evaluateFactor(payload) {
   return request('/api/v1/factors/evaluate', { method: 'POST', body: payload, auth: true })
+}
+export function factorUniverses() {
+  return request('/api/v1/factors/universes', { auth: true })
 }
 export function compositeFactors(payload) {
   return request('/api/v1/factors/composite', { method: 'POST', body: payload, auth: true })
@@ -212,18 +183,33 @@ export function deleteCustomFactor(name) {
   return request(`/api/v1/factors/custom/${name}`, { method: 'DELETE', auth: true })
 }
 
-// ---- 智能体分析台 ----
-export function agentConfig() {
-  return request('/api/v1/agent-lab/config', { auth: true })
+// ---- AI 研究员 ----
+export function aiStatus() {
+  return request('/api/v1/agent-lab/status', { auth: true })
 }
-export function saveAgentConfig(payload) {
-  return request('/api/v1/agent-lab/config', { method: 'POST', body: payload, auth: true })
+export function createBrief(payload) {
+  return request('/api/v1/agent-lab/briefs', { method: 'POST', body: payload, auth: true })
 }
-export function runAgent(payload) {
-  return request('/api/v1/agent-lab/run', { method: 'POST', body: payload, auth: true })
+export function readBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}/reading`, { method: 'POST', auth: true })
 }
-export function battleAgent(payload) {
-  return request('/api/v1/agent-lab/battle', { method: 'POST', body: payload, auth: true })
+export function decideBrief(id, { upgrade = false } = {}) {
+  return request(`/api/v1/agent-lab/briefs/${id}/decision${upgrade ? '?upgrade=true' : ''}`, { method: 'POST', auth: true })
+}
+export function deleteBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}`, { method: 'DELETE', auth: true })
+}
+export function getBrief(id) {
+  return request(`/api/v1/agent-lab/briefs/${id}`, { auth: true })
+}
+export function listBriefs() {
+  return request('/api/v1/agent-lab/briefs', { auth: true })
+}
+export function askBrief(id, message) {
+  return request(`/api/v1/agent-lab/briefs/${id}/questions`, { method: 'POST', body: { message }, auth: true })
+}
+export function listPriorKnowledge() {
+  return request('/api/v1/agent-lab/prior-knowledge', { auth: true })
 }
 export function addPriorKnowledge(payload) {
   return request('/api/v1/agent-lab/prior-knowledge', { method: 'POST', body: payload, auth: true })
@@ -256,6 +242,12 @@ export function compareRuns(runIds) {
 export function listAuditRuns() {
   return request('/api/v1/runs/audit', { auth: true })
 }
+export function runTradedSymbols(runId) {
+  return request(`/api/v1/runs/${encodeURIComponent(runId)}/trades`, { auth: true })
+}
+export function runSymbolTrades(runId, symbol) {
+  return request(`/api/v1/runs/${encodeURIComponent(runId)}/trades/${encodeURIComponent(symbol)}`, { auth: true })
+}
 export function getRunAudit(runId) {
   return request(`/api/v1/runs/${runId}/audit`, { auth: true })
 }
@@ -275,8 +267,33 @@ export function forensicsCheck(payload) {
 export function dataOverview() {
   return request('/api/v1/data-center/overview', { auth: true })
 }
+export function localMarketList(params = {}) {
+  return request(`/api/v1/data-center/market?${new URLSearchParams(params)}`, { auth: true })
+}
+export function localMarketDetail(symbol) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}`, { auth: true })
+}
+export function localMarketBars(symbol, adjust = 'forward') {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/bars?${new URLSearchParams({ adjust })}`, { auth: true })
+}
+export function chartDrawings(symbol) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/drawings`, { auth: true })
+}
+export function saveChartDrawings(symbol, drawings) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/drawings`, { method: 'PUT', body: { drawings }, auth: true })
+}
+export function updateLocalStock(symbol, payload) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/update`, { method: 'POST', body: payload, auth: true })
+}
 export function dataUpdate(payload) {
   return request('/api/v1/data-center/update', { method: 'POST', body: payload, auth: true })
+}
+// 每天自动更新：状态所有人可看，现在运行只有管理员。
+export function dailyUpdateStatus() {
+  return request('/api/v1/data-center/daily-update', { auth: true })
+}
+export function runDailyUpdate() {
+  return request('/api/v1/data-center/daily-update/run', { method: 'POST', body: {}, auth: true })
 }
 export function dataJobs() {
   return request('/api/v1/data-center/jobs', { auth: true })
@@ -314,9 +331,6 @@ export function getRisk() {
 }
 export function saveRisk(payload) {
   return request('/api/v1/risk', { method: 'PUT', body: payload, auth: true })
-}
-export function riskEvents() {
-  return request('/api/v1/risk/events', { auth: true })
 }
 
 // ---- 股票池管理 ----
@@ -358,5 +372,8 @@ export function weknoraQuery(payload) {
   return request('/api/v1/weknora/query', { method: 'POST', body: payload, auth: true })
 }
 
-export function jevSettings() { return request('/api/v1/jev/settings', { auth: true }) }
-export function jevSaveSettings(payload) { return request('/api/v1/jev/settings', { method: 'POST', body: payload, auth: true }) }
+export function jevStatus() { return request('/api/v1/jev/status', { auth: true }) }
+
+export function getBacktestCatalog() {
+  return request('/api/v1/backtests/catalog', { auth: true })
+}

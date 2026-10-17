@@ -7,8 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import database, security
-from app.routes import auth, agent_lab, workspace
-from quant_platform.agents_bridge.llm_settings import LLMSettingsStore
+from app.routes import auth, workspace
 
 
 @pytest.fixture
@@ -87,39 +86,39 @@ def test_local_secret_is_random_persistent_and_env_overridable(tmp_path, monkeyp
     assert security._load_secret() == 'configured-secret'
 
 
-def test_llm_settings_update_without_reentering_key(tmp_path, monkeypatch):
-    store = LLMSettingsStore(tmp_path / 'llm.json')
-    monkeypatch.setattr(agent_lab, '_llm_store', lambda _: store)
-    store.save('custom', base_url='http://old/v1', api_key='existing-key', model='old')
-    agent_lab.agent_config_save(agent_lab.ProviderSaveIn(provider='custom', base_url='http://new/v1', model='new'), {'id': 1})
-    assert store.get('custom') == {'base_url': 'http://new/v1', 'api_key': 'existing-key', 'model': 'new'}
-    agent_lab.agent_config_save(agent_lab.ProviderSaveIn(provider='ollama', base_url='http://localhost:11434/v1', model='qwen2.5:7b'), {'id': 1})
-    assert store.get('ollama')['model'] == 'qwen2.5:7b'
-
-
-def test_decision_provider_is_not_offered_as_chat_model(tmp_path, monkeypatch):
-    store = LLMSettingsStore(tmp_path / 'llm.json')
-    monkeypatch.setattr(workspace, '_llm_store', lambda _: store)
-    assert 'openrouter' not in [p['key'] for p in workspace.nl_providers({'id': 1})['providers']]
-    with pytest.raises(Exception) as exc:
-        workspace.nl_generate(workspace.NlGenerateIn(description='动量策略', provider='openrouter'), {'id': 1})
-    assert exc.value.status_code == 422
-
-
-def test_nl_generation_honors_page_configuration(tmp_path, monkeypatch):
-    store = LLMSettingsStore(tmp_path / 'llm.json')
-    monkeypatch.setattr(workspace, '_llm_store', lambda _: store)
+def test_nl_generation_uses_the_platform_model_and_counts_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, 'DB_PATH', str(tmp_path / 'app.db'))
+    database.init_db()
+    with database.get_conn() as conn:
+        conn.execute("INSERT INTO users (id, name, email, password_hash, salt, created_at) VALUES (1, 'u', 'u@example.test', 'h', 's', 'now')")
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'platform-key')
+    monkeypatch.setenv('FELLOWQUANT_AI_DAILY_STRATEGIES', '1')
     definition = MagicMock()
     definition.minimum_history_days = 20
     monkeypatch.setattr(workspace, 'definition_to_frontend', lambda _: {})
     monkeypatch.setattr(workspace, 'definition_explanation', lambda *a, **kw: 'generated')
-    with patch.object(workspace, 'create_llm_client') as create, \
-         patch.object(workspace, 'NLStrategyBuilder') as builder:
+    user = {'id': 1, 'is_admin': False}
+    with patch.object(workspace, 'NLStrategyBuilder') as builder:
         builder.return_value.generate.return_value = definition
-        result = workspace.nl_generate(workspace.NlGenerateIn(description='动量策略', provider='custom',
-                                        base_url='http://localhost:1234/v1', api_key='request-only-key', model='custom-model'), {'id': 1})
-    assert result['minimum_history_days'] == 20
-    assert create.call_args.kwargs['api_key'] == 'request-only-key'
-    assert create.call_args.kwargs['model'] == 'custom-model'
-    assert create.call_args.kwargs['base_url'] == 'http://localhost:1234/v1'
-    assert store.get('custom')['api_key'] == ''
+        first = workspace.nl_generate(workspace.NlGenerateIn(description='动量策略'), user)
+        client = builder.call_args.args[0]
+        assert client.api_key == 'platform-key' and client.base_url == 'https://openrouter.ai/api/v1'
+        assert first['model'] == 'deepseek-v4-pro' and first['note'] == ''
+        # 次数用完：改用离线规则识别，并说明原因
+        second = workspace.nl_generate(workspace.NlGenerateIn(description='动量策略'), user)
+        assert builder.call_args.args[0].name == 'mock'
+        assert second['model'] is None and '用完' in second['note']
+    assert workspace.nl_status(user)['usage'] == {'limit': 1, 'used': 1, 'remaining': 0}
+
+
+def test_nl_generation_without_a_platform_model_is_offline(monkeypatch):
+    for name in ('OPENROUTER_API_KEY', 'FELLOWQUANT_AI_API_KEY'):
+        monkeypatch.delenv(name, raising=False)
+    definition = MagicMock()
+    definition.minimum_history_days = 20
+    monkeypatch.setattr(workspace, 'definition_to_frontend', lambda _: {})
+    monkeypatch.setattr(workspace, 'definition_explanation', lambda *a, **kw: 'generated')
+    with patch.object(workspace, 'NLStrategyBuilder') as builder:
+        builder.return_value.generate.return_value = definition
+        result = workspace.nl_generate(workspace.NlGenerateIn(description='动量策略'), {'id': 1})
+    assert builder.call_args.args[0].name == 'mock' and result['model'] is None

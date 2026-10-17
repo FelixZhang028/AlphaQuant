@@ -11,7 +11,9 @@ const props = defineProps({
   notify: { type: Function, default: () => {} },
 })
 
-const loading = ref(false)
+const loading = ref(true)
+const loadError = ref('')
+const showDataDetails = ref(false)
 const universe = ref({ symbols: [], filters: {}, description: [] })
 
 // ---------- 过滤设置表单（与后端 filters 结构对齐） ----------
@@ -25,6 +27,7 @@ const filters = reactive({
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const data = await getUniverse()
     universe.value = data
@@ -35,6 +38,7 @@ async function load() {
     filters.minimum_history_days = f.minimum_history_days ?? 0
     filters.minimum_average_amount = f.minimum_average_amount ?? 0
   } catch (e) {
+    loadError.value = e.message || '读取股票池失败'
     props.notify(e.message || '加载失败')
   } finally {
     loading.value = false
@@ -47,36 +51,36 @@ const metrics = computed(() => {
   const withLocal = desc.filter((d) => (d.local_rows || 0) > 0).length
   const withoutLocal = desc.filter((d) => (d.local_rows || 0) === 0).length
   return [
-    { label: '股票数量', value: (universe.value.symbols || []).length, sub: '当前股票池', tone: 'text-indigo-300' },
-    { label: '已有本地行情', value: withLocal, sub: 'local_rows > 0', tone: 'text-emerald-300' },
-    { label: '尚未下载行情', value: withoutLocal, sub: '待数据更新', tone: 'text-amber-300' },
+    { label: '股票数量', value: loading.value || loadError.value ? '—' : (universe.value.symbols || []).length, sub: '当前股票池', tone: 'text-indigo-300' },
+    { label: '已有本地行情', value: loading.value || loadError.value ? '—' : withLocal, sub: '至少保存一条行情，区间见明细', tone: 'text-emerald-300' },
+    { label: '尚未下载行情', value: loading.value || loadError.value ? '—' : withoutLocal, sub: '待数据更新', tone: 'text-amber-300' },
   ]
 })
 
 // ---------- 当前股票池表格 ----------
-const tableCols = [
+const detailCols = [
   { key: 'symbol', label: '代码' },
   { key: 'name', label: '名称' },
   { key: 'local_rows', label: '本地记录数', align: 'right' },
   { key: 'start_date', label: '开始日期' },
   { key: 'end_date', label: '结束日期' },
 ]
+const tableCols = computed(() => [...(showDataDetails.value ? detailCols : [
+  { key: 'symbol', label: '代码' },
+  { key: 'name', label: '名称' },
+  { key: 'data_status', label: '行情数据' },
+]), { key: 'actions', label: '操作', align: 'right' }])
 
 const tableRows = computed(() =>
   (universe.value.description || []).map((d) => ({
     symbol: d.symbol,
     name: d.name || '—',
+    data_status: Number(d.local_rows) > 0 ? '已有行情' : '待更新',
     local_rows: d.local_rows ?? 0,
     start_date: d.start_date || '—',
     end_date: d.end_date || '—',
   }))
 )
-
-const nameMap = computed(() => {
-  const m = {}
-  for (const d of universe.value.description || []) m[d.symbol] = d.name
-  return m
-})
 
 // ---------- 添加股票（多代码文本） ----------
 const addText = ref('')
@@ -160,31 +164,22 @@ async function addSelectedSearch() {
 }
 
 // ---------- 移除股票 ----------
-const selectedRemove = ref([])
-const confirmRemove = ref(false)
-const removing = ref(false)
+const removingSymbol = ref('')
+const pendingRemoval = ref('')
 
-function toggleRemove(symbol) {
-  const i = selectedRemove.value.indexOf(symbol)
-  if (i >= 0) selectedRemove.value.splice(i, 1)
-  else selectedRemove.value.push(symbol)
-}
-
-async function removeSelected() {
-  if (!selectedRemove.value.length) return props.notify('请先选择要移除的股票')
-  if (!confirmRemove.value) return props.notify('请先勾选确认移除')
-  if (!confirm(`确定从股票池移除 ${selectedRemove.value.length} 只股票？`)) return
-  removing.value = true
+async function removeStock(row) {
+  if (removingSymbol.value || adding.value || loading.value) return
+  if (pendingRemoval.value !== row.symbol) return
+  removingSymbol.value = row.symbol
   try {
-    const res = await universeRemove(selectedRemove.value)
+    const res = await universeRemove([row.symbol])
     props.notify(`已移除 ${res.count} 只股票`)
-    selectedRemove.value = []
-    confirmRemove.value = false
+    pendingRemoval.value = ''
     await load()
   } catch (e) {
     props.notify(e.message || '移除失败')
   } finally {
-    removing.value = false
+    removingSymbol.value = ''
   }
 }
 
@@ -233,32 +228,6 @@ onMounted(load)
       />
     </section>
 
-    <!-- 当前股票池 -->
-    <SectionCard title="当前股票池" hint="回测与数据更新将使用以下股票">
-      <div v-if="loading" class="text-sm text-slate-400">加载中…</div>
-      <DataTable v-else :columns="tableCols" :rows="tableRows" empty="股票池为空，请添加股票" />
-    </SectionCard>
-
-    <!-- 添加股票 -->
-    <SectionCard title="添加股票" hint="支持换行、逗号或空格分隔多个代码，如 600519.SH、000001.SZ">
-      <label class="block">
-        <span class="mb-1 block text-xs text-slate-400">股票代码</span>
-        <textarea
-          v-model="addText"
-          rows="3"
-          placeholder="例如：600519.SH, 000001.SZ 300750"
-          class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40"
-        />
-      </label>
-      <button
-        @click="addCodes"
-        :disabled="adding"
-        class="mt-3 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-      >
-        {{ adding ? '添加中…' : '添加代码' }}
-      </button>
-    </SectionCard>
-
     <!-- 按名称搜索 -->
     <SectionCard title="按名称搜索" hint="通过股票名称模糊搜索，勾选后批量添加">
       <div class="flex flex-wrap items-center gap-3">
@@ -303,75 +272,102 @@ onMounted(load)
       <p v-else-if="searchQ && !searching" class="mt-4 text-sm text-slate-500">输入关键词并点击「搜索」。</p>
     </SectionCard>
 
-    <!-- 移除股票 -->
-    <SectionCard title="移除股票" hint="勾选当前股票池中的股票，确认后移除">
-      <div v-if="!universe.symbols.length" class="text-sm text-slate-500">当前股票池为空。</div>
-      <div v-else class="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
-        <label
-          v-for="s in universe.symbols"
-          :key="s"
-          class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10"
-        >
-          <input
-            type="checkbox"
-            :checked="selectedRemove.includes(s)"
-            class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
-            @change="toggleRemove(s)"
-          />
-          <span class="font-mono text-xs text-indigo-300">{{ s }}</span>
-          <span v-if="nameMap[s]" class="truncate text-slate-400">{{ nameMap[s] }}</span>
-        </label>
+    <details class="glass rounded-2xl p-5">
+      <summary class="cursor-pointer text-lg font-semibold text-white">高级筛选设置</summary>
+      <div class="mt-4">
+        <!-- 过滤设置 -->
+        <SectionCard title="股票过滤设置" hint="研究时过滤不符合条件的股票，不会直接删除股票池中的标的">
+          <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <label class="flex items-center gap-2.5 pt-6">
+              <input
+                type="checkbox"
+                v-model="filters.exclude_st"
+                class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
+              />
+              <span class="text-sm text-slate-300">排除 ST</span>
+            </label>
+            <label class="flex items-center gap-2.5 pt-6">
+              <input
+                type="checkbox"
+                v-model="filters.exclude_suspended"
+                class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
+              />
+              <span class="text-sm text-slate-300">排除停牌</span>
+            </label>
+            <FormField label="最少上市天数" type="number" v-model="filters.minimum_listing_days" min="0" />
+            <FormField label="最少历史交易日" type="number" v-model="filters.minimum_history_days" min="0" />
+            <FormField label="最低20日平均成交额" type="number" v-model="filters.minimum_average_amount" min="0" step="1" />
+          </div>
+          <button
+            @click="saveFilters"
+            :disabled="savingFilters"
+            class="mt-5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
+          >
+            {{ savingFilters ? '保存中…' : '保存过滤设置' }}
+          </button>
+        </SectionCard>
       </div>
+    </details>
 
-      <label v-if="universe.symbols.length" class="mt-4 flex items-center gap-2.5">
-        <input
-          type="checkbox"
-          v-model="confirmRemove"
-          class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
-        />
-        <span class="text-sm text-slate-300">我已确认要移除所选股票</span>
-      </label>
-
-      <button
-        v-if="universe.symbols.length"
-        @click="removeSelected"
-        :disabled="removing"
-        class="mt-3 rounded-full border border-rose-400/30 px-4 py-2 text-sm font-semibold text-rose-300 transition hover:bg-rose-400/10 disabled:opacity-70"
-      >
-        {{ removing ? '移除中…' : '移除选中的股票' }}
-      </button>
+    <!-- 当前股票池 -->
+    <SectionCard title="当前股票池" hint="回测与数据更新将使用以下股票">
+      <template #actions>
+        <button type="button" class="text-sm text-indigo-300 hover:underline" :aria-pressed="showDataDetails" @click="showDataDetails = !showDataDetails">{{ showDataDetails ? '收起行情明细' : '查看行情明细' }}</button>
+      </template>
+      <div v-if="loading" class="text-sm text-slate-400">加载中…</div>
+      <p v-else-if="loadError" class="text-sm text-rose-300">{{ loadError }} <button type="button" class="underline" @click="load">重新读取</button></p>
+      <DataTable v-else :columns="tableCols" :rows="tableRows" empty="股票池为空，请添加股票">
+        <template #cell-actions="{ row }">
+          <div v-if="pendingRemoval === row.symbol" class="flex flex-col items-end gap-2">
+            <span class="whitespace-nowrap text-xs text-slate-400">移出股票池，保留行情</span>
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                :aria-label="`确认删除 ${row.name}（${row.symbol}）`"
+                :disabled="!!removingSymbol || adding"
+                class="whitespace-nowrap rounded-lg border border-rose-400/30 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:opacity-50"
+                @click="removeStock(row)"
+              >{{ removingSymbol === row.symbol ? '删除中…' : '确认删除' }}</button>
+              <button type="button" :disabled="!!removingSymbol" class="whitespace-nowrap rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-white/5 disabled:opacity-50" @click="pendingRemoval = ''">取消</button>
+            </div>
+          </div>
+          <button
+            v-else
+            type="button"
+            :aria-label="`删除 ${row.name}（${row.symbol}）`"
+            :disabled="!!removingSymbol || adding"
+            class="whitespace-nowrap rounded-lg border border-rose-400/30 px-3 py-1.5 text-sm text-rose-300 transition hover:bg-rose-400/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+            @click="pendingRemoval = row.symbol"
+          >删除</button>
+        </template>
+      </DataTable>
     </SectionCard>
 
-    <!-- 过滤设置 -->
-    <SectionCard title="股票过滤设置" hint="以下条件将影响数据更新时的股票筛选">
-      <div class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        <label class="flex items-center gap-2.5 pt-6">
-          <input
-            type="checkbox"
-            v-model="filters.exclude_st"
-            class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
-          />
-          <span class="text-sm text-slate-300">排除 ST</span>
-        </label>
-        <label class="flex items-center gap-2.5 pt-6">
-          <input
-            type="checkbox"
-            v-model="filters.exclude_suspended"
-            class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500"
-          />
-          <span class="text-sm text-slate-300">排除停牌</span>
-        </label>
-        <FormField label="最少上市天数" type="number" v-model="filters.minimum_listing_days" min="0" />
-        <FormField label="最少历史交易日" type="number" v-model="filters.minimum_history_days" min="0" />
-        <FormField label="最低20日平均成交额" type="number" v-model="filters.minimum_average_amount" min="0" step="1" />
+    <details class="glass rounded-2xl p-5">
+      <summary class="cursor-pointer text-lg font-semibold text-white">批量添加股票（按代码）</summary>
+      <div class="mt-4">
+        <!-- 添加股票 -->
+        <SectionCard title="添加股票" hint="支持换行、逗号或空格分隔多个代码，如 600519.SH、000001.SZ">
+          <label class="block">
+            <span class="mb-1 block text-xs text-slate-400">股票代码</span>
+            <textarea
+              v-model="addText"
+              rows="3"
+              placeholder="例如：600519.SH, 000001.SZ 300750"
+              class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40"
+            />
+          </label>
+          <button
+            @click="addCodes"
+            :disabled="adding"
+            class="mt-3 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
+          >
+            {{ adding ? '添加中…' : '添加代码' }}
+          </button>
+        </SectionCard>
+
       </div>
-      <button
-        @click="saveFilters"
-        :disabled="savingFilters"
-        class="mt-5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-      >
-        {{ savingFilters ? '保存中…' : '保存过滤设置' }}
-      </button>
-    </SectionCard>
+    </details>
+
   </div>
 </template>

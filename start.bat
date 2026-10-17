@@ -1,46 +1,54 @@
 @echo off
-chcp 65001 >nul
-title 智投引擎 - 一键启动
+setlocal
+title FellowQuant Launcher
 cd /d "%~dp0"
 
-echo ============================================
-echo   智投引擎 FellowQuant - 一键启动
-echo ============================================
-echo.
+rem This file is intentionally ASCII-only.
+rem cmd.exe mis-parses batch files that combine "chcp 65001" with multi-byte
+rem characters (line fragments get executed as commands), so every
+rem user-facing message lives in scripts\start.ps1 instead (UTF-8 with BOM).
+
+rem Resolve Windows PowerShell directly; its directory may be absent from PATH.
+set "startupPowerShell=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%startupPowerShell%" (
+  echo [ERROR] Windows PowerShell not found.
+  pause
+  exit /b 1
+)
 
 where python >nul 2>nul
 if errorlevel 1 (
-  echo [错误] 未找到 python，请先安装 Python 3.11+
+  echo [ERROR] python not found. Install Python 3.11+ first.
   pause
   exit /b 1
 )
 where node >nul 2>nul
 if errorlevel 1 (
-  echo [错误] 未找到 node，请先安装 Node.js 18+
+  echo [ERROR] node not found. Install Node.js 18+ first.
   pause
   exit /b 1
 )
 
-rem ---- 后端依赖检查（首次自动安装）----
+rem ---- Backend dependencies (auto-install on first run) ----
 if not exist "dashboard\backend\quant_platform\__init__.py" (
-  echo [错误] 未找到后端代码目录 dashboard\backend
+  echo [ERROR] backend code not found: dashboard\backend
   pause
   exit /b 1
 )
 python -c "import fastapi, uvicorn, pandas, pyarrow, requests, yaml, dotenv, scipy, rich, akshare, baostock" >nul 2>nul
 if errorlevel 1 (
-  echo [提示] 首次运行：安装后端依赖...
+  echo [INFO] First run: installing backend dependencies...
   python -m pip install -r dashboard\backend\requirements.txt
   if errorlevel 1 exit /b 1
 )
 
-rem ---- 前端依赖检查（首次自动安装）----
+rem ---- Frontend dependencies (auto-install on first run) ----
 node -e "require.resolve('vite',{paths:['./landing']}); require.resolve('three',{paths:['./landing']})" >nul 2>nul
 if errorlevel 1 (
-  echo [提示] 首次运行：安装前端依赖...
+  echo [INFO] First run: installing frontend dependencies...
   where npm >nul 2>nul
   if errorlevel 1 (
-    echo [错误] 未找到 npm，请先安装 Node.js 18+
+    echo [ERROR] npm not found. Install Node.js 18+ first.
     pause
     exit /b 1
   )
@@ -48,15 +56,9 @@ if errorlevel 1 (
   if errorlevel 1 exit /b 1
 )
 
-echo.
-echo [启动] 后端服务  http://127.0.0.1:8000  （API 文档 /docs）
-echo [启动] 前端页面  http://localhost:5273
-echo 服务在后台运行，按任意键停止全部服务。
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
+"%startupPowerShell%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start.ps1"
 set "startupExitCode=%errorlevel%"
 if not "%startupExitCode%"=="0" (
-  echo [错误] 启动失败，请查看以上提示。
   pause
 )
 exit /b %startupExitCode%

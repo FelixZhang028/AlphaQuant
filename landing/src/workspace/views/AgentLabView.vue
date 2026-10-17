@@ -1,726 +1,342 @@
 <script setup>
-import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
-import {
-  addPriorKnowledge,
-  agentConfig,
-  battleAgent,
-  deletePriorKnowledge,
-  runAgent,
-  saveAgentConfig,
-} from '../../api.js'
-import MetricCard from '../ui/MetricCard.vue'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { aiStatus, askBrief, createBrief, decideBrief, deleteBrief, getBrief, listBriefs, readBrief, universeSearch } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
-import StatusPill from '../ui/StatusPill.vue'
-import EmptyState from '../ui/EmptyState.vue'
-import FormField from '../ui/FormField.vue'
+import PriorKnowledgeView from './PriorKnowledgeView.vue'
+import JevStockReport from '../ui/JevStockReport.vue'
+import { openResearch } from '../researchNavigation.js'
+import {
+  evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
+} from '../aiPresentation.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
+  routeContext: { type: Object, default: () => ({}) },
 })
 
-// ---------- 配置加载 ----------
-const providers = ref([])
-const stockSources = ref([])
-const newsSources = ref([])
-const priorEntries = ref([])
-const configLoading = ref(false)
+const status = ref(null)
+const query = ref('')
+const picked = ref(null) // { symbol, name }
+const suggestions = ref([])
+const highlighted = ref(-1)
+const tradeDate = ref('')
+const useExperience = ref(true)
+const step = ref('') // '' | 'data' | 'decision' | 'reading'
+const loadingRecord = ref(false)
+const error = ref('')
+const record = ref(null)
+const history = ref([])
+const question = ref('')
+const asking = ref(false)
+const chatBox = ref(null)
+const upgradingReport = ref(false)
 
-const form = reactive({
-  provider: 'mock',
-  symbol: '600519',
-  trade_date: new Date().toISOString().slice(0, 10),
-  lookback_days: 60,
-  debate_rounds: 1,
-  stock_source: 'local',
-  news_sources: [],
-  use_cache: true,
-  prior_ids: [],
+const facts = computed(() => record.value?.facts || null)
+const groups = computed(() => factGroups(facts.value?.facts))
+const brief = computed(() => record.value?.brief || null)
+const odds = computed(() => record.value?.odds || brief.value?.odds || null)
+const busy = computed(() => step.value !== '' || upgradingReport.value)
+const canAsk = computed(() => Boolean(brief.value && status.value?.ai?.available))
+const questionsLeft = computed(() => remainingText(status.value?.usage?.question, '追问'))
+
+async function loadStatus() {
+  try { status.value = await aiStatus() } catch (e) { props.notify(e.message || '读取 AI 模型状态失败') }
+}
+async function loadHistory() {
+  try { history.value = (await listBriefs()).items || [] } catch (e) { props.notify(e.message || '读取以前的分析失败') }
+}
+
+// ---------- 选股票：代码或名称 ----------
+let searchTimer = null
+let searchSeq = 0
+watch(query, (text) => {
+  if (picked.value && text === `${picked.value.symbol} ${picked.value.name}`) return
+  picked.value = null
+  clearTimeout(searchTimer)
+  const term = text.trim()
+  if (!term) { suggestions.value = []; return }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq
+    try {
+      const found = (await universeSearch(term)).results || []
+      if (seq === searchSeq) { suggestions.value = found.slice(0, 8); highlighted.value = found.length ? 0 : -1 }
+    } catch { if (seq === searchSeq) suggestions.value = [] }
+  }, 250)
 })
+function choose(item) {
+  picked.value = item
+  query.value = `${item.symbol} ${item.name}`
+  suggestions.value = []
+}
+function closeSuggestions() {
+  setTimeout(() => { suggestions.value = [] }, 150)
+}
+function onSearchKey(event) {
+  if (!suggestions.value.length) return
+  if (event.key === 'ArrowDown') { event.preventDefault(); highlighted.value = (highlighted.value + 1) % suggestions.value.length }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); highlighted.value = (highlighted.value - 1 + suggestions.value.length) % suggestions.value.length }
+  else if (event.key === 'Escape') suggestions.value = []
+  else if (event.key === 'Enter' && highlighted.value >= 0) { event.preventDefault(); choose(suggestions.value[highlighted.value]) }
+}
 
-// 已选先验知识（null = 全部注入）
-const selectedPriorIds = ref(null)
-
-const providerOptions = computed(() =>
-  providers.value.map((p) => ({
-    value: p.key,
-    label: `${p.display_name}${p.requires_key ? '' : '（无需 Key）'}`,
-  }))
-)
-
-const currentProvider = computed(
-  () => providers.value.find((p) => p.key === form.provider) || null
-)
-
-onMounted(async () => {
-  configLoading.value = true
+// ---------- 打开、运行 ----------
+async function openRecord(id) {
+  if (!id || record.value?.id === id) return
+  loadingRecord.value = true
+  error.value = ''
   try {
-    const cfg = await agentConfig()
-    providers.value = cfg.providers || []
-    stockSources.value = cfg.stock_sources || []
-    newsSources.value = cfg.news_sources || []
-    priorEntries.value = cfg.prior_knowledge || []
-    if (cfg.default_provider) form.provider = cfg.default_provider
-    else if (providers.value.length) {
-      const mock = providers.value.find((p) => p.key === 'mock')
-      form.provider = mock ? mock.key : providers.value[0].key
+    record.value = await getBrief(id)
+    choose({ symbol: record.value.symbol, name: record.value.name })
+    tradeDate.value = record.value.trade_date
+  } catch (e) {
+    error.value = e.message || '打开这次分析失败'
+  } finally {
+    loadingRecord.value = false
+  }
+}
+
+onMounted(() => {
+  loadStatus()
+  loadHistory()
+  openRecord(props.routeContext.brief)
+})
+onActivated(loadStatus)
+watch(() => props.routeContext.brief, (id) => openRecord(id))
+
+async function run() {
+  const code = pickSuggestion(query.value, picked.value, suggestions.value)
+  if (!code) return props.notify('请输入股票代码，或输入名称后从列表里选一只')
+  suggestions.value = []
+  error.value = ''
+  step.value = 'data'
+  try {
+    let data = await createBrief({ symbol: code, trade_date: tradeDate.value, use_experience: useExperience.value })
+    record.value = data
+    openResearch('agent-lab', { brief: data.id })
+    if (status.value?.decision?.available) {
+      step.value = 'decision'
+      try {
+        data = await decideBrief(data.id)
+        if (record.value?.id === data.id) record.value = data
+      } catch (e) { props.notify(e.message || '决策模型暂时不可用') }
+    }
+    if (status.value?.ai?.available) {
+      step.value = 'reading'
+      data = await readBrief(data.id)
+      if (record.value?.id === data.id) record.value = data
     }
   } catch (e) {
-    props.notify(e.message || '加载智能体配置失败')
+    error.value = e.message || '分析失败'
   } finally {
-    configLoading.value = false
-  }
-})
-
-// 从独立知识库页面返回后刷新可选择的先验知识。
-onActivated(async () => {
-  try { priorEntries.value = (await agentConfig()).prior_knowledge || [] }
-  catch (e) { props.notify(e.message) }
-})
-
-// ---------- LLM 提供商配置 ----------
-const llmForm = reactive({ base_url: '', api_key: '', model: '' })
-const llmSaving = ref(false)
-const showLlmForm = ref(false)
-
-// 切换 provider 时带出已保存配置（api_key 只回显是否已配置，不回传明文）
-watch(currentProvider, (p) => {
-  if (!p) return
-  llmForm.base_url = p.base_url || p.default_base_url || ''
-  llmForm.model = p.model || p.default_model || ''
-  llmForm.api_key = ''
-})
-
-async function onSaveLlm() {
-  llmSaving.value = true
-  try {
-    await saveAgentConfig({
-      provider: form.provider,
-      base_url: llmForm.base_url,
-      api_key: llmForm.api_key,
-      model: llmForm.model,
-    })
-    props.notify('模型配置已保存（仅保存在本机）')
-    showLlmForm.value = false
-    const cfg = await agentConfig()
-    providers.value = cfg.providers || []
-  } catch (e) {
-    props.notify(e.message || '保存失败')
-  } finally {
-    llmSaving.value = false
+    step.value = ''
+    loadStatus()
+    loadHistory()
   }
 }
 
-// ---------- 先验知识库 ----------
-const priorDraft = reactive({ content: '', source: '我的观点' })
-const priorAdding = ref(false)
-
-const visiblePriors = computed(() =>
-  selectedPriorIds.value === null
-    ? priorEntries.value
-    : priorEntries.value.filter((e) => selectedPriorIds.value.includes(e.id))
-)
-
-function togglePrior(id) {
-  const ids = new Set(selectedPriorIds.value ?? priorEntries.value.map((e) => e.id))
-  if (ids.has(id)) ids.delete(id)
-  else ids.add(id)
-  selectedPriorIds.value = [...ids]
-}
-
-function selectAllPrior() {
-  selectedPriorIds.value = null
-}
-
-function isPriorSelected(id) {
-  const ids = selectedPriorIds.value ?? priorEntries.value.map((e) => e.id)
-  return ids.includes(id)
-}
-
-async function onAddPrior() {
-  if (!priorDraft.content.trim()) return props.notify('请输入知识内容')
-  priorAdding.value = true
+async function remove(item) {
+  if (!confirm(`删除 ${item.name} ${item.trade_date} 的这次分析？`)) return
   try {
-    const entry = await addPriorKnowledge({
-      content: priorDraft.content.trim(),
-      source: priorDraft.source.trim() || '我的观点',
-    })
-    priorEntries.value = [entry, ...priorEntries.value]
-    priorDraft.content = ''
-    props.notify('先验知识已保存')
-  } catch (e) {
-    props.notify(e.message || '保存失败')
-  } finally {
-    priorAdding.value = false
-  }
-}
-
-async function onDeletePrior(id) {
-  try {
-    await deletePriorKnowledge(id)
-    priorEntries.value = priorEntries.value.filter((e) => e.id !== id)
-    if (selectedPriorIds.value) {
-      selectedPriorIds.value = selectedPriorIds.value.filter((x) => x !== id)
-    }
-    props.notify('已删除')
+    await deleteBrief(item.id)
+    if (record.value?.id === item.id) { record.value = null; openResearch('agent-lab') }
+    await loadHistory()
   } catch (e) {
     props.notify(e.message || '删除失败')
   }
 }
 
-// ---------- 运行分析 ----------
-const running = ref(false)
-const runError = ref('')
-const result = ref(null)
-
-const decision = computed(() => result.value?.decision || {})
-const state = computed(() => result.value?.state || {})
-const analysts = computed(() => state.value.analysts || [])
-const debate = computed(() => state.value.debate || [])
-const proposal = computed(() => state.value.proposal || {})
-const risk = computed(() => state.value.risk || {})
-const fill = computed(() => state.value.fill || {})
-const traceLog = computed(() => result.value?.trace_log || [])
-
-function statusTone(status) {
-  const s = String(status || '')
-  if (['批准', '成功', 'SUCCESS', '买入', '通过', '完成'].includes(s)) return 'text-emerald-300'
-  if (['拒绝', '失败', 'FAILED', '卖出'].includes(s)) return 'text-rose-300'
-  if (['有条件批准', '警告', 'WARNING', '持有', '暂停'].includes(s)) return 'text-amber-300'
-  return 'text-white'
-}
-
-function actionTone(action) {
-  const a = String(action || '')
-  if (['买入', 'BUY', '加仓', '看多'].includes(a)) return 'text-emerald-300'
-  if (['卖出', 'SELL', '减仓', '看空'].includes(a)) return 'text-rose-300'
-  if (['持有', 'HOLD', '观望', '中性'].includes(a)) return 'text-amber-300'
-  return 'text-white'
-}
-
-function traceText(item) {
-  if (typeof item === 'string') return item
-  if (item == null) return ''
-  if (typeof item === 'object') {
-    if (item.message) return item.message
-    if (item.text) return item.text
-    if (item.content) return item.content
-    if (item.step) return `${item.step}`
-    return JSON.stringify(item)
-  }
-  return String(item)
-}
-
-async function onRun() {
-  if (!form.symbol.trim()) return props.notify('请输入股票代码')
-  running.value = true
-  runError.value = ''
-  result.value = null
+async function upgradeReport() {
+  if (busy.value || !record.value) return
+  const id = record.value.id
+  upgradingReport.value = true
   try {
-    const data = await runAgent({
-      symbol: form.symbol.trim(),
-      trade_date: form.trade_date,
-      lookback_days: Number(form.lookback_days),
-      debate_rounds: Number(form.debate_rounds),
-      provider: form.provider,
-      stock_source: form.stock_source,
-      news_sources: form.news_sources,
-      prior_ids: selectedPriorIds.value,
-      use_cache: form.use_cache,
-    })
-    result.value = data
-    chat.value = [] // 新分析开始新的交锋
-    props.notify('分析完成')
+    const data = await decideBrief(id, { upgrade: true })
+    if (record.value?.id === id) record.value = data
   } catch (e) {
-    runError.value = e.message || '分析失败'
-    props.notify(e.message || '分析失败')
+    props.notify(e.message || '报告补全失败，已保留原判断')
   } finally {
-    running.value = false
+    upgradingReport.value = false
+    loadStatus()
+    loadHistory()
   }
 }
 
-// ---------- 与 AI 对话交锋 ----------
-const chat = ref([])
-const chatInput = ref('')
-const battling = ref(false)
-const chatBox = ref(null)
-
-async function onBattle() {
-  const text = chatInput.value.trim()
-  if (!text || battling.value) return
-  chat.value.push({ role: 'user', text })
-  chatInput.value = ''
-  battling.value = true
+async function ask() {
+  const text = question.value.trim()
+  if (!text || asking.value || !record.value) return
+  asking.value = true
   try {
-    const history = chat.value.slice(0, -1).map((m) => ({ role: m.role, text: m.text }))
-    const data = await battleAgent({ message: text, history })
-    chat.value.push({ role: 'assistant', text: data.reply || '（无回复）' })
-  } catch (e) {
-    chat.value.push({ role: 'assistant', text: `出错了：${e.message || '未知错误'}`, error: true })
-    props.notify(e.message || '对话失败')
-  } finally {
-    battling.value = false
+    const data = await askBrief(record.value.id, text)
+    record.value = { ...record.value, questions: data.questions }
+    question.value = ''
+    if (status.value) status.value = { ...status.value, usage: { ...status.value.usage, question: data.usage } }
     await nextTick()
     chatBox.value?.scrollTo({ top: chatBox.value.scrollHeight, behavior: 'smooth' })
+  } catch (e) {
+    props.notify(e.message || '追问失败')
+  } finally {
+    asking.value = false
   }
+}
+
+function localTime(value) {
+  const time = new Date(value)
+  return Number.isNaN(time.getTime()) ? '' : time.toLocaleString('zh-CN', { hour12: false })
+}
+function moveTone(value) {
+  if (value == null) return 'text-slate-400'
+  return value > 0 ? 'text-rose-300' : value < 0 ? 'text-emerald-300' : 'text-slate-300'
 }
 </script>
 
 <template>
   <div class="space-y-6">
-    <!-- 顶部标题 -->
     <div class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" />
-      <h1 class="text-xl font-bold text-white">AI研究员</h1>
-      <p class="mt-1 text-sm text-slate-400">LLM 多智能体协作完成行情解读、多空辩论与交易决策；你维护的先验知识负责约束边界。</p>
-      <p class="mt-1 text-xs text-slate-500">本页面仅供研究，不构成投资建议；默认 Mock 模型可离线运行，配置 API Key 后可接入真实大模型。</p>
+      <h2 class="text-xl font-bold text-white">AI研究员</h2>
+      <p class="mt-1 text-sm text-slate-400">输入一只股票，先看本地数据整理出的走势、估值和风险，再看 AI 根据这些数据写的解读。</p>
+      <p class="mt-1 text-xs text-slate-500">仅供研究，不构成投资建议。</p>
     </div>
 
-    <!-- 研究配置 -->
-    <SectionCard title="研究配置" hint="模型、数据来源与先验知识；先验知识会作为约束注入各个智能体">
-      <div class="grid gap-4 lg:grid-cols-2">
-        <!-- 模型与数据来源 -->
-        <div class="space-y-4">
-          <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p class="text-xs font-semibold text-slate-300">模型与数据来源</p>
-            <div class="mt-3 grid gap-3 sm:grid-cols-2">
-              <FormField
-                label="LLM 提供商"
-                type="select"
-                v-model="form.provider"
-                :options="providerOptions"
-                :disabled="configLoading"
-                hint="Mock 离线可跑通全流程"
-              />
-              <FormField label="股票行情来源" type="select" v-model="form.stock_source"
-                :options="stockSources.map((s) => ({ value: s.key, label: s.label }))"
-                hint="本地行情离线稳定，其余需联网" />
-            </div>
-            <div class="mt-3">
-              <p class="mb-1.5 text-xs text-slate-400">新闻来源（可多选，抓取失败自动降级）</p>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="n in newsSources"
-                  :key="n.key"
-                  type="button"
-                  class="rounded-full px-3 py-1 text-xs transition"
-                  :class="form.news_sources.includes(n.key)
-                    ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white'
-                    : 'border border-white/10 text-slate-400 hover:text-slate-200'"
-                  @click="form.news_sources.includes(n.key)
-                    ? (form.news_sources = form.news_sources.filter((k) => k !== n.key))
-                    : form.news_sources.push(n.key)"
-                >{{ n.label }}</button>
-              </div>
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <p class="text-xs text-slate-500">
-                <template v-if="currentProvider">
-                  {{ currentProvider.display_name }} ·
-                  {{ currentProvider.api_key ? 'API Key 已配置' : (currentProvider.requires_key ? 'API Key 未配置' : '无需 API Key') }}
-                </template>
-              </p>
-              <button
-                class="rounded-full border border-white/10 px-3.5 py-1.5 text-xs text-slate-300 transition hover:border-indigo-400/40 hover:text-white"
-                @click="showLlmForm = !showLlmForm"
-              >{{ showLlmForm ? '收起' : '配置模型' }}</button>
-            </div>
-            <div v-if="showLlmForm" class="mt-3 space-y-3 border-t border-white/10 pt-3">
-              <label class="block">
-                <span class="mb-1 block text-xs text-slate-400">Base URL</span>
-                <input v-model="llmForm.base_url" placeholder="https://api.deepseek.com/v1"
-                  class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400/40" />
-              </label>
-              <label class="block">
-                <span class="mb-1 block text-xs text-slate-400">模型名称</span>
-                <input v-model="llmForm.model" placeholder="deepseek-chat"
-                  class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400/40" />
-              </label>
-              <label class="block">
-                <span class="mb-1 block text-xs text-slate-400">API Key（仅保存在本机，不会上传）</span>
-                <input v-model="llmForm.api_key" type="password" :placeholder="currentProvider?.api_key ? '已配置，留空表示不修改' : '未配置'"
-                  class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400/40" />
-              </label>
-              <div class="flex justify-end">
-                <button
-                  class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-60"
-                  :disabled="llmSaving"
-                  @click="onSaveLlm"
-                >{{ llmSaving ? '保存中…' : '保存配置' }}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 先验知识 -->
-        <div class="rounded-xl border border-white/10 bg-white/5 p-4">
-          <div class="flex items-center justify-between">
-            <p class="text-xs font-semibold text-slate-300">先验知识（{{ visiblePriors.length }} / {{ priorEntries.length }} 条注入）</p>
-            <button
-              v-if="selectedPriorIds !== null && priorEntries.length"
-              class="text-xs text-indigo-300 transition hover:text-white"
-              @click="selectAllPrior"
-            >全选</button>
-          </div>
-          <p v-if="!priorEntries.length" class="mt-3 text-xs text-slate-500">
-            知识库为空，AI 将只依据行情与新闻数据分析。把你认可的事实、判断和约束加进来，让 AI 分析有边界。
-          </p>
-          <ul v-else class="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
-            <li
-              v-for="entry in priorEntries"
-              :key="entry.id"
-              class="flex items-start gap-2.5 rounded-lg border border-white/5 bg-white/5 px-3 py-2"
-              :class="isPriorSelected(entry.id) ? 'border-indigo-400/30' : 'opacity-70'"
-            >
-              <input
-                type="checkbox"
-                :checked="isPriorSelected(entry.id)"
-                class="mt-1 h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-indigo-500"
-                @change="togglePrior(entry.id)"
-              />
-              <div class="min-w-0 flex-1">
-                <p class="text-xs leading-relaxed text-slate-300">{{ entry.content }}</p>
-                <p class="mt-0.5 text-[10px] text-slate-500">{{ entry.source }}</p>
-              </div>
-              <button
-                class="mt-0.5 text-[10px] text-slate-500 transition hover:text-rose-300"
-                @click="onDeletePrior(entry.id)"
-              >删除</button>
+    <SectionCard title="分析一只股票" hint="日期留空表示本地最近一个交易日">
+      <form class="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-end" @submit.prevent="run">
+        <div class="relative">
+          <label for="ai-stock" class="mb-1.5 block text-xs text-slate-400">股票代码或名称</label>
+          <input id="ai-stock" v-model="query" autocomplete="off" placeholder="如 600519 或 茅台" role="combobox"
+            :aria-expanded="suggestions.length > 0" aria-controls="ai-stock-list" @keydown="onSearchKey" @blur="closeSuggestions"
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
+          <ul v-if="suggestions.length" id="ai-stock-list" role="listbox"
+            class="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-white/10 bg-ink/95 py-1 shadow-xl backdrop-blur">
+            <li v-for="(item, i) in suggestions" :key="item.symbol" role="option" :aria-selected="i === highlighted"
+              class="flex cursor-pointer justify-between gap-3 px-3 py-2 text-sm"
+              :class="i === highlighted ? 'bg-indigo-500/20 text-white' : 'text-slate-300 hover:bg-white/5'"
+              @mousedown.prevent="choose(item)">
+              <span class="min-w-0 truncate">{{ item.name }}</span><span class="shrink-0 text-slate-500">{{ item.symbol }}</span>
             </li>
           </ul>
-          <div class="mt-3 space-y-2 border-t border-white/10 pt-3">
-            <textarea
-              v-model="priorDraft.content"
-              rows="2"
-              placeholder="例如：公司未来六个月存在较大的限售股解禁压力，仓位上限应降低。"
-              class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-indigo-400/40"
-            />
-            <div class="flex gap-2">
-              <input
-                v-model="priorDraft.source"
-                placeholder="来源：我的判断 / 研报 / 链接"
-                class="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white outline-none focus:border-indigo-400/40"
-              />
-              <button
-                class="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3.5 py-1.5 text-xs text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
-                :disabled="priorAdding || !priorDraft.content.trim()"
-                @click="onAddPrior"
-              >{{ priorAdding ? '保存中…' : '添加' }}</button>
-            </div>
-          </div>
         </div>
-      </div>
-    </SectionCard>
-
-    <!-- 分析参数 -->
-    <SectionCard title="分析参数" hint="配置本次多智能体分析的输入，点击「运行分析」启动协作流程">
-      <template #actions>
-        <button
-          @click="onRun"
-          :disabled="running || configLoading"
-          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-        >
-          {{ running ? '分析中…' : '运行分析' }}
+        <div>
+          <label for="ai-date" class="mb-1.5 block text-xs text-slate-400">分析日期</label>
+          <input id="ai-date" v-model="tradeDate" type="date"
+            class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
+        </div>
+        <button type="submit" :disabled="busy" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 disabled:opacity-60">
+          {{ busy ? '分析中…' : '开始分析' }}
         </button>
-      </template>
-
-      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <FormField label="股票代码" v-model="form.symbol" placeholder="如 600519" />
-        <FormField label="分析日期" type="date" v-model="form.trade_date" />
-        <FormField
-          label="回看天数"
-          type="number"
-          v-model="form.lookback_days"
-          :min="20"
-          :max="250"
-        />
-        <FormField
-          label="辩论轮数"
-          type="number"
-          v-model="form.debate_rounds"
-          :min="0"
-          :max="4"
-        />
-        <label class="flex items-center gap-2.5 self-end pb-2.5">
-          <input type="checkbox" v-model="form.use_cache" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-          <span class="text-sm text-slate-300">使用缓存</span>
-          <span class="ml-auto text-[10px] text-slate-500">取消可查看完整过程</span>
-        </label>
-      </div>
-      <p v-if="configLoading" class="mt-3 text-xs text-slate-500">正在加载智能体配置…</p>
-      <p v-if="runError" class="mt-3 text-sm text-rose-300">{{ runError }}</p>
+      </form>
+      <label class="mt-4 flex w-fit items-center gap-2 text-sm text-slate-300">
+        <input v-model="useExperience" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+        参考我的研究经验（{{ status?.experience_count ?? 0 }} 条）
+      </label>
+      <p class="mt-3 text-sm" :class="status && !status.ai?.available ? 'text-amber-200' : 'text-slate-400'">{{ modelText(status) }}</p>
+      <p v-if="status?.decision?.available" class="mt-2 text-xs text-slate-400">Jev 决策模型已连接，可独立判断本地数据。{{ remainingText(status.usage?.review, '决策评估') }}</p>
+      <ol v-if="busy" class="mt-3 space-y-1 text-sm" aria-label="分析进度">
+        <li :class="step === 'data' ? 'text-indigo-200' : 'text-slate-400'">{{ step === 'data' ? '…' : '✓' }} 整理本地数据（几秒）</li>
+        <li v-if="status?.decision?.available" :class="step === 'decision' ? 'text-indigo-200' : 'text-slate-500'">{{ step === 'decision' ? '…' : '○' }} Jev 判断数据中的倾向</li>
+        <li v-if="status?.ai?.available" :class="step === 'reading' ? 'text-indigo-200' : 'text-slate-500'">
+          {{ step === 'reading' ? '…' : '○' }} AI 根据这些数据写解读（通常十几秒到一分钟，下面的数据可以先看）
+        </li>
+      </ol>
+      <p v-if="error" role="alert" class="mt-3 text-sm text-rose-300">{{ error }}</p>
     </SectionCard>
 
-    <!-- 分析结果 -->
-    <template v-if="result">
-      <div v-if="result.cached" class="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-500">
-        本次结果来自决策缓存，仅展示最终决策；取消勾选「使用缓存」可查看完整中间产物。
+    <p v-if="loadingRecord" class="text-sm text-slate-400">正在打开这次分析…</p>
+
+    <template v-if="record && facts">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold text-white">{{ record.name }} <span class="text-sm font-normal text-slate-400">{{ record.symbol }}</span></h2>
+        <p class="text-xs text-slate-500">数据截至 {{ record.trade_date }} · 分析于 {{ localTime(record.created_at) }}</p>
       </div>
+      <p v-for="note in facts.notes" :key="note" class="text-sm text-amber-200">{{ note }}</p>
+      <p v-if="record.later" class="text-sm text-slate-300">{{ laterText(record.later) }}</p>
 
-      <!-- 组合经理决策 -->
-      <SectionCard
-        :title="`组合经理决策${result.symbol ? ' · ' + result.symbol + ' ' + (result.name || '') : ''}`"
-        hint="综合各分析师意见与辩论结论，由组合经理给出最终决策"
-      >
-        <div class="grid gap-5 sm:grid-cols-3">
-          <MetricCard label="审批状态" :value="decision.status || '—'" :tone="statusTone(decision.status)" />
-          <MetricCard label="最终动作" :value="decision.final_action || '—'" :tone="actionTone(decision.final_action)" />
-          <MetricCard label="目标仓位" :value="decision.final_position_pct != null ? decision.final_position_pct + '%' : '—'" tone="text-white" />
+      <JevStockReport v-if="odds" :report="odds" :trade-date="record.trade_date" :text-tilt="brief?.tilt || ''"
+        :upgrading="upgradingReport" :can-upgrade="Boolean(status?.decision?.available)"
+        :remaining="status?.usage?.review?.remaining ?? null" @upgrade="upgradeReport" />
+
+      <SectionCard v-if="brief" title="AI 解读" :hint="`只根据下面的数据写成，每条后面是它引用的数据 · 模型 ${record.model}`">
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="rounded-full border px-4 py-1.5 text-base font-semibold" :class="tiltTone(brief.tilt)">{{ brief.tilt }}</span>
+          <span class="text-sm text-slate-400">信心：{{ brief.confidence }}</span>
         </div>
-
-        <div v-if="decision.confidence != null" class="mt-3 text-xs text-slate-500">
-          决策置信度：<span class="text-slate-300">{{ decision.confidence }}</span>
-        </div>
-
-        <div v-if="decision.rejection_reason" class="mt-4 rounded-xl border border-rose-400/20 bg-rose-400/5 p-4">
-          <p class="text-xs text-rose-300">拒绝原因</p>
-          <p class="mt-1 text-sm text-rose-200">{{ decision.rejection_reason }}</p>
-        </div>
-
-        <div v-if="decision.conditions && decision.conditions.length" class="mt-4">
-          <p class="text-xs text-slate-400">通过条件</p>
-          <ul class="mt-2 space-y-1.5">
-            <li v-for="(c, i) in decision.conditions" :key="i" class="flex items-start gap-2 text-sm text-slate-300">
-              <span class="mt-0.5 text-emerald-300">✓</span>
-              <span>{{ c }}</span>
-            </li>
-          </ul>
-        </div>
-
-        <div v-if="decision.rationale_chain && decision.rationale_chain.length" class="mt-4">
-          <p class="text-xs text-slate-400">理由链</p>
-          <ol class="mt-2 space-y-1.5">
-            <li v-for="(r, i) in decision.rationale_chain" :key="i" class="flex items-start gap-2 text-sm text-slate-300">
-              <span class="mt-0.5 font-mono text-xs text-indigo-300">{{ i + 1 }}.</span>
-              <span>{{ r }}</span>
-            </li>
-          </ol>
-        </div>
-      </SectionCard>
-
-      <!-- 分析师报告 -->
-      <SectionCard title="分析师报告" hint="各专职分析师围绕各自维度独立研判，给出评分与置信度">
-        <EmptyState v-if="!analysts.length" text="暂无分析师报告" />
-        <div v-else class="grid gap-4 lg:grid-cols-2">
-          <div v-for="(a, i) in analysts" :key="i" class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <p class="text-sm font-semibold text-white">{{ a.dimension || '分析师' }}</p>
-              <div class="flex items-center gap-2 text-xs">
-                <span class="text-slate-400">评分</span>
-                <span class="font-bold text-indigo-300">{{ a.score ?? '—' }}</span>
-                <span class="text-slate-500">·</span>
-                <span class="text-slate-400">置信度</span>
-                <span class="font-bold text-slate-300">{{ a.confidence ?? '—' }}</span>
-              </div>
-            </div>
-            <p v-if="a.summary" class="mt-2 text-sm text-slate-300">{{ a.summary }}</p>
-            <div v-if="a.key_findings && a.key_findings.length" class="mt-3">
-              <p class="text-xs text-slate-400">关键发现</p>
-              <ul class="mt-1.5 space-y-1">
-                <li v-for="(k, j) in a.key_findings" :key="j" class="flex items-start gap-2 text-sm text-slate-300">
-                  <span class="mt-0.5 text-indigo-300">•</span>
-                  <span>{{ k }}</span>
-                </li>
-              </ul>
-            </div>
-            <div v-if="a.risks && a.risks.length" class="mt-3">
-              <p class="text-xs text-amber-300">风险</p>
-              <ul class="mt-1.5 space-y-1">
-                <li v-for="(r, j) in a.risks" :key="j" class="flex items-start gap-2 text-sm text-slate-300">
-                  <span class="mt-0.5 text-amber-300">⚠</span>
-                  <span>{{ r }}</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      <!-- 多空辩论 -->
-      <SectionCard title="多空辩论" hint="多方与空方智能体逐轮交锋，收敛分歧">
-        <EmptyState v-if="!debate.length" text="本轮未开启辩论" />
-        <div v-else class="space-y-4">
-          <div v-for="(d, i) in debate" :key="i" class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <p class="mb-3 text-sm font-semibold text-white">第 {{ d.round ?? i + 1 }} 轮</p>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3">
-                <p class="text-xs text-emerald-300">多方论点</p>
-                <p class="mt-1.5 text-sm text-slate-300">{{ d.bull || '—' }}</p>
-              </div>
-              <div class="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3">
-                <p class="text-xs text-rose-300">空方论点</p>
-                <p class="mt-1.5 text-sm text-slate-300">{{ d.bear || '—' }}</p>
-              </div>
-            </div>
-            <div v-if="d.bull_reply" class="mt-3 rounded-xl border border-indigo-400/20 bg-indigo-400/5 p-3">
-              <p class="text-xs text-indigo-300">多方回应</p>
-              <p class="mt-1.5 text-sm text-slate-300">{{ d.bull_reply }}</p>
-            </div>
-            <div v-if="d.bear_reply" class="mt-3 rounded-xl border border-indigo-400/20 bg-indigo-400/5 p-3">
-              <p class="text-xs text-indigo-300">空方回应</p>
-              <p class="mt-1.5 text-sm text-slate-300">{{ d.bear_reply }}</p>
-            </div>
-            <div v-if="d.bull_summary || d.bear_summary" class="mt-3 grid gap-3 md:grid-cols-2">
-              <div v-if="d.bull_summary" class="text-sm">
-                <p class="text-xs text-emerald-300">多方总结</p>
-                <p class="mt-1 text-slate-300">{{ d.bull_summary }}</p>
-              </div>
-              <div v-if="d.bear_summary" class="text-sm">
-                <p class="text-xs text-rose-300">空方总结</p>
-                <p class="mt-1 text-slate-300">{{ d.bear_summary }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      <!-- Trader 提案 / 风控评估 / 模拟成交 -->
-      <div class="grid gap-5 lg:grid-cols-3">
-        <SectionCard title="Trader 提案" hint="交易员给出的执行提案（止损/目标价仅供研究参考）">
-          <dl class="space-y-2.5 text-sm">
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">动作</dt>
-              <dd><StatusPill :value="proposal.action || '—'" /></dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">目标仓位</dt>
-              <dd class="text-slate-300">{{ proposal.position_pct != null ? proposal.position_pct + '%' : '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">置信度</dt>
-              <dd class="text-slate-300">{{ proposal.confidence ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">止损价</dt>
-              <dd class="text-slate-300">{{ proposal.stop_loss ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">目标价</dt>
-              <dd class="text-slate-300">{{ proposal.target_price ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">持有期</dt>
-              <dd class="text-slate-300">{{ proposal.holding_period ?? '—' }}</dd>
-            </div>
-          </dl>
-          <p v-if="proposal.reason" class="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">{{ proposal.reason }}</p>
-        </SectionCard>
-
-        <SectionCard title="风控评估" hint="风险管理智能体对提案的核查">
-          <div class="mb-3 flex items-center justify-between">
-            <span class="text-xs text-slate-400">是否否决</span>
-            <StatusPill :value="risk.vetoed ? '拒绝' : (risk.vetoed === false ? '批准' : '—')" />
-          </div>
-          <dl class="space-y-2.5 text-sm">
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">波动率</dt>
-              <dd class="text-slate-300">{{ risk.volatility ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">预估最大回撤</dt>
-              <dd class="text-rose-300">{{ risk.est_max_drawdown ?? '—' }}</dd>
-            </div>
-          </dl>
-          <div v-if="risk.veto_reason" class="mt-3 rounded-xl border border-rose-400/20 bg-rose-400/5 p-3">
-            <p class="text-xs text-rose-300">否决原因</p>
-            <p class="mt-1 text-sm text-rose-200">{{ risk.veto_reason }}</p>
-          </div>
-          <div v-if="risk.conditions && risk.conditions.length" class="mt-3">
-            <p class="text-xs text-slate-400">风控条件</p>
-            <ul class="mt-1.5 space-y-1">
-              <li v-for="(c, i) in risk.conditions" :key="i" class="flex items-start gap-2 text-sm text-slate-300">
-                <span class="mt-0.5 text-slate-500">•</span>
-                <span>{{ c }}</span>
+        <p v-if="brief.summary" class="mt-4 text-sm leading-relaxed text-slate-200">{{ brief.summary }}</p>
+        <div class="mt-5 grid gap-4 lg:grid-cols-3">
+          <div v-for="section in pointSections" :key="section.key" class="min-w-0 rounded-xl border border-white/10 bg-white/5 p-4">
+            <h3 class="text-xs font-semibold text-slate-300">{{ section.label }}</h3>
+            <p v-if="!brief[section.key]?.length" class="mt-2 text-sm text-slate-500">没有</p>
+            <ul v-else class="mt-2 space-y-3">
+              <li v-for="(point, i) in brief[section.key]" :key="i">
+                <p class="text-sm leading-relaxed text-slate-200">{{ point.text }}</p>
+                <p v-for="fact in point.evidence" :key="fact.key" class="mt-1 text-xs text-slate-500">依据 · {{ evidenceText(fact, record.trade_date) }}</p>
               </li>
             </ul>
           </div>
-          <p v-if="risk.comment" class="mt-3 text-sm text-slate-400">{{ risk.comment }}</p>
-        </SectionCard>
+        </div>
+        <p v-if="brief.removed" class="mt-4 text-xs text-slate-500">已去掉 {{ brief.removed }} 条与数据对不上、没有依据或给出买卖建议的内容。</p>
+      </SectionCard>
+      <div v-else-if="step === 'reading'" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4 text-sm text-indigo-100">AI 正在根据下面的数据写解读…</div>
+      <div v-else-if="record.ai_note" class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100">{{ record.ai_note }}</div>
 
-        <SectionCard title="模拟成交" hint="按提案撮合的模拟成交回报（T+1 语义，仅供核对）">
-          <dl class="space-y-2.5 text-sm">
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">动作</dt>
-              <dd><StatusPill :value="fill.action || '—'" /></dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">数量</dt>
-              <dd class="text-slate-300">{{ fill.quantity ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">成交价</dt>
-              <dd class="text-slate-300">{{ fill.price ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">基准价</dt>
-              <dd class="text-slate-300">{{ fill.benchmark_price ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">手续费</dt>
-              <dd class="text-slate-300">{{ fill.fee ?? '—' }}</dd>
-            </div>
-            <div class="flex items-center justify-between">
-              <dt class="text-xs text-slate-400">结算</dt>
-              <dd class="text-slate-300">{{ fill.settle ?? '—' }}</dd>
-            </div>
-          </dl>
-        </SectionCard>
-      </div>
+      <SectionCard title="数据摘要" hint="全部来自本地数据，只用分析日当天及以前已知的信息；涨跌幅按复权价格计算">
+        <div class="grid gap-4 md:grid-cols-2">
+          <div v-for="group in groups" :key="group.group" class="min-w-0 rounded-xl border border-white/10 bg-white/5 p-4">
+            <h3 class="text-xs font-semibold text-slate-300">{{ group.group }}</h3>
+            <dl class="mt-2 space-y-1.5">
+              <div v-for="fact in group.items" :key="fact.key" class="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                <dt class="min-w-0 text-slate-400">{{ fact.label }}</dt>
+                <dd class="ml-auto min-w-0 text-right text-slate-200">{{ fact.text }}<span v-if="fact.as_of && fact.as_of !== record.trade_date" class="ml-1 text-xs text-slate-500">{{ fact.as_of }}</span></dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <div v-if="facts.missing.length" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+          <h3 class="text-xs font-semibold text-slate-300">本地缺少的数据（没有用到，也没有让 AI 猜）</h3>
+          <ul class="mt-2 space-y-1 text-sm text-slate-400">
+            <li v-for="item in facts.missing" :key="item.group"><span class="text-slate-300">{{ item.group }}</span>：{{ item.reason }}</li>
+          </ul>
+          <button type="button" class="mt-3 text-sm text-indigo-300 hover:text-indigo-200" @click="openResearch('data-update')">去数据更新 →</button>
+        </div>
+      </SectionCard>
 
-      <!-- 分析过程 -->
-      <SectionCard title="分析过程" hint="多智能体协作的逐步日志">
-        <EmptyState v-if="!traceLog.length" text="暂无过程日志" />
-        <ul v-else class="max-h-80 space-y-2 overflow-y-auto pr-1">
-          <li
-            v-for="(t, i) in traceLog"
-            :key="i"
-            class="flex items-start gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300"
-            :class="String(traceText(t)).includes('失败') ? 'border-rose-400/30' : ''"
-          >
-            <span class="mt-0.5 font-mono text-xs text-indigo-300">{{ String(i + 1).padStart(2, '0') }}</span>
-            <span class="whitespace-pre-wrap break-words">{{ traceText(t) }}</span>
-          </li>
-        </ul>
+      <SectionCard v-if="canAsk || record.questions.length" title="继续追问" :hint="`AI 只用上面的数据回答${questionsLeft ? ' · ' + questionsLeft : ''}`">
+        <div ref="chatBox" class="max-h-96 space-y-3 overflow-y-auto">
+          <p v-if="!record.questions.length" class="text-sm text-slate-500">例如：估值高不高？最大的风险是什么？</p>
+          <div v-for="(turn, i) in record.questions" :key="i" class="space-y-2">
+            <p class="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-indigo-500/80 px-4 py-2 text-sm text-white">{{ turn.question }}</p>
+            <p class="w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-md border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">{{ turn.answer }}</p>
+          </div>
+        </div>
+        <form v-if="canAsk" class="mt-3 flex gap-2" @submit.prevent="ask">
+          <input v-model="question" maxlength="500" placeholder="输入你的问题" aria-label="追问"
+            class="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
+          <button :disabled="asking || !question.trim()" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+            {{ asking ? '回答中…' : '发送' }}
+          </button>
+        </form>
       </SectionCard>
     </template>
 
-    <!-- 与 AI 对话交锋 -->
-    <SectionCard title="与 AI 对话交锋" hint="运行分析后，带着完整分析上下文向 AI 追问、提出观点或质疑它的结论">
-      <div ref="chatBox" class="max-h-96 space-y-3 overflow-y-auto rounded-xl border border-white/10 bg-white/5 p-4">
-        <div v-if="!chat.length" class="py-6 text-center text-sm text-slate-500">
-          {{ result ? '开始一段对话，向 AI 提出你的疑问或挑战。' : '请先运行一次分析，交锋时 AI 会引用完整的分析上下文。' }}
-        </div>
-        <div v-for="(m, i) in chat" :key="i" class="flex" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
-          <div
-            class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm"
-            :class="
-              m.role === 'user'
-                ? 'rounded-br-md bg-gradient-to-r from-indigo-500 to-violet-500 text-white'
-                : m.error
-                  ? 'rounded-bl-md border border-rose-400/20 bg-rose-400/10 text-rose-200'
-                  : 'rounded-bl-md border border-white/10 bg-white/10 text-slate-200'
-            "
-          >
-            <p class="mb-0.5 text-[10px] uppercase tracking-wide opacity-70">{{ m.role === 'user' ? '你' : 'AI' }}</p>
-            <p class="whitespace-pre-wrap break-words">{{ m.text }}</p>
-          </div>
-        </div>
-      </div>
-      <div class="mt-3 flex gap-2">
-        <input
-          v-model="chatInput"
-          @keyup.enter="onBattle"
-          placeholder="输入你的观点或质疑…"
-          class="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40"
-        />
-        <button
-          @click="onBattle"
-          :disabled="battling || !chatInput.trim()"
-          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-        >
-          {{ battling ? '回复中…' : '发送' }}
-        </button>
-      </div>
+    <SectionCard title="以前的分析" hint="“之后”是从分析日到本地最新行情的涨跌，和同期沪深300比较，可以用来看 AI 的判断靠不靠谱">
+      <p v-if="!history.length" class="text-sm text-slate-500">还没有分析记录。</p>
+      <ul v-else class="divide-y divide-white/5" aria-label="以前的分析">
+        <li v-for="item in history" :key="item.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 text-sm">
+          <button type="button" class="min-w-0 text-left text-slate-200 hover:text-white" @click="openResearch('agent-lab', { brief: item.id })">
+            {{ item.name }} <span class="text-xs text-slate-500">{{ item.symbol }} · {{ item.trade_date }}</span>
+          </button>
+          <span class="rounded-full border px-2 py-0.5 text-xs" :class="tiltTone(item.tilt)">{{ item.tilt || '只有数据' }}</span>
+          <span class="ml-auto text-xs" :class="moveTone(item.later?.change)">
+            <template v-if="item.later">之后 {{ signedPercent(item.later.change) }}<span class="text-slate-500">（{{ item.later.days }} 个交易日<template v-if="item.later.benchmark_change != null">，沪深300 {{ signedPercent(item.later.benchmark_change) }}</template>）</span></template>
+            <span v-else class="text-slate-500">还没有之后的行情</span>
+          </span>
+          <button type="button" class="text-xs text-slate-500 hover:text-rose-300" @click="remove(item)">删除</button>
+        </li>
+      </ul>
     </SectionCard>
+
+    <details class="glass rounded-2xl p-5">
+      <summary class="cursor-pointer text-sm font-semibold text-white">我的研究经验（{{ status?.experience_count ?? 0 }} 条）<span class="ml-2 text-xs font-normal text-slate-500">记下你自己的投资规则，分析时让 AI 参考</span></summary>
+      <div class="mt-4"><PriorKnowledgeView embedded :notify="notify" @changed="loadStatus" /></div>
+    </details>
   </div>
 </template>

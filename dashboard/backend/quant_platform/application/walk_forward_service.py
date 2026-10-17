@@ -17,6 +17,7 @@ from quant_platform.application.optimization_service import (
     OBJECTIVES,
     OptimizationRequest,
     OptimizationService,
+    apply_candidate,
 )
 
 
@@ -124,13 +125,13 @@ class WalkForwardService:
                 if eligible.empty:
                     raise ValueError("训练期没有找到满足约束的参数")
                 best = eligible.iloc[0]
-                parameters = dict(request.base_request.strategy_parameters)
-                for name in request.parameter_grid:
-                    parameters[name] = _native(best[f"param_{name}"])
+                selected = {
+                    name: _native(best[f"param_{name}"]) for name in request.parameter_grid
+                }
+                parameters = {**request.base_request.strategy_parameters, **selected}
                 test_request = replace(
-                    request.base_request,
+                    apply_candidate(request.base_request, selected),
                     strategy_id=f"{request.base_request.strategy_id}_wf{index:02d}_test",
-                    strategy_parameters=parameters,
                     start_date=window.test_start,
                     end_date=window.test_end,
                     evaluation_mode="out_of_sample",

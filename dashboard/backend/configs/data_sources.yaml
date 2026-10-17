@@ -1,44 +1,46 @@
+# 行情的首选和备用顺序由下面 routing.daily_bars 的顺序决定（第一个是首选）；priority 只用于展示。
 providers:
-  xtick:
-    display_name: XTick
-    enabled: true
-    priority: 1
-    token_env: XTICK_TOKEN
-    base_url: http://api.xtick.top
   baostock:
     display_name: BaoStock
     enabled: true
-    priority: 2
+    priority: 1
   ifind:
     display_name: iFinD
     enabled: false
-    priority: 3
+    priority: 2
     username_env: IFIND_USERNAME
     password_env: IFIND_PASSWORD
     batch_size: 3
   tushare:
     display_name: Tushare
     enabled: false
-    priority: 4
+    priority: 3
     token_env: TUSHARE_TOKEN
   akshare:
     display_name: AkShare
     enabled: true
-    priority: 5
+    priority: 4
   pytdx:
     display_name: PyTDX
     enabled: true
-    priority: 6
+    priority: 5
     timeout: 3
     retries: 1
     max_servers: 8
     max_pages: 20
     servers: []
+  # XTick 放在最后：它目前只用于「XTick 数据服务」页的专项查询，批量行情更新还没有接入。
+  xtick:
+    display_name: XTick
+    enabled: true
+    priority: 6
+    token_env: XTICK_TOKEN
+    base_url: http://api.xtick.top
 
 routing:
   security_master: [akshare]
   trade_calendar: [baostock, akshare]
-  daily_bars: [xtick, baostock, akshare, pytdx]
+  daily_bars: [baostock, akshare, pytdx, xtick]
   adjustment_factors: [baostock]
   price_limits: []
   suspensions: [baostock, akshare]

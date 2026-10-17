@@ -15,6 +15,7 @@ from uuid import uuid4
 import pandas as pd
 
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
+from quant_platform.backtest.multiple_testing import analyze_search, annotate_search
 
 OBJECTIVES = {
     "sharpe": "夏普比率",
@@ -22,6 +23,29 @@ OBJECTIVES = {
     "calmar": "卡玛比率",
     "max_drawdown": "最大回撤最小",
 }
+
+
+# Searchable settings that live on the request itself instead of in the strategy's own
+# parameters. They apply to every strategy, including rule strategies with nothing else to tune.
+REQUEST_FIELDS = ("top_n", "rebalance")
+
+
+def apply_candidate(base: BacktestRequest, values: dict[str, Any]) -> BacktestRequest:
+    """Return ``base`` with one candidate applied to its strategy parameters and request fields."""
+
+    parameters = dict(base.strategy_parameters)
+    settings: dict[str, Any] = {}
+    for name, value in values.items():
+        # A strategy's own parameter of the same name wins over the request field.
+        if name in REQUEST_FIELDS and name not in parameters:
+            settings[name] = value
+        else:
+            parameters[name] = value
+    if "top_n" in settings:
+        settings["top_n"] = int(settings["top_n"])
+        # The risk limit follows the holding count, as it does for a single backtest.
+        settings["risk_limits"] = replace(base.risk_limits, max_positions=settings["top_n"])
+    return replace(base, strategy_parameters=parameters, **settings)
 
 
 def _run_isolated(job):
@@ -108,18 +132,17 @@ class OptimizationService:
             itertools.product(*(request.parameter_grid[name] for name in names)),
             start=1,
         ):
-            parameters = dict(request.base_request.strategy_parameters)
-            parameters.update(dict(zip(names, values, strict=True)))
+            candidate = dict(zip(names, values, strict=True))
             effective = replace(
-                request.base_request,
+                apply_candidate(request.base_request, candidate),
                 strategy_id=f"{request.base_request.strategy_id}_opt_{index:03d}",
-                strategy_parameters=parameters,
                 run_kind="optimization",
                 parent_experiment_id=optimization_id,
                 baseline_run_id=request.baseline_run_id,
             )
             row: dict[str, Any] = {
-                **{f"param_{name}": value for name, value in parameters.items()},
+                **{f"param_{name}": value for name, value in effective.strategy_parameters.items()},
+                **{f"param_{name}": value for name, value in candidate.items()},
                 "status": "SUCCESS",
                 "run_id": None,
                 "error": None,
@@ -148,6 +171,11 @@ class OptimizationService:
                 rows = list(executor.map(_run_isolated, jobs))
 
         experiments = self._rank(pd.DataFrame(rows), request)
+        selection = analyze_search(
+            experiments, self.backtests.runs_root, optimization_id=optimization_id,
+            objective=request.objective, expected_trials=count,
+        )
+        experiments = annotate_search(experiments, selection)
         output = self.root / optimization_id
         output.mkdir(parents=True, exist_ok=False)
         experiments.to_csv(output / "results.csv", index=False, encoding="utf-8-sig")

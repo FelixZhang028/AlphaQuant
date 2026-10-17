@@ -1,17 +1,23 @@
 <script setup>
+import FormField from '../ui/FormField.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   compositeFactors,
   createCustomFactor,
   deleteCustomFactor,
   evaluateFactor,
+  factorUniverses,
   listFactors,
   researchFactors,
 } from '../../api.js'
+import { CURRENT_POOL, defaultFactorUniverse, factorUniverseNote, marketChoices } from '../marketPresentation.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
+import FactorFilter from '../ui/FactorFilter.vue'
+import { factorsBySource, filterFactors } from '../factorFilters.js'
+import { NEUTRALIZATION_OPTIONS } from '../dataPresentation.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
@@ -19,12 +25,35 @@ const props = defineProps({
 })
 
 const activeTab = ref('library')
+const combinationMode = ref('research')
+function changeCombinationMode(mode) {
+  if (mode === 'quick') {
+    compForm.factor_names = [...researchForm.factor_names]
+    compForm.weight_mode = researchForm.weight_mode === 'manual' ? 'custom' : researchForm.weight_mode
+    Object.assign(compWeights, researchWeights)
+    compForm.horizon = researchForm.horizon
+    compForm.n_groups = researchForm.n_groups
+    compForm.start_date = researchForm.train_start
+    compForm.end_date = researchForm.test_end
+    compForm.train_end = researchForm.train_end
+    compForm.test_start = researchForm.test_start
+  } else {
+    researchForm.factor_names = [...compForm.factor_names]
+    researchForm.weight_mode = compForm.weight_mode === 'custom' ? 'manual' : compForm.weight_mode
+    Object.assign(researchWeights, compWeights)
+    researchForm.horizon = compForm.horizon
+    researchForm.n_groups = compForm.n_groups
+    researchForm.train_start = compForm.start_date
+    researchForm.test_end = compForm.end_date
+    if (compForm.train_end) researchForm.train_end = compForm.train_end
+    if (compForm.test_start) researchForm.test_start = compForm.test_start
+  }
+  combinationMode.value = mode
+}
 const tabs = [
   { key: 'library', label: '因子库' },
-  { key: 'evaluate', label: '因子评估' },
-  { key: 'composite', label: '因子组合' },
+  { key: 'evaluate', label: '单因子评估' },
   { key: 'research', label: '组合研究' },
-  { key: 'custom', label: '自定义因子' },
 ]
 
 // ---------- 工具 ----------
@@ -66,14 +95,19 @@ async function loadFactors() {
   }
 }
 
-const factorOptions = computed(() =>
-  factors.value.map((f) => ({ value: f.name, label: f.display_name || f.name }))
-)
+// 因子库的筛选条件（来源、类型），因子库和组合研究里选因子的列表共用。
+const factorFilter = ref({ source: '', type: '' })
+const shownFactors = computed(() => filterFactors(factors.value, factorFilter.value))
+// 选因子的列表：已经选中的因子即使不符合筛选条件也留在列表里。
+const compListed = computed(() => filterFactors(factors.value, factorFilter.value, compForm.factor_names))
+const researchListed = computed(() => filterFactors(factors.value, factorFilter.value, researchForm.factor_names))
+const sourceGroups = computed(() => factorsBySource(factors.value))
 
 const factorCols = [
   { key: 'name', label: '因子名' },
   { key: 'display_name', label: '中文名' },
-  { key: 'category', label: '类别' },
+  { key: 'logical_category', label: '类型' },
+  { key: 'source', label: '来源' },
   { key: 'description', label: '说明' },
   { key: 'formula', label: '计算公式' },
   { key: 'direction', label: '方向' },
@@ -199,10 +233,33 @@ function onKeydown(e) {
 const horizonOptions = [1, 5, 10, 20]
 const groupOptions = [5, 10]
 
+// ---------- 股票范围（评估、合成、研究共用） ----------
+const UNIVERSE_KEY = 'fq-factor-universe'
+const universes = ref([])
+const universe = ref(CURRENT_POOL)
+const universeOptions = computed(() => marketChoices(universes.value))
+const universeNote = computed(() => factorUniverseNote(universe.value, universes.value))
+function rememberedUniverse() {
+  try { return localStorage.getItem(UNIVERSE_KEY) || '' } catch { return '' }
+}
+function chooseUniverse(value) {
+  universe.value = value
+  try { localStorage.setItem(UNIVERSE_KEY, value) } catch { /* 浏览器不让存时只影响下次的默认值 */ }
+}
+async function loadUniverses() {
+  try {
+    universes.value = (await factorUniverses()).items || []
+  } catch {
+    universes.value = []
+  }
+  universe.value = defaultFactorUniverse(universes.value, rememberedUniverse())
+}
+
 const evalForm = reactive({
   factor_name: '',
   horizon: 5,
   n_groups: 5,
+  neutralization: 'none',
   start_date: defaultStart,
   end_date: defaultEnd,
 })
@@ -220,8 +277,10 @@ async function runEvaluate() {
       factor_name: evalForm.factor_name,
       horizon: Number(evalForm.horizon),
       n_groups: Number(evalForm.n_groups),
+      neutralization: evalForm.neutralization,
       start_date: evalForm.start_date,
       end_date: evalForm.end_date,
+      universe: universe.value,
     })
     props.notify('评估完成')
   } catch (e) {
@@ -248,6 +307,8 @@ const compForm = reactive({
   n_groups: 5,
   start_date: defaultStart,
   end_date: defaultEnd,
+  train_end: '',
+  test_start: '',
 })
 const compWeights = reactive({})
 const compLoading = ref(false)
@@ -277,13 +338,16 @@ async function runComposite() {
       factor_names: [...compForm.factor_names],
       weight_mode: compForm.weight_mode,
       winsorize: compForm.winsorize,
-      zscore: false,
+      zscore: true,
       fill_method: 'drop',
       corr_threshold: Number(compForm.corr_threshold),
       horizon: Number(compForm.horizon),
       n_groups: Number(compForm.n_groups),
       start_date: compForm.start_date,
       end_date: compForm.end_date,
+      train_end: compForm.train_end,
+      test_start: compForm.test_start,
+      universe: universe.value,
     }
     if (compForm.weight_mode === 'custom') {
       payload.weights = {}
@@ -379,6 +443,7 @@ async function runResearch() {
       train_end: researchForm.train_end,
       test_start: researchForm.test_start,
       test_end: researchForm.test_end,
+      universe: universe.value,
     }
     if (researchForm.weight_mode === 'manual') {
       payload.weights = {}
@@ -513,7 +578,7 @@ function buildReportView(report) {
     align: 'right',
   }))
   const g = report.group_mean_returns || {}
-  const groupRows = [Object.fromEntries(Object.entries(g).map(([k, v]) => [k, fmtPct(v, 2)]))]
+  const groupRows = [Object.fromEntries(groupCols.map(({ key }) => [key, g[key] == null ? '—' : fmtPct(g[key], 2)]))]
   return { metrics, stability, series, groupCols, groupRows, notes: report.notes }
 }
 
@@ -544,6 +609,7 @@ const weightCaption = computed(() => {
 
 onMounted(() => {
   loadFactors()
+  loadUniverses()
   window.addEventListener('keydown', onKeydown)
 })
 
@@ -557,12 +623,12 @@ onBeforeUnmount(() => {
     <!-- 标题 -->
     <div class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-      <p class="text-2xl font-bold text-white">因子实验室</p>
-      <p class="mt-2 max-w-xl text-sm text-slate-400">IC/Rank IC/分层收益评估，多因子合成选股；点击「详情」查看因子说明</p>
+      <p class="text-2xl font-bold text-white">因子研究</p>
+      <p class="mt-2 max-w-xl text-sm text-slate-400">从因子库了解指标，评估单因子，再检验组合的样本外表现。</p>
     </div>
 
     <!-- Tab -->
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
         <button
           v-for="t in tabs"
@@ -574,13 +640,33 @@ onBeforeUnmount(() => {
           {{ t.label }}
         </button>
       </div>
+      <button class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:-translate-y-0.5 hover:bg-white/10" @click="activeTab = activeTab === 'custom' ? 'library' : 'custom'">{{ activeTab === 'custom' ? '返回因子库' : '新建因子' }}</button>
     </div>
+
+    <div v-if="activeTab === 'research'" class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm font-semibold text-white">选择因子 → 配置权重与区间 → 运行评估</p>
+      <details class="text-sm text-slate-300">
+        <summary class="cursor-pointer">高级评估方式</summary>
+        <div class="mt-3 flex flex-wrap gap-3">
+          <button :aria-pressed="combinationMode === 'research'" class="rounded-full border border-white/10 px-4 py-2 hover:bg-white/5" @click="changeCombinationMode('research')">训练 / 测试验证</button>
+          <button :aria-pressed="combinationMode === 'quick'" class="rounded-full border border-white/10 px-4 py-2 hover:bg-white/5" @click="changeCombinationMode('quick')">合成因子评估</button>
+        </div>
+      </details>
+    </div>
+
+    <section v-if="activeTab === 'evaluate' || activeTab === 'research'" class="glass rounded-2xl p-4" aria-label="股票范围">
+      <div class="grid gap-3 md:grid-cols-[minmax(0,16rem)_1fr] md:items-end">
+        <FormField label="股票范围" type="select" :model-value="universe" :options="universeOptions" @update:model-value="chooseUniverse" />
+        <p class="text-xs text-slate-400">{{ universeNote }}</p>
+      </div>
+    </section>
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
-      <SectionCard title="因子库" hint="内置因子与自定义因子，方向 1 表示正向、-1 表示反向">
+      <SectionCard title="因子库" hint="可以按来源和类型筛选；方向 1 表示正向、-1 表示反向">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
-        <DataTable v-else :columns="factorCols" :rows="factors" empty="暂无因子">
+        <FactorFilter v-if="!factorsLoading && factors.length" v-model="factorFilter" :factors="factors" class="mb-4" />
+        <DataTable v-if="!factorsLoading" :columns="factorCols" :rows="shownFactors" :empty="factors.length ? '没有符合筛选条件的因子' : '暂无因子'">
           <template #cell-direction="{ value }">
             <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
               {{ directionLabel(value) }}
@@ -606,7 +692,9 @@ onBeforeUnmount(() => {
             <span class="mb-1 block text-xs text-slate-400">因子</span>
             <select v-model="evalForm.factor_name" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
               <option value="" disabled>请选择因子</option>
-              <option v-for="o in factorOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+              <optgroup v-for="group in sourceGroups" :key="group.label" :label="group.label">
+                <option v-for="f in group.factors" :key="f.name" :value="f.name">{{ f.display_name || f.name }}</option>
+              </optgroup>
             </select>
           </label>
           <label class="block">
@@ -629,6 +717,14 @@ onBeforeUnmount(() => {
             <span class="mb-1 block text-xs text-slate-400">结束日期</span>
             <input v-model="evalForm.end_date" type="date" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
           </label>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2" role="group" aria-label="中性化">
+          <span class="text-xs text-slate-400">中性化</span>
+          <button v-for="option in NEUTRALIZATION_OPTIONS" :key="option.value" type="button" :aria-pressed="evalForm.neutralization === option.value"
+            class="rounded-full border px-3 py-1 text-xs transition"
+            :class="evalForm.neutralization === option.value ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'"
+            @click="evalForm.neutralization = option.value">{{ option.label }}</button>
+          <span class="text-xs text-slate-500">{{ NEUTRALIZATION_OPTIONS.find((option) => option.value === evalForm.neutralization)?.hint }}</span>
         </div>
         <div class="mt-5 flex items-center gap-3">
           <button
@@ -653,6 +749,7 @@ onBeforeUnmount(() => {
         <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard v-for="m in evalView.metrics" :key="m.label" :label="m.label" :value="m.value" :sub="m.sub" :up="m.up" :tone="m.tone" />
         </section>
+        <p v-if="evalView.notes" class="rounded-xl border border-amber-400/20 bg-amber-500/5 px-4 py-3 text-xs text-amber-200" role="note">{{ evalView.notes }}</p>
 
         <SectionCard title="稳定性" hint="样本分段 IC 与调仓换手">
           <div class="grid gap-5 sm:grid-cols-3">
@@ -671,21 +768,22 @@ onBeforeUnmount(() => {
     </template>
 
     <!-- ============ 因子组合 ============ -->
-    <template v-else-if="activeTab === 'composite'">
+    <template v-else-if="activeTab === 'research' && combinationMode === 'quick'">
       <SectionCard title="合成配置" hint="选择至少两个因子，计算相关性并合成评估">
         <div class="mb-1 flex items-center justify-between">
           <span class="text-xs text-slate-400">因子（已选 {{ compForm.factor_names.length }} 个，至少 2 个）</span>
         </div>
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mb-3 mt-2" />
         <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in compListed"
             :key="f.name"
-            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="isSelected(f.name) ? 'border-indigo-400/40' : ''"
           >
             <input type="checkbox" :checked="isSelected(f.name)" @change="toggleFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="shrink-0 text-xs text-slate-500">{{ f.name }}</span>
             <button
               type="button"
               title="查看因子详情"
@@ -753,6 +851,11 @@ onBeforeUnmount(() => {
           </label>
         </div>
 
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <FormField label="训练结束（留空按区间前 70%）" type="date" v-model="compForm.train_end" />
+          <FormField label="测试开始（留空为训练结束次日）" type="date" v-model="compForm.test_start" />
+        </div>
+        <p class="mt-2 text-xs text-slate-400">训练期确定权重和相关性筛选，独立测试期报告 IC；各因子固定按日标准化。</p>
         <div class="mt-5 flex items-center gap-3">
           <button
             @click="runComposite"
@@ -766,7 +869,9 @@ onBeforeUnmount(() => {
       </SectionCard>
 
       <template v-if="compResult">
-        <SectionCard title="因子相关性矩阵" hint="两两因子的相关系数">
+        <p class="text-sm text-amber-300">样本外评估：训练 {{ compResult.train_start }} 至 {{ compResult.train_end }}；测试 {{ compResult.test_start }} 至 {{ compResult.test_end }}。训练信号截至 {{ compResult.train_signal_end }}，隔离末尾 {{ compResult.purged_sessions }} 个交易日。</p>
+        <p class="text-xs text-slate-400">{{ compResult.note }}</p>
+        <SectionCard title="因子相关性矩阵" hint="仅使用训练期信号样本计算相关系数">
           <DataTable :columns="corrCols" :rows="corrRows" empty="暂无数据" />
         </SectionCard>
 
@@ -804,16 +909,17 @@ onBeforeUnmount(() => {
     <template v-else-if="activeTab === 'research'">
       <SectionCard title="研究配置" hint="先用训练期确定规则，再用独立测试期比较选股能力；实际收益与回撤请到回测页验证">
         <p class="text-xs text-slate-400">因子（已选 {{ researchForm.factor_names.length }} 个，至少 2 个）</p>
-        <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <FactorFilter v-model="factorFilter" :factors="factors" class="mt-2" />
+        <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <label
-            v-for="f in factors"
+            v-for="f in researchListed"
             :key="f.name"
-            class="flex cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
+            class="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-white/10"
             :class="researchForm.factor_names.includes(f.name) ? 'border-indigo-400/40' : ''"
           >
             <input type="checkbox" :checked="researchForm.factor_names.includes(f.name)" @change="toggleResearchFactor(f.name)" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-            <span class="flex-1 truncate">{{ f.display_name || f.name }}</span>
-            <span class="text-xs text-slate-500">{{ f.name }}</span>
+            <span class="min-w-0 flex-1 truncate">{{ f.display_name || f.name }}</span>
+            <span class="shrink-0 text-xs text-slate-500">{{ f.name }}</span>
             <button
               type="button"
               title="查看因子详情"
@@ -993,7 +1099,7 @@ onBeforeUnmount(() => {
         </div>
       </SectionCard>
 
-      <SectionCard title="已定义自定义因子" hint="从因子库中筛选 category === '自定义' 的因子">
+      <SectionCard title="已定义自定义因子" hint="自行创建的因子，可用于单因子评估和组合研究">
         <DataTable :columns="customCols" :rows="customFactors" empty="暂无自定义因子">
           <template #cell-direction="{ value }">
             <span :class="value === 1 ? 'text-emerald-300' : 'text-rose-300'">{{ directionLabel(value) }}</span>

@@ -15,6 +15,10 @@ from functools import wraps
 from pathlib import Path
 
 MODULE = "quant_platform.application.data_jobs"
+DATASETS = {"bars", "actions", "derived", "indicators", "fundamentals", "industry", "index_constituents", "bar_gaps", "action_gaps", "daily"}
+# 除全市场日线（自带看门狗）以外的阶段：这么久没有进展就结束进程，由守护进程从断点续传。
+# 数据源偶尔会卡住既不返回也不报错，没有这个保护时任务会一直挂着。
+STALL_SECONDS = 900.0
 
 
 def now():
@@ -123,6 +127,8 @@ class DataJobs:
                     job["status"] = "INTERRUPTED"
             job["progress"] = read_json(path.parent / "progress.json")
             job["stopping"] = (path.parent / "stop").exists()
+            if "daily" in job.get("datasets", []):
+                job["result"] = read_json(path.parent / "result.json")
             records.append(job)
         return records
 
@@ -131,10 +137,13 @@ class DataJobs:
             (r for r in self.records() if r["status"] in ("RUNNING", "RETRYING", "STARTING")), None
         )
 
-    def start(self, start_date, end_date, datasets):
+    def start(self, start_date, end_date, datasets, symbols=None, trigger="admin"):
+        """启动后台任务。``symbols`` 只对财务数据生效：限定下载哪些股票，不给就是全部。
+        ``trigger``：``auto``（每天自动更新）或 ``admin``（管理员手动）。"""
+
         if start_date > end_date or end_date > date.today():
             raise ValueError("日期范围无效，结束日期不能晚于今天。")
-        if not datasets or not set(datasets) <= {"bars", "actions", "derived"}:
+        if not datasets or not set(datasets) <= DATASETS:
             raise ValueError("请至少选择一个有效的数据集。")
         with exclusive(self.directory / ".launch.lock"):
             if self.active():
@@ -147,11 +156,13 @@ class DataJobs:
                 start_date=str(start_date),
                 end_date=str(end_date),
                 datasets=list(datasets),
+                symbols=list(symbols) if symbols else None,
                 config=self.config,
                 cwd=self.cwd,
                 status="STARTING",
                 created_at=now(),
                 retries=0,
+                trigger=trigger,
             )
             write_json(folder / "job.json", job)
             options = (
@@ -195,11 +206,23 @@ class DataJobs:
 
 
 def attempt(folder, job):
+    from quant_platform.data.full_market_backfill import _ProgressWatchdog
+
+    watchdog = _ProgressWatchdog(STALL_SECONDS)
+    watchdog.start()
+    try:
+        return _attempt(folder, job, watchdog)
+    finally:
+        watchdog.close()
+
+
+def _attempt(folder, job, watchdog):
     from quant_platform.application.data_service import DataCenterService
 
     checkpoint_path = None
 
     def progress(stage, done, total):
+        watchdog.feed()
         checkpoint = read_json(checkpoint_path) if checkpoint_path else {}
         failures = len(checkpoint.get(stage, {}).get("failed", {}))
         write_json(
@@ -210,23 +233,64 @@ def attempt(folder, job):
         if (folder / "stop").exists():
             raise SystemExit(130)
 
+    if "daily" in job["datasets"]:
+        from quant_platform.application.daily_update import DailyUpdate
+
+        def heartbeat():
+            watchdog.feed()
+            if (folder / "stop").exists():
+                raise SystemExit(130)
+
+        service = DataCenterService(job["config"])
+        # 断点按日期存在任务目录外面：同一天重新启动的任务接着上次的进度。
+        state = folder.parent / f"daily-{job['end_date']}.json"
+        daily = DailyUpdate(service, state, heartbeat=heartbeat, progress=progress,
+                            lock=lambda: exclusive(service.repository.root / ".update.lock"))
+        result = daily.run(date.fromisoformat(job["end_date"]))
+        write_json(folder / "result.json", result)
+        return 2 if result["errors"] else 0
+
     progress("security_master", 0, 1)
     service = DataCenterService(job["config"])
     checkpoint_path = Path(str(service.app.get("app", {}).get("runtime_dir", "runtime"))) / (
         "full_market_backfill_state.json"
     )
-    result = service.run_closed_loop(
-        date.fromisoformat(job["start_date"]),
-        date.fromisoformat(job["end_date"]),
-        resume=True,
-        skip_bars="bars" not in job["datasets"],
-        skip_actions="actions" not in job["datasets"],
-        skip_derived="derived" not in job["datasets"],
-        progress=progress,
-        watchdog_timeout=600.0,
-    )
+    start, end = date.fromisoformat(job["start_date"]), date.fromisoformat(job["end_date"])
+    result = {}
+    if set(job["datasets"]) & {"bars", "actions", "derived"}:
+        # 全市场日线自带看门狗（每只股票喂一次），这段时间不用外层的。
+        watchdog.pause()
+        result = service.run_closed_loop(
+            start,
+            end,
+            resume=True,
+            skip_bars="bars" not in job["datasets"],
+            skip_actions="actions" not in job["datasets"],
+            skip_derived="derived" not in job["datasets"],
+            progress=progress,
+            watchdog_timeout=600.0,
+        )
+        watchdog.resume()
+    if "bar_gaps" in job["datasets"]:
+        result["bar_gaps"] = service.repair_bar_gaps(start, end, progress=progress)
+    if "action_gaps" in job["datasets"]:
+        result["action_gaps"] = service.backfill_corporate_action_gaps(progress=progress)
+    if "indicators" in job["datasets"]:
+        # 放在日线之后：这次任务里刚下载的行情，估值与换手率已经跟着存好了，这里只补以前的。
+        result["daily_indicators"] = service.backfill_daily_indicators(start, end, progress=progress)
+    if "fundamentals" in job["datasets"]:
+        result["quarterly_fundamentals"] = service.backfill_fundamentals(
+            start, end, symbols=job.get("symbols"), progress=progress
+        )
+    if "industry" in job["datasets"]:
+        result["industry"] = service.backfill_industry(start, end, progress=progress)
+    if "index_constituents" in job["datasets"]:
+        result["index_constituents"] = service.backfill_index_constituents(start, end, progress=progress)
     write_json(folder / "result.json", result)
-    failed = any(result.get(key, {}).get("failed") for key in ("daily_bars", "corporate_actions"))
+    failed = any(
+        result.get(key, {}).get("failed")
+        for key in ("daily_bars", "corporate_actions", "daily_indicators", "quarterly_fundamentals", "industry", "index_constituents", "bar_gaps", "action_gaps")
+    )
     return 2 if failed else 0
 
 

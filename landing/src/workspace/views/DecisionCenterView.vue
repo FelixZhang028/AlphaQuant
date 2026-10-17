@@ -1,41 +1,30 @@
 <script setup>
 import { onActivated, reactive, ref } from 'vue'
-import { jevDecide, jevSettings, jevSaveSettings } from '../../api.js'
+import { jevDecide, jevStatus } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
+import { remainingText } from '../aiPresentation.js'
 
 const props = defineProps({
-  settingsOnly: { type: Boolean, default: false },
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
 
-const configured = ref(false)
-const saving = ref(false)
-const showConfig = ref(false)
-const config = reactive({ base_url: 'https://openrouter.ai/api/alpha/decisions', api_key: '', model: 'typesafe/jev-1.13' })
+const status = ref(null)
 const stateText = ref('')
 function state() {
   const text = stateText.value.trim()
   if (!text) return {}
   try { const value = JSON.parse(text); return value === null || typeof value === 'object' || typeof value === 'string' ? value : text } catch { return text }
 }
-async function loadSettings() {
-  const data = await jevSettings()
-  configured.value = data.configured
-  config.base_url = data.base_url
-  config.model = data.model
+async function loadStatus() {
+  try { status.value = await jevStatus() } catch (e) { props.notify(e.message) }
 }
-onActivated(async () => { try { await loadSettings() } catch (e) { props.notify(e.message) } })
-async function saveSettings() {
-  saving.value = true
-  try { await jevSaveSettings(config); config.api_key = ''; await loadSettings(); showConfig.value = false; props.notify('Jev 配置已保存') }
-  catch (e) { props.notify(e.message) } finally { saving.value = false }
-}
+onActivated(loadStatus)
 const activeTab = ref('choice')
 const tabs = [
-  { key: 'choice', label: 'Choice 选项决策' },
-  { key: 'noul', label: 'Noul 条件判断' },
-  { key: 'score', label: 'Score 量表评分' },
+  { key: 'choice', label: '方案比较' },
+  { key: 'noul', label: '条件判断' },
+  { key: 'score', label: '等级评分' },
 ]
 
 const loading = ref(false)
@@ -65,6 +54,7 @@ async function runChoice() {
     props.notify(e.message || '决策请求失败')
   } finally {
     loading.value = false
+    loadStatus()
   }
 }
 
@@ -90,6 +80,7 @@ async function runNoul() {
     props.notify(e.message || '决策请求失败')
   } finally {
     loading.value = false
+    loadStatus()
   }
 }
 
@@ -117,6 +108,7 @@ async function runScore() {
     props.notify(e.message || '决策请求失败')
   } finally {
     loading.value = false
+    loadStatus()
   }
 }
 
@@ -145,26 +137,18 @@ function score0100(r) {
 
 <template>
   <div class="space-y-5">
-    <div>
-      <h1 class="text-2xl font-semibold text-white">AI 决策中心</h1>
+    <div class="glass glass-sheen rounded-2xl p-6">
+      <h2 class="text-xl font-bold text-white">决策辅助</h2>
       <p class="mt-1 text-sm text-slate-400">
-        基于 Jev 结构化决策模型，提供 Choice（选项决策）、Noul（条件判断）、Score（量表评分）三种决策原语。未配置 OpenRouter 时自动使用离线演示模式。
+        提供研究材料，比较候选方案、判断条件或评估等级。结果用于辅助研究，不会执行交易。
       </p>
     </div>
 
-    <div class="flex items-center justify-between rounded-xl border border-white/10 p-4 text-sm text-slate-300">
-      <span>{{ configured ? 'Jev 已配置，执行时调用真实服务' : '演示模式：尚未配置 OpenRouter API Key' }}</span>
-      <button @click="showConfig = !showConfig" class="rounded-lg border border-white/10 px-3 py-1">配置</button>
-    </div>
-    <SectionCard v-if="showConfig || settingsOnly" title="Jev 服务配置">
-      <form class="space-y-3" @submit.prevent="saveSettings">
-        <label class="block text-xs text-slate-400">决策服务地址<input v-model="config.base_url" class="mt-1 w-full rounded-lg border border-white/10 bg-ink/60 p-3 text-sm text-white" /></label>
-        <label class="block text-xs text-slate-400">模型<input v-model="config.model" class="mt-1 w-full rounded-lg border border-white/10 bg-ink/60 p-3 text-sm text-white" /></label>
-        <label class="block text-xs text-slate-400">OpenRouter API Key<input v-model="config.api_key" type="password" autocomplete="new-password" placeholder="留空保留已保存的 Key" class="mt-1 w-full rounded-lg border border-white/10 bg-ink/60 p-3 text-sm text-white" /></label>
-        <button :disabled="saving" class="rounded-lg bg-indigo-500 px-4 py-2 text-sm text-white disabled:opacity-50">{{ saving ? '保存中…' : '保存配置' }}</button>
-      </form>
-    </SectionCard>
-    <template v-if="!settingsOnly">
+    <p class="rounded-xl border border-white/10 p-4 text-sm" :class="status && !status.available ? 'text-amber-200' : 'text-slate-300'">
+      <template v-if="!status">正在读取决策模型状态…</template>
+      <template v-else-if="!status.available">平台还没有配置决策模型，暂时不能使用。</template>
+      <template v-else>决策模型 {{ status.model }}{{ remainingText(status.usage, '使用') ? ' · ' + remainingText(status.usage, '使用') : '' }}</template>
+    </p>
     <SectionCard title="决策上下文" subtitle="填写供模型判断的事实、行情或研究材料（文本或 JSON）">
       <textarea v-model="stateText" aria-label="决策上下文" rows="4" placeholder="例如：市场近20日涨幅、波动率、策略回测摘要" class="w-full rounded-lg border border-white/10 bg-ink/60 p-3 text-sm text-white" />
     </SectionCard>
@@ -184,7 +168,7 @@ function score0100(r) {
     </div>
 
     <!-- Choice -->
-    <SectionCard v-if="activeTab === 'choice'" title="Choice 选项决策" subtitle="在多个候选选项中选择最优项，并给出各选项概率分布">
+    <SectionCard v-if="activeTab === 'choice'" title="方案比较" subtitle="根据提供的材料比较候选方案，查看模型选择及各选项分布">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">决策问题</label>
@@ -227,7 +211,7 @@ function score0100(r) {
     </SectionCard>
 
     <!-- Noul -->
-    <SectionCard v-if="activeTab === 'noul'" title="Noul 条件判断" subtitle="判断某个条件成立的概率（0~1）">
+    <SectionCard v-if="activeTab === 'noul'" title="条件判断" subtitle="结合提供的材料，查看模型对条件成立的概率估计">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">待判断条件</label>
@@ -249,7 +233,7 @@ function score0100(r) {
     </SectionCard>
 
     <!-- Score -->
-    <SectionCard v-if="activeTab === 'score'" title="Score 量表评分" subtitle="在有序等级量表上给出评分，并映射到 0~100 分">
+    <SectionCard v-if="activeTab === 'score'" title="等级评分" subtitle="在有序等级量表上给出评分，并映射到 0~100 分">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">评分问题</label>
@@ -295,26 +279,16 @@ function score0100(r) {
     <!-- Result -->
     <SectionCard v-if="result" title="决策结果">
       <div class="space-y-4">
-        <div class="flex items-center gap-2">
-          <span
-            :class="[
-              'rounded-full px-2 py-0.5 text-xs font-medium',
-              result.mock ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300',
-            ]"
-          >
-            {{ result.mock ? '演示模式（Mock）' : '真实模型' }}
-          </span>
-          <span v-if="result.confidence != null" class="text-xs text-slate-400">置信度 {{ pct(result.confidence) }}</span>
-        </div>
+        <p v-if="result.confidence != null" class="text-xs text-slate-400">置信度 {{ pct(result.confidence) }}</p>
 
         <!-- Choice result -->
         <div v-if="result.selected !== undefined" class="space-y-3">
           <div class="rounded-lg border border-indigo-400/20 bg-indigo-500/5 p-4">
-            <div class="text-xs text-slate-400">最优选择</div>
+            <div class="text-xs text-slate-400">模型选择</div>
             <div class="mt-1 text-xl font-semibold text-indigo-200">{{ result.selected }}</div>
           </div>
           <div>
-            <div class="mb-2 text-xs font-medium text-slate-400">各选项概率</div>
+            <div class="mb-2 text-xs font-medium text-slate-400">模型选项分布</div>
             <div class="space-y-2">
               <div v-for="(p, opt) in result.probabilities" :key="opt" class="flex items-center gap-3">
                 <span class="w-32 truncate text-sm text-slate-300">{{ opt }}</span>
@@ -333,7 +307,7 @@ function score0100(r) {
         <!-- Noul result -->
         <div v-else-if="result.probability !== undefined" class="space-y-3">
           <div class="rounded-lg border border-indigo-400/20 bg-indigo-500/5 p-4">
-            <div class="text-xs text-slate-400">条件成立概率</div>
+            <div class="text-xs text-slate-400">模型估计的条件成立概率</div>
             <div class="mt-1 text-3xl font-semibold text-indigo-200">{{ pct(result.probability) }}</div>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-white/5">
@@ -376,6 +350,5 @@ function score0100(r) {
         </div>
       </div>
     </SectionCard>
-    </template>
   </div>
 </template>

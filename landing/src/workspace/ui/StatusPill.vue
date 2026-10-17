@@ -8,6 +8,10 @@ const props = defineProps({
 
 const cls = computed(() => {
   const v = props.value
+  if (v === 'A') return 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30'
+  if (v === 'B') return 'text-sky-300 bg-sky-400/10 border-sky-400/30'
+  if (v === 'C') return 'text-amber-300 bg-amber-400/10 border-amber-400/30'
+  if (v === 'D') return 'text-rose-300 bg-rose-400/10 border-rose-400/30'
   if (['运行中', 'SUCCESS', '完成', '批准', '有效', 'VALID', '买入'].includes(v)) return 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30'
   if (['已暂停', 'WARNING', '警告', '有条件批准', '持有'].includes(v)) return 'text-amber-300 bg-amber-400/10 border-amber-400/30'
   if (['已停止', 'FAILED', '失败', '拒绝', '卖出', 'INVALID'].includes(v)) return 'text-rose-300 bg-rose-400/10 border-rose-400/30'

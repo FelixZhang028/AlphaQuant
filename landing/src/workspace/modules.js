@@ -7,31 +7,20 @@ export const overviewKey = 'overview'
 export const groups = [
   { label: 'AI 智能投研', items: [
     { key: 'agent-lab', label: 'AI研究员' },
-    { key: 'prior-knowledge', label: '先验知识库' },
-    { key: 'knowledge-base', label: '知识库问答 · WeKnora' },
-    { key: 'decision-center', label: 'AI 决策中心 · Jev' },
   ] },
   { label: '策略研究', items: [
-    { key: 'strategy-hub', label: '策略工作室', children: [
-      { key: 'strategy-hub', label: '策略管理' },
-      { key: 'strategy-studio', label: '模板与积木' },
-      { key: 'nl-strategy', label: '自然语言' },
-      { key: 'custom-strategy', label: 'Python 策略' },
-    ] },
-    { key: 'factor-lab', label: '因子实验室' },
+    { key: 'market-chart', label: '行情图表' },
+    { key: 'strategy-hub', label: '我的策略' },
+    { key: 'factor-lab', label: '因子研究' },
     { key: 'backtest-review', label: '回测与验证', children: [
-      { key: 'backtest-review', label: '单次回测' },
-      { key: 'research', label: '参数优化' },
-      { key: 'audit-report', label: '可信度审计' },
-      { key: 'strategy-forensics', label: '成交核查' },
+      { key: 'backtest-review', label: '策略回测' },
+      { key: 'research', label: '参数验证' },
     ] },
     { key: 'run-library', label: '研究记录' },
   ] },
   { label: '数据管理', items: [
-    { key: 'data-management', label: '数据资产' },
+    { key: 'data-management', label: '数据概览' },
     { key: 'data-update', label: '数据更新' },
-    { key: 'xtick-data', label: 'XTick 数据服务' },
-    { key: 'risk-management', label: '风险管理' },
     { key: 'universe', label: '股票池管理' },
   ] },
   { label: '系统', items: [
@@ -41,12 +30,32 @@ export const groups = [
 ]
 
 // 完整路由注册表保留页内入口，兼容官网、新手引导及已有直达链接。
+const utilityItems = [
+  // 文档问答与决策辅助暂不放进侧栏，旧链接仍能打开。研究经验在 AI研究员页面里管理。
+  { key: 'knowledge-base', label: '投研知识库', parent: 'agent-lab' },
+  { key: 'decision-center', label: '决策辅助', parent: 'agent-lab' },
+  { key: 'xtick-data', label: 'XTick 数据服务', parent: 'data-management' },
+  { key: 'strategy-studio', label: '新建规则策略', parent: 'strategy-hub' },
+  { key: 'audit-report', label: '可信度审计', parent: 'backtest-review' },
+  { key: 'strategy-forensics', label: '成交核查', parent: 'backtest-review' },
+]
 export const allItems = [{ key: overviewKey, label: '首页' }, ...groups.flatMap((g) =>
-  g.items.flatMap((item) => item.children || [item]))]
+  g.items.flatMap((item) => item.children || [item])), ...utilityItems]
+
+// 已合并页面的旧链接，直接落到现在包含该功能的页面。
+const legacyViews = {
+  'walk-forward': 'research', 'risk-management': 'backtest-review', 'nl-strategy': 'strategy-studio', 'prior-knowledge': 'agent-lab',
+  // Python 策略已停用：旧链接落到我的策略。
+  'custom-strategy': 'strategy-hub',
+}
+export function resolveView(key) {
+  return legacyViews[key] || key
+}
 
 export function navigationItem(key) {
+  const parentKey = utilityItems.find((item) => item.key === key)?.parent || key
   return groups.flatMap((group) => group.items).find((item) =>
-    item.key === key || item.children?.some((child) => child.key === key))
+    item.key === parentKey || item.children?.some((child) => child.key === key))
 }
 
 export function itemLabel(key) {
@@ -54,16 +63,29 @@ export function itemLabel(key) {
   return found ? found.label : key
 }
 
+// 内容宽度与外壳独立：研究页为图表留空间，账户/设置保持紧凑。
+const wideViews = new Set([
+  'market-chart',
+  'factor-lab', 'backtest-review', 'research', 'audit-report',
+  'strategy-forensics', 'strategy-studio', 'run-library',
+])
+const compactViews = new Set(['account', 'settings'])
+
+export function contentLayout(key) {
+  if (compactViews.has(key)) return 'compact'
+  return wideViews.has(key) ? 'wide' : 'standard'
+}
+
+const investmentKnowledgeView = defineAsyncComponent(() => import('./views/InvestmentKnowledgeView.vue'))
 export const views = {
   [overviewKey]: defineAsyncComponent(() => import('./views/OverviewView.vue')),
+  'market-chart': defineAsyncComponent(() => import('./views/MarketChartView.vue')),
   'strategy-hub': defineAsyncComponent(() => import('./views/StrategyHubView.vue')),
-  'nl-strategy': defineAsyncComponent(() => import('./views/NlStrategyView.vue')),
   'strategy-studio': defineAsyncComponent(() => import('./views/StrategyStudioView.vue')),
-  'custom-strategy': defineAsyncComponent(() => import('./views/CustomStrategyView.vue')),
   'factor-lab': defineAsyncComponent(() => import('./views/FactorLabView.vue')),
   'agent-lab': defineAsyncComponent(() => import('./views/AgentLabView.vue')),
   'decision-center': defineAsyncComponent(() => import('./views/DecisionCenterView.vue')),
-  'knowledge-base': defineAsyncComponent(() => import('./views/KnowledgeBaseView.vue')),
+  'knowledge-base': investmentKnowledgeView,
   'backtest-review': defineAsyncComponent(() => import('./views/BacktestReviewView.vue')),
   'audit-report': defineAsyncComponent(() => import('./views/AuditReportView.vue')),
   'strategy-forensics': defineAsyncComponent(() => import('./views/StrategyForensicsView.vue')),
@@ -72,9 +94,7 @@ export const views = {
   'data-update': defineAsyncComponent(() => import('./views/DataUpdateView.vue')),
   'data-management': defineAsyncComponent(() => import('./views/DataManagementView.vue')),
   'xtick-data': defineAsyncComponent(() => import('./views/XtickDataView.vue')),
-  'risk-management': defineAsyncComponent(() => import('./views/RiskManagementView.vue')),
   universe: defineAsyncComponent(() => import('./views/UniverseView.vue')),
-  'prior-knowledge': defineAsyncComponent(() => import('./views/PriorKnowledgeView.vue')),
   settings: defineAsyncComponent(() => import('./views/SettingsView.vue')),
   account: defineAsyncComponent(() => import('./views/AccountView.vue')),
 }

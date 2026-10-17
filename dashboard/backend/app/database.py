@@ -5,6 +5,10 @@
 - users          官网注册用户（含 is_admin 标记）
 - strategies     每个用户的策略
 - backtests      每个用户的回测任务与结果
+- chart_drawings 每个用户在每只股票 K 线上画的线
+- ai_usage       每个用户每天调用平台 AI 的次数
+- stock_briefs   AI 研究员的每次分析（当时的数据、AI 解读、追问）
+- ai_reviews     每次回测的 AI 评估（风险等级、过度拟合的可能）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -82,20 +86,6 @@ def init_db() -> None:
                 UNIQUE(user_id, package_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
-            CREATE TABLE IF NOT EXISTS user_strategies (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id      INTEGER NOT NULL,
-                plugin_name  TEXT    NOT NULL,
-                display_name TEXT    NOT NULL,
-                description  TEXT    NOT NULL DEFAULT '',
-                source       TEXT    NOT NULL DEFAULT 'editor',
-                code         TEXT    NOT NULL,
-                parameters   TEXT    NOT NULL DEFAULT '[]',   -- JSON 参数 schema
-                created_at   TEXT    NOT NULL,
-                updated_at   TEXT    NOT NULL,
-                UNIQUE(user_id, plugin_name),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
             CREATE TABLE IF NOT EXISTS custom_factors (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id      INTEGER NOT NULL,
@@ -160,6 +150,44 @@ def init_db() -> None:
                 rows         INTEGER NOT NULL DEFAULT 0,
                 message      TEXT    NOT NULL DEFAULT '',
                 completed_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS chart_drawings (
+                user_id    INTEGER NOT NULL,
+                symbol     TEXT    NOT NULL,                -- 6 位裸码
+                drawings   TEXT    NOT NULL DEFAULT '[]',   -- JSON 数组
+                updated_at TEXT    NOT NULL,
+                PRIMARY KEY (user_id, symbol),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                user_id INTEGER NOT NULL,
+                day     TEXT    NOT NULL,                -- 北京时间日期
+                kind    TEXT    NOT NULL,                -- brief / question / strategy
+                count   INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, day, kind),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS stock_briefs (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                symbol     TEXT    NOT NULL,
+                name       TEXT    NOT NULL,
+                trade_date TEXT    NOT NULL,
+                model      TEXT    NOT NULL DEFAULT '',     -- 空表示没有 AI 解读，只有数据
+                facts      TEXT    NOT NULL,                -- JSON：当时的数据
+                brief      TEXT,                            -- JSON：AI 解读
+                questions  TEXT    NOT NULL DEFAULT '[]',   -- JSON：追问与回答
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_stock_briefs_user ON stock_briefs(user_id, created_at);
+            CREATE TABLE IF NOT EXISTS ai_reviews (
+                user_id     INTEGER NOT NULL,
+                backtest_id INTEGER NOT NULL,
+                review      TEXT    NOT NULL,                -- JSON：用到的数据和 AI 的估计
+                created_at  TEXT    NOT NULL,
+                PRIMARY KEY (user_id, backtest_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             """

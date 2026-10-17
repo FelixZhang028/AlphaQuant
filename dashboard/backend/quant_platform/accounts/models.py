@@ -9,7 +9,10 @@ from math import isfinite
 
 @dataclass(frozen=True)
 class CorporateAction:
-    """Explicit entitlement per pre-event share; never inferred from adjustment factors.
+    """Entitlement per pre-event share, normally from an explicit record.
+
+    The engine infers one from the adjustment factor only for a held stock whose factor
+    changed with no record (usually a rights issue), and reports every such case.
 
     cash_per_share is the cash entitlement after any modeled tax. Payment and
     share listing dates default to ex_date for same-day synthetic events.

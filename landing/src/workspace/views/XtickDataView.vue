@@ -9,6 +9,12 @@ const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
+// XTick 的凭证是全站共用的：只有管理员能配置和调用。
+const isAdmin = computed(() => !!props.user?.is_admin)
+
+function backToOverview() {
+  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: 'data-management' }))
+}
 
 const catalog = ref([])
 const loading = ref(false)
@@ -133,6 +139,7 @@ function exportCsv(api) {
 }
 
 onMounted(() => {
+  if (!isAdmin.value) return
   loadStatus()
   loadCatalog()
 })
@@ -144,11 +151,13 @@ onMounted(() => {
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <p class="text-2xl font-bold text-white">XTick 数据服务</p>
+      <button type="button" class="mt-2 text-sm text-indigo-300 hover:underline" @click="backToOverview">← 返回数据概览</button>
       <p class="mt-2 max-w-2xl text-sm text-slate-400">
         调用 XTick 金融行情数据 HTTP API，接口表单由官方 apidoc 动态生成；成功响应为 ZIP
         压缩包（内含 data.json），后端自动解包并附加股票名称。
       </p>
-      <div class="mt-3 flex flex-wrap items-center gap-3">
+      <p v-if="!isAdmin" class="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">XTick 是平台共用的数据服务，只有管理员可以配置凭证和查询接口。行情数据由平台每天自动更新。</p>
+      <div v-if="isAdmin" class="mt-3 flex flex-wrap items-center gap-3">
         <span
           class="rounded-full px-3 py-1 text-xs"
           :class="status.configured ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'"
@@ -163,7 +172,7 @@ onMounted(() => {
         </button>
       </div>
       <!-- 凭证表单 -->
-      <div v-if="showCredForm" class="mt-4 grid gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:grid-cols-2">
+      <div v-if="isAdmin && showCredForm" class="mt-4 grid gap-4 rounded-xl border border-white/10 bg-white/5 p-4 sm:grid-cols-2">
         <FormField v-model="credForm.token" label="XTick Token" type="text" placeholder="粘贴官方 Token" />
         <FormField v-model="credForm.base_url" label="接口 Base URL" type="text" placeholder="http://api.xtick.top" />
         <div class="sm:col-span-2">
@@ -179,6 +188,7 @@ onMounted(() => {
       </div>
     </div>
 
+    <template v-if="isAdmin">
     <!-- 分类 Tab -->
     <div class="flex flex-wrap rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
       <button
@@ -260,6 +270,7 @@ onMounted(() => {
           >{{ JSON.stringify(results[api.id].rows, null, 2) }}</pre>
         </div>
       </section>
+    </template>
     </template>
   </div>
 </template>

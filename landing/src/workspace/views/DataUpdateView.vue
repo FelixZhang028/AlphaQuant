@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
+import { actionGapSummary, barGapSummary, fundamentalsSummary, indexConstituentsSummary, indicatorSummary, industrySummary } from '../dataPresentation.js'
 import {
   closedLoopStatus,
   dataJobLog,
@@ -11,6 +12,7 @@ import {
 } from '../../api.js'
 import MetricCard from '../ui/MetricCard.vue'
 import SectionCard from '../ui/SectionCard.vue'
+import DailyUpdateCard from '../ui/DailyUpdateCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import FormField from '../ui/FormField.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -19,6 +21,8 @@ const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
+// 数据由平台每天自动更新；下载、补历史数据和后台任务只有管理员能操作。
+const isAdmin = computed(() => !!props.user?.is_admin)
 
 // ===========================================================================
 // 日常更新（自原数据资产页迁移；来源顺序/基准多选保持不变）
@@ -34,6 +38,14 @@ const oneYearAgo = new Date(today)
 oneYearAgo.setFullYear(today.getFullYear() - 1)
 
 const overview = ref(null)
+const overviewLoading = ref(true)
+const overviewError = ref('')
+const updateError = ref('')
+const updateAttempted = ref(false)
+const advancedOpen = ref(false)
+function navigate(key) {
+  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: key }))
+}
 const providers = computed(() => overview.value?.providers || [])
 const providerLabel = (id) => {
   const hit = providers.value.find((p) => p.provider === id)
@@ -95,6 +107,8 @@ const updateRows = computed(() =>
 )
 
 async function loadOverview() {
+  overviewLoading.value = true
+  overviewError.value = ''
   try {
     overview.value = await dataOverview()
     if (!form.benchmark_symbols.length) {
@@ -102,13 +116,22 @@ async function loadOverview() {
       if (hit) form.benchmark_symbols = [hit.name]
     }
   } catch (e) {
+    overviewError.value = e.message || '加载数据概览失败'
     props.notify(e.message || '加载数据概览失败')
+  } finally {
+    overviewLoading.value = false
   }
 }
 
 async function runUpdate() {
+  if (updating.value) return
   if (!form.start_date || !form.end_date) return props.notify('请选择开始与结束日期')
+  if (form.start_date > form.end_date) return props.notify('开始日期不能晚于结束日期')
+  if (!form.include_market && !form.include_security_master && !form.include_benchmark) return props.notify('请至少选择一类更新数据')
   updating.value = true
+  updateAttempted.value = true
+  updateError.value = ''
+  updateResults.value = []
   try {
     const payload = {
       start_date: form.start_date,
@@ -128,9 +151,11 @@ async function runUpdate() {
     if (form.benchmark_symbols.length) payload.benchmark_symbols = [...form.benchmark_symbols]
     const data = await dataUpdate(payload)
     updateResults.value = data.results || []
-    const failed = updateResults.value.filter((r) => r.status === 'FAILED').length
-    props.notify(failed ? `更新完成，${failed} 项失败` : '数据更新完成')
+    const failed = updateResults.value.filter((r) => r.status !== 'SUCCESS').length
+    props.notify(!updateResults.value.length ? '未返回更新结果，请核对数据状态' : failed ? `更新返回，${failed} 项需核对` : '数据更新完成')
+    await loadOverview()
   } catch (e) {
+    updateError.value = e.message || '数据更新失败'
     props.notify(e.message || '数据更新失败')
   } finally {
     updating.value = false
@@ -141,6 +166,12 @@ async function runUpdate() {
 // 全市场回填任务（迁移自 AlphaQuant data_job_panel.py：detached 后台作业）
 // ===========================================================================
 const STAGES = {
+  daily_indicators: '估值与换手率',
+  quarterly_fundamentals: '财务数据',
+  industry: '行业分类',
+  index_constituents: '指数成分股',
+  bar_gaps: '补全行情',
+  corporate_action_gaps: '补全分红送转记录',
   security_master: '证券主表',
   daily_bars: '日线行情',
   corporate_actions: '分红送配',
@@ -151,6 +182,7 @@ const INCOMPLETE = ['FAILED', 'PARTIAL', 'STOPPED', 'INTERRUPTED']
 
 const jobs = ref([])
 const jobsLoading = ref(false)
+const jobsError = ref('')
 const activeJob = computed(() =>
   jobs.value.find((j) => ['STARTING', 'RUNNING', 'RETRYING'].includes(j.status))
 )
@@ -168,6 +200,10 @@ const DATASET_OPTIONS = [
   { value: 'bars', label: '日线行情' },
   { value: 'actions', label: '分红送配' },
   { value: 'derived', label: '历史股票池与退市结算' },
+  { value: 'indicators', label: '估值与换手率' },
+  { value: 'fundamentals', label: '财务数据' },
+  { value: 'industry', label: '行业分类' },
+  { value: 'index_constituents', label: '指数成分股' },
 ]
 function toggleDataset(v) {
   const idx = jobForm.datasets.indexOf(v)
@@ -208,6 +244,7 @@ const progressPct = computed(() => {
 
 async function loadJobs() {
   jobsLoading.value = true
+  jobsError.value = ''
   try {
     const data = await dataJobs()
     jobs.value = data.records || []
@@ -217,6 +254,7 @@ async function loadJobs() {
       showLog.value = false
     }
   } catch (e) {
+    jobsError.value = e.message || '加载任务列表失败'
     props.notify(e.message || '加载任务列表失败')
   } finally {
     jobsLoading.value = false
@@ -228,6 +266,7 @@ async function startJob(payload) {
     await startDataJob(payload)
     props.notify('全市场回填任务已启动')
     await loadJobs()
+    schedulePoll()
     showLog.value = true
   } catch (e) {
     props.notify(e.message || '启动任务失败')
@@ -280,8 +319,9 @@ function toggleJobLog() {
 
 // 有活跃任务时每 5 秒轮询进度（迁移自 Streamlit fragment run_every="5s"）
 let pollTimer = null
+let viewActive = false
 function schedulePoll() {
-  if (pollTimer || !activeJob.value) return
+  if (pollTimer || !activeJob.value || !viewActive) return
   pollTimer = setInterval(async () => {
     await loadJobs()
     if (showLog.value && activeJob.value) loadLog()
@@ -297,6 +337,7 @@ function schedulePoll() {
 // ===========================================================================
 const loop = ref(null)
 const loopError = ref('')
+const loopLoading = ref(false)
 const CHECKPOINT_LABELS = {
   security_master: '证券主表',
   daily_bars: '日线行情',
@@ -328,20 +369,77 @@ const checkpointRows = computed(() =>
 )
 
 async function loadLoop() {
+  if (loopLoading.value) return
+  loopLoading.value = true
+  loopError.value = ''
   try {
     loop.value = await closedLoopStatus()
   } catch (e) {
     loopError.value = e.message || '读取闭环状态失败'
+  } finally {
+    loopLoading.value = false
   }
 }
 
-onMounted(async () => {
-  await Promise.all([loadOverview(), loadJobs(), loadLoop()])
+function toggleAdvanced(event) {
+  advancedOpen.value = event.target.open
+  if (advancedOpen.value && !loop.value) loadLoop()
+}
+
+// 估值与换手率：以后每次更新行情会自动带上，这里补的是以前下载的行情。
+const indicators = computed(() => loop.value?.indicators || null)
+const indicatorText = computed(() => indicatorSummary(indicators.value))
+async function fillIndicators() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['indicators'] })
+}
+// 财务数据：一只股票、一个季度地取，所以默认只下载股票池；全市场在高级更新里选择。
+const fundamentals = computed(() => loop.value?.fundamentals || null)
+const fundamentalsText = computed(() => fundamentalsSummary(fundamentals.value))
+async function downloadPoolFundamentals() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['fundamentals'], scope: 'universe' })
+}
+// 行业分类：每个季度末一张全市场快照，只保存发生变化的记录。
+const industry = computed(() => loop.value?.industry || null)
+const industryText = computed(() => industrySummary(industry.value))
+async function downloadIndustry() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['industry'] })
+}
+// 行情不完整的股票：以前的下载中途失败留下的，整只重新下载。
+const barGapText = computed(() => barGapSummary(loop.value?.bar_gaps))
+async function repairBarGaps() {
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['bar_gaps'] })
+}
+// 找不到分红送转记录的复权因子变化：先向 BaoStock 补查，剩下的（多半是配股）回测时推算。
+const actionGaps = computed(() => loop.value?.action_gaps || null)
+const actionGapText = computed(() => actionGapSummary(actionGaps.value))
+async function fillActionGaps() {
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['action_gaps'] })
+}
+// 指数历史成分股：找出名单发生变化的每一周，保存当时的完整名单。
+const indexConstituents = computed(() => loop.value?.index_constituents || null)
+const indexConstituentsLines = computed(() => indexConstituentsSummary(indexConstituents.value))
+const hasIndexConstituents = computed(() => (indexConstituents.value || []).some((item) => item.start_date))
+async function downloadIndexConstituents() {
+  if (!loop.value?.bars_min) return props.notify('本地还没有行情，请先更新行情')
+  await startJob({ start_date: loop.value.bars_min, end_date: jobForm.end_date, datasets: ['index_constituents'] })
+}
+// 后台任务结束后，重新读取落地情况。
+watch(activeJob, (job, previous) => { if (previous && !job) loadLoop() })
+function clearPoll() {
+  viewActive = false
+  if (pollTimer) clearInterval(pollTimer)
+  pollTimer = null
+}
+onActivated(async () => {
+  viewActive = true
+  await Promise.all(isAdmin.value ? [loadOverview(), loadJobs(), loadLoop()] : [loadLoop()])
   schedulePoll()
 })
-onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
+onDeactivated(clearPoll)
+onBeforeUnmount(clearPoll)
 </script>
 
 <template>
@@ -350,19 +448,180 @@ onBeforeUnmount(() => {
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <h1 class="text-xl font-bold text-white">数据更新</h1>
-      <p class="mt-1 text-sm text-slate-400">日常增量更新与全市场历史回填；覆盖率与数据版本见「数据资产」</p>
+      <p class="mt-1 text-sm text-slate-400">{{ isAdmin ? '平台每个交易日自动更新全市场数据；下面的工具用来补历史数据、单独更新和查看后台任务。' : '数据由平台每个交易日自动更新，不需要你操作；这里可以看到每类数据的情况。' }}</p>
     </div>
 
-    <!-- 全市场任务状态提示条 -->
-    <p
-      v-if="activeJob"
-      class="rounded-xl bg-indigo-500/10 px-4 py-3 text-sm text-indigo-200"
-    >
-      全市场任务正在后台运行，关闭网页不影响执行。
-    </p>
+    <DailyUpdateCard :admin="isAdmin" :notify="notify" @finished="loadLoop" />
 
-    <!-- 全市场回填任务（迁移自 AlphaQuant data_job_panel） -->
-    <SectionCard title="全市场历史回填" hint="退市股、历史成分与断点续传；任务在后台独立进程执行">
+    <!-- 日常更新 -->
+    <SectionCard v-if="isAdmin" title="更新当前股票池" hint="默认同步股票池行情、股票信息和基准指数；可在下方调整">
+      <p class="text-sm text-slate-300">{{ overviewLoading ? '正在读取股票池…' : overview ? `当前股票池 ${overview.configured_symbol_count} 只股票` : '股票池信息暂时不可用' }} · {{ form.start_date }} 至 {{ form.end_date }}</p>
+      <p class="mt-2 text-sm text-slate-400">默认更新近一年行情，保留已有历史数据。首次研究更早的区间，可在下方调整日期。</p>
+      <p v-if="overviewError" class="mt-3 text-sm text-rose-300">{{ overviewError }} <button type="button" class="underline" @click="loadOverview">重新读取</button></p>
+      <section class="mt-4 rounded-xl border border-white/10 p-4" aria-labelledby="daily-update-options">
+        <h3 id="daily-update-options" class="text-sm font-medium text-slate-300">调整日期、更新内容与来源</h3>
+        <div class="mt-4">
+          <div class="grid gap-4 md:grid-cols-2">
+            <FormField label="开始日期" type="date" v-model="form.start_date" />
+            <FormField label="结束日期" type="date" v-model="form.end_date" />
+          </div>
+
+          <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+            <label class="flex items-center gap-2.5">
+              <input v-model="form.include_security_master" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+              <span class="text-sm text-slate-300">更新全A证券主表</span>
+            </label>
+            <label class="flex items-center gap-2.5">
+              <input v-model="form.include_market" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+              <span class="text-sm text-slate-300">更新配置股票池行情</span>
+            </label>
+            <label class="flex items-center gap-2.5">
+              <input v-model="form.include_benchmark" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+              <span class="text-sm text-slate-300">更新基准指数</span>
+            </label>
+          </div>
+
+          <p class="mt-3 rounded-xl bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300">
+            行情只更新当前股票池；全市场历史数据请使用下方「高级更新」。行情默认从 BaoStock 下载，证券主表和基准指数使用 AkShare；XTick 只用于专项查询，不用于批量更新。
+          </p>
+
+          <!-- 基准指数多选 -->
+          <div v-if="benchmarkEntries.length" class="mt-4">
+            <span class="mb-1.5 block text-xs text-slate-400">基准指数（可多选）</span>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="b in benchmarkEntries"
+                :key="b.symbol"
+                type="button"
+                class="rounded-full border px-3 py-1.5 text-xs font-medium transition"
+                :class="form.benchmark_symbols.includes(b.name)
+                  ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
+                  : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20 hover:text-slate-300'"
+                @click="toggleBenchmark(b.name)"
+              >
+                {{ b.name }}
+              </button>
+            </div>
+            <p class="mt-1.5 text-xs text-slate-500">用于净值对齐与相对收益计算；不选择则使用配置默认基准。</p>
+          </div>
+
+          <div class="mt-4 grid gap-4 md:grid-cols-2">
+            <FormField label="股票日线行情来源" type="select" v-model="form.market_source" :options="sourceOptions" hint="指定来源只影响本次更新，不修改全局默认配置" />
+            <label class="flex items-center gap-2.5 pt-1">
+              <input v-model="form.allow_fallback" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
+              <span class="text-sm text-slate-300">首选来源失败时自动尝试其他来源</span>
+            </label>
+          </div>
+
+          <p v-if="selectedSourceNotReady" class="mt-3 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            {{ providerLabel(form.market_source) }} 当前未就绪。如保留自动回退，系统仍会尝试其他来源。
+          </p>
+
+        </div>
+      </section>
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <button
+          @click="runUpdate"
+          :disabled="updating || overviewLoading || !!overviewError || !overview || (form.include_market && !overview.configured_symbol_count)"
+          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
+        >
+          {{ updating ? '更新中…' : '开始更新' }}
+        </button>
+        <button type="button" class="px-3 py-2 text-sm text-indigo-300 hover:underline" @click="navigate('universe')">调整股票池</button>
+        <button type="button" class="px-3 py-2 text-sm text-slate-400 hover:underline" @click="navigate('data-management')">查看数据概览</button>
+      </div>
+      <p v-if="updating" class="mt-4 text-sm text-slate-400" role="status">正在更新数据，请保持页面打开。完成后会显示结果。</p>
+      <p v-if="updateError" class="mt-4 text-sm text-rose-300" role="alert">{{ updateError }}</p>
+      <p v-if="updateAttempted && !updating && !updateError && !updateResults.length" class="mt-4 text-sm text-amber-300" role="status">未返回更新结果，请到数据概览核对，或重新尝试。</p>
+
+      <div v-if="updateResults.length" class="mt-6">
+        <p class="mb-3 text-sm text-slate-300" role="status">{{ updateResults.every((r) => r.status === 'SUCCESS') ? '本次更新完成。' : '本次更新存在未成功项目，请查看下方结果。' }}</p>
+        <DataTable :columns="updateCols" :rows="updateRows" empty="暂无更新记录">
+          <template #cell-status="{ row }">
+            <StatusPill :value="row.status" />
+          </template>
+          <template #cell-message="{ row }">
+            <span :class="row.failed ? 'text-rose-300' : 'text-slate-300'">{{ row.message }}</span>
+          </template>
+        </DataTable>
+      </div>
+    </SectionCard>
+    <section v-if="indicators" class="glass rounded-2xl p-5" aria-label="估值与换手率">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">估值与换手率</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ indicatorText }}</p>
+        </div>
+        <button v-if="isAdmin && indicators.missing_symbols > 0" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="fillIndicators">{{ activeJob ? '后台任务运行中…' : '补全历史数据' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">市盈率、市净率、市销率、市现率和换手率，价值类和换手类因子要用到。以后每次更新行情会自动带上；这里补的是以前下载的行情，在后台运行，每只股票一次请求，不会改动已有的行情。</p>
+    </section>
+    <section v-if="fundamentals" class="glass rounded-2xl p-5" aria-label="财务数据">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">财务数据</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ fundamentalsText }}</p>
+        </div>
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadPoolFundamentals">{{ activeJob ? '后台任务运行中…' : '下载股票池的财务数据' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">季度财报里的毛利率、同比增长、负债率和总股本，质量、成长和规模类因子要用到；每份财报从公告日起才会被使用。每只股票约 15 秒，已有的报告期不会重复下载。全市场大约需要 20 多个小时，可以在「高级更新」里选择「财务数据」后台下载，中断后可以继续。</p>
+    </section>
+    <section v-if="industry" class="glass rounded-2xl p-5" aria-label="行业分类">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">行业分类</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ industryText }}</p>
+        </div>
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadIndustry">{{ activeJob ? '后台任务运行中…' : industry.snapshots ? '更新行业分类' : '下载行业分类' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">证监会行业分类（84 个大类），因子评估做行业中性时要用到。每个季度末取一次全市场的分类，只保存发生变化的记录，所以回测和评估用的是当时的行业。第一次下载大约需要 1 小时（每个时点 1 到 2 分钟），在后台运行，中断后可以继续；以后只取新的时点。</p>
+    </section>
+    <section v-if="barGapText" class="glass rounded-2xl border border-amber-400/30 p-5" aria-label="行情不完整的股票">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-base font-semibold text-amber-200">有股票的行情不完整</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ barGapText }}</p>
+        </div>
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-amber-400/40 bg-amber-500/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:opacity-50"
+          @click="repairBarGaps">{{ activeJob ? '后台任务运行中…' : '补全这些股票的行情' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">缺的那几年里，这些股票不会出现在回测、因子评估和指数成分股里，结果会不完整。补全时每只股票整段重新下载，通常每只几秒钟，数据源慢的时候会更久；在后台运行，每补完 10 只保存一次，中断后再点一次只补剩下的。补完后这一栏会消失。如果数据源确实没有某只股票更早的行情，它会一直留在这里。</p>
+    </section>
+    <section v-if="actionGapText" class="glass rounded-2xl p-5" aria-label="分红送转记录">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-base font-semibold text-white">分红送转记录</h2>
+          <p class="mt-1 text-sm text-slate-300">{{ actionGapText }}</p>
+        </div>
+        <button v-if="isAdmin && actionGaps.to_check" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="fillActionGaps">{{ activeJob ? '后台任务运行中…' : '补全分红送转记录' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">回测持有的股票分红、送股时，按这些记录把现金和新股计入账户。日常更新用的数据源对已经退市的股票不返回记录，这里改用 BaoStock 补查，只查有缺口的股票和年份，通常几分钟；查过的年份不再重复查。配股不在这两个数据源里，回测会按复权因子推算成现金，并在结果的数据状态里列出。</p>
+    </section>
+    <section v-if="indexConstituents" class="glass rounded-2xl p-5" aria-label="指数成分股">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">指数成分股</h2>
+          <p v-for="line in indexConstituentsLines" :key="line" class="mt-1 text-sm text-slate-300">{{ line }}</p>
+        </div>
+        <button v-if="isAdmin" type="button" :disabled="!!activeJob"
+          class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50"
+          @click="downloadIndexConstituents">{{ activeJob ? '后台任务运行中…' : hasIndexConstituents ? '更新指数成分股' : '下载指数成分股' }}</button>
+      </div>
+      <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">沪深300、上证50、中证500 在历史上每一天的成分股。下载后，回测的「股票范围」可以选择指数：每个调仓日只在当时的成分股里选股，不会用今天的名单去回测过去。第一次下载大约需要 10 分钟，在后台运行，中断后可以继续；以后只核对新的几周，几秒钟就能完成。成分股半年调整一次，核对日期落后回测结束日一个月以上时，需要先更新。</p>
+    </section>
+    <p v-if="isAdmin && jobsError" class="text-sm text-rose-300">{{ jobsError }} <button type="button" class="underline" @click="loadJobs">重试读取任务</button></p>
+    <section v-if="isAdmin && activeJob" class="glass rounded-2xl p-5" aria-label="后台更新进度">
+      <h2 class="mb-4 text-sm font-semibold text-white">全市场回填正在后台运行</h2>
+      <p class="mb-4 text-sm text-slate-400">关闭页面不影响后台回填；可随时在高级更新中查看记录和日志。</p>
       <!-- 活跃任务进度 -->
       <div v-if="activeJob" class="mb-6 rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -380,7 +639,7 @@ onBeforeUnmount(() => {
         <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
           <div class="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500" :style="{ width: `${progressPct}%` }" />
         </div>
-        <p class="mt-2 text-xs text-slate-500">
+        <p v-if="isAdmin" class="mt-2 text-xs text-slate-500">
           最近进展：{{ activeJob.progress?.updated_at || '等待首批数据' }} · 本阶段失败：{{
             activeJob.progress?.failed || 0
           }} · 自动重试：{{ activeJob.retries || 0 }} 次
@@ -390,196 +649,125 @@ onBeforeUnmount(() => {
         </p>
       </div>
 
-      <!-- 启动表单 -->
-      <div v-if="!activeJob" class="space-y-4">
-        <div class="grid gap-4 md:grid-cols-2">
-          <FormField label="回填开始日期" type="date" v-model="jobForm.start_date" />
-          <FormField label="回填结束日期" type="date" v-model="jobForm.end_date" />
-        </div>
-        <div>
-          <span class="mb-1.5 block text-xs text-slate-400">回填数据（可多选）</span>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="d in DATASET_OPTIONS"
-              :key="d.value"
-              type="button"
-              class="rounded-full border px-3 py-1.5 text-xs font-medium transition"
-              :class="jobForm.datasets.includes(d.value)
-                ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
-                : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20 hover:text-slate-300'"
-              @click="toggleDataset(d.value)"
-            >
-              {{ d.label }}
-            </button>
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            :disabled="!jobForm.datasets.length"
-            class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-            @click="submitJob"
-          >启动回填</button>
-          <span class="text-xs text-slate-500">同一区间会自动跳过已完成部分；失败后最多自动重试 20 次</span>
-        </div>
-        <p class="rounded-xl bg-white/5 px-3 py-2 text-xs text-slate-500">
-          证券主表始终更新；历史股票池按上市退市规则近似生成，退市结算为推导值。
-        </p>
-      </div>
-
-      <!-- 历史记录 -->
-      <div v-if="jobs.length" class="mt-6">
-        <DataTable :columns="historyCols" :rows="historyRows" empty="暂无任务记录">
-          <template #cell-label="{ row }">
-            <button type="button" class="text-left text-indigo-300 transition hover:text-indigo-200" @click="selectedJobId = row.id; showLog = false">
-              {{ row.label }}
-            </button>
-          </template>
-          <template #cell-status="{ row }">
-            <StatusPill :value="row.pill" :text="row.status" />
-          </template>
-        </DataTable>
-
-        <!-- 选中任务：继续回填 + 日志 -->
-        <div v-if="selectedJob" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <p class="text-sm text-slate-300">
-              {{ selectedJob.start_date }} 至 {{ selectedJob.end_date }} ·
-              <span class="text-slate-500">{{ selectedJob.id }}</span>
+    </section>
+    <details v-if="isAdmin" class="glass rounded-2xl p-5" :open="advancedOpen" @toggle="toggleAdvanced">
+      <summary class="cursor-pointer text-lg font-semibold text-white">高级更新：历史回填、任务记录与日志</summary>
+      <div class="mt-5 space-y-6">
+        <!-- 全市场回填任务（迁移自 AlphaQuant data_job_panel） -->
+        <SectionCard title="全市场历史回填" hint="退市股、历史成分与断点续传；任务在后台独立进程执行">
+          <!-- 启动表单 -->
+          <div v-if="!activeJob" class="space-y-4">
+            <div class="grid gap-4 md:grid-cols-2">
+              <FormField label="回填开始日期" type="date" v-model="jobForm.start_date" />
+              <FormField label="回填结束日期" type="date" v-model="jobForm.end_date" />
+            </div>
+            <div>
+              <span class="mb-1.5 block text-xs text-slate-400">回填数据（可多选）</span>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="d in DATASET_OPTIONS"
+                  :key="d.value"
+                  type="button"
+                  class="rounded-full border px-3 py-1.5 text-xs font-medium transition"
+                  :class="jobForm.datasets.includes(d.value)
+                    ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
+                    : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20 hover:text-slate-300'"
+                  @click="toggleDataset(d.value)"
+                >
+                  {{ d.label }}
+                </button>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                :disabled="!jobForm.datasets.length"
+                class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
+                @click="submitJob"
+              >启动回填</button>
+              <span class="text-xs text-slate-500">同一区间会自动跳过已完成部分；失败后最多自动重试 20 次</span>
+            </div>
+            <p class="rounded-xl bg-white/5 px-3 py-2 text-xs text-slate-500">
+              证券主表始终更新；历史股票池按上市退市规则近似生成，退市结算为推导值。
             </p>
-            <div class="flex items-center gap-2">
-              <button
-                v-if="INCOMPLETE.includes(selectedJob.status) && !activeJob"
-                type="button"
-                class="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-4 py-1.5 text-xs text-indigo-200 transition hover:bg-indigo-500/20"
-                @click="resumeJob(selectedJob)"
-              >继续回填</button>
-              <button
-                type="button"
-                class="rounded-full border border-white/10 px-4 py-1.5 text-xs text-slate-300 transition hover:bg-white/5"
-                @click="toggleJobLog"
-              >{{ showLog ? '收起日志' : '最近日志（最多 32 KB）' }}</button>
+          </div>
+
+          <!-- 历史记录 -->
+          <div v-if="jobs.length" class="mt-6">
+            <DataTable :columns="historyCols" :rows="historyRows" empty="暂无任务记录">
+              <template #cell-label="{ row }">
+                <button type="button" class="text-left text-indigo-300 transition hover:text-indigo-200" @click="selectedJobId = row.id; showLog = false">
+                  {{ row.label }}
+                </button>
+              </template>
+              <template #cell-status="{ row }">
+                <StatusPill :value="row.pill" :text="row.status" />
+              </template>
+            </DataTable>
+
+            <!-- 选中任务：继续回填 + 日志 -->
+            <div v-if="selectedJob" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm text-slate-300">
+                  {{ selectedJob.start_date }} 至 {{ selectedJob.end_date }} ·
+                  <span class="text-slate-500">{{ selectedJob.id }}</span>
+                </p>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="INCOMPLETE.includes(selectedJob.status) && !activeJob"
+                    type="button"
+                    class="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-4 py-1.5 text-xs text-indigo-200 transition hover:bg-indigo-500/20"
+                    @click="resumeJob(selectedJob)"
+                  >继续回填</button>
+                  <button
+                    type="button"
+                    class="rounded-full border border-white/10 px-4 py-1.5 text-xs text-slate-300 transition hover:bg-white/5"
+                    @click="toggleJobLog"
+                  >{{ showLog ? '收起日志' : '最近日志（最多 32 KB）' }}</button>
+                </div>
+              </div>
+              <p v-if="INCOMPLETE.includes(selectedJob.status)" class="mt-2 text-xs text-amber-300">
+                任务尚未全部完成，可按原日期和数据范围继续回填。
+              </p>
+              <pre
+                v-if="showLog"
+                class="mt-3 max-h-80 overflow-auto rounded-lg bg-black/40 p-3 text-xs leading-relaxed text-slate-400"
+              >{{ logText || '暂无日志' }}</pre>
             </div>
           </div>
-          <p v-if="INCOMPLETE.includes(selectedJob.status)" class="mt-2 text-xs text-amber-300">
-            任务尚未全部完成，可按原日期和数据范围继续回填。
-          </p>
-          <pre
-            v-if="showLog"
-            class="mt-3 max-h-80 overflow-auto rounded-lg bg-black/40 p-3 text-xs leading-relaxed text-slate-400"
-          >{{ logText || '暂无日志' }}</pre>
-        </div>
-      </div>
-      <p v-else-if="!jobsLoading" class="text-xs text-slate-500">暂无后台回填任务记录。命令行任务的数据版本仍可在数据资产页查看。</p>
-    </SectionCard>
+          <p v-else-if="!jobsLoading && !jobsError" class="text-xs text-slate-500">暂无后台回填任务记录。</p>
+        </SectionCard>
 
-    <!-- 闭环落地状态 -->
-    <SectionCard title="全市场数据闭环状态" hint="只读汇总五张核心表的落地情况与断点进度，不访问外网">
-      <div v-if="loopError" class="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{{ loopError }}</div>
-      <template v-else>
-        <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          <MetricCard v-for="m in loopMetrics" :key="m.label" :label="m.label" :value="m.value" :sub="m.sub" />
-        </section>
-        <div v-if="checkpointRows.length" class="mt-5">
-          <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">断点进度</p>
-          <DataTable
-            :columns="[
-              { key: 'dataset', label: '数据集' },
-              { key: 'range', label: '区间' },
-              { key: 'done', label: '已完成标的', align: 'right' },
-              { key: 'failed', label: '失败标的', align: 'right' },
-              { key: 'updated_at', label: '更新时间' },
-            ]"
-            :rows="checkpointRows"
-            empty="暂无断点记录"
-          >
-            <template #cell-failed="{ row }">
-              <span :class="row.warn ? 'text-rose-300' : 'text-slate-300'">{{ row.failed }}</span>
-            </template>
-          </DataTable>
-        </div>
-      </template>
-    </SectionCard>
-
-    <!-- 日常更新 -->
-    <SectionCard title="日常更新" hint="按数据源顺序增量更新，更新后生成数据版本">
-      <div class="grid gap-4 md:grid-cols-2">
-        <FormField label="开始日期" type="date" v-model="form.start_date" />
-        <FormField label="结束日期" type="date" v-model="form.end_date" />
-      </div>
-
-      <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <label class="flex items-center gap-2.5">
-          <input v-model="form.include_security_master" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-          <span class="text-sm text-slate-300">更新全A证券主表</span>
-        </label>
-        <label class="flex items-center gap-2.5">
-          <input v-model="form.include_market" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-          <span class="text-sm text-slate-300">更新配置股票池行情</span>
-        </label>
-        <label class="flex items-center gap-2.5">
-          <input v-model="form.include_benchmark" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-          <span class="text-sm text-slate-300">更新基准指数</span>
-        </label>
-      </div>
-
-      <p class="mt-3 rounded-xl bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300">
-        行情更新默认只处理配置股票池，不会下载全市场历史行情；全市场数据请使用上方「全市场历史回填」。证券主表和基准指数目前仍固定使用 AkShare。
-      </p>
-
-      <!-- 基准指数多选 -->
-      <div v-if="benchmarkEntries.length" class="mt-4">
-        <span class="mb-1.5 block text-xs text-slate-400">基准指数（可多选）</span>
-        <div class="flex flex-wrap gap-2">
-          <button
-            v-for="b in benchmarkEntries"
-            :key="b.symbol"
-            type="button"
-            class="rounded-full border px-3 py-1.5 text-xs font-medium transition"
-            :class="form.benchmark_symbols.includes(b.name)
-              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
-              : 'border-white/10 bg-white/5 text-slate-400 hover:border-white/20 hover:text-slate-300'"
-            @click="toggleBenchmark(b.name)"
-          >
-            {{ b.name }}
-          </button>
-        </div>
-        <p class="mt-1.5 text-xs text-slate-500">用于净值对齐与相对收益计算；不选择则使用配置默认基准。</p>
-      </div>
-
-      <div class="mt-4 grid gap-4 md:grid-cols-2">
-        <FormField label="股票日线行情来源" type="select" v-model="form.market_source" :options="sourceOptions" hint="指定来源只影响本次更新，不修改全局默认配置" />
-        <label class="flex items-center gap-2.5 pt-1">
-          <input v-model="form.allow_fallback" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />
-          <span class="text-sm text-slate-300">首选来源失败时自动尝试其他来源</span>
-        </label>
-      </div>
-
-      <p v-if="selectedSourceNotReady" class="mt-3 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-        {{ providerLabel(form.market_source) }} 当前未就绪。如保留自动回退，系统仍会尝试其他来源。
-      </p>
-
-      <div class="mt-5 flex items-center gap-3">
-        <button
-          @click="runUpdate"
-          :disabled="updating"
-          class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70"
-        >
-          {{ updating ? '更新中…' : '开始更新' }}
-        </button>
-        <span class="text-xs text-slate-500">同步执行，完成后显示各数据集结果</span>
-      </div>
-
-      <div v-if="updateResults.length" class="mt-6">
-        <DataTable :columns="updateCols" :rows="updateRows" empty="暂无更新记录">
-          <template #cell-status="{ row }">
-            <StatusPill :value="row.status" />
+        <!-- 闭环落地状态 -->
+        <SectionCard title="全市场数据闭环状态" hint="只读汇总五张核心表的落地情况与断点进度，不访问外网">
+          <p v-if="loopLoading" class="text-sm text-slate-400">正在读取全市场统计…</p>
+          <div v-else-if="loopError" class="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{{ loopError }} <button type="button" class="underline" @click="loadLoop">重试</button></div>
+          <template v-else>
+            <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              <MetricCard v-for="m in loopMetrics" :key="m.label" :label="m.label" :value="m.value" :sub="m.sub" />
+            </section>
+            <div v-if="checkpointRows.length" class="mt-5">
+              <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">断点进度</p>
+              <DataTable
+                :columns="[
+                  { key: 'dataset', label: '数据集' },
+                  { key: 'range', label: '区间' },
+                  { key: 'done', label: '已完成标的', align: 'right' },
+                  { key: 'failed', label: '失败标的', align: 'right' },
+                  { key: 'updated_at', label: '更新时间' },
+                ]"
+                :rows="checkpointRows"
+                empty="暂无断点记录"
+              >
+                <template #cell-failed="{ row }">
+                  <span :class="row.warn ? 'text-rose-300' : 'text-slate-300'">{{ row.failed }}</span>
+                </template>
+              </DataTable>
+            </div>
           </template>
-          <template #cell-message="{ row }">
-            <span :class="row.failed ? 'text-rose-300' : 'text-slate-300'">{{ row.message }}</span>
-          </template>
-        </DataTable>
+        </SectionCard>
+
       </div>
-    </SectionCard>
+    </details>
   </div>
 </template>
