@@ -1,0 +1,220 @@
+@import './ds.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   主题基础设施：light / dark 双主题
+   <html data-theme="light|dark"> 由 HTML 内联脚本与 src/theme.js 维护
+   ============================================================ */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --fq-ink-rgb: 246 247 249;   /* 页面底色（浅） */
+  --fq-panel-rgb: 255 255 255; /* 面板底色（浅） */
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --fq-ink-rgb: 6 7 12;   /* 页面底色（深） */
+  --fq-panel-rgb: 11 13 22; /* 面板底色（深） */
+}
+
+/* 主题感知强调文本：用于半透明品牌渐变底上的激活态文字
+   （浅色主题用靛蓝深色，深色主题用白色） */
+.text-fq-strong { color: #4338ca; }
+html[data-theme='dark'] .text-fq-strong { color: #fff; }
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-ink text-slate-200 antialiased font-sans;
+  }
+  ::selection {
+    @apply bg-indigo-500/40 text-white;
+  }
+}
+
+@layer utilities {
+  /* 细腻的网格背景 */
+  .bg-grid {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  /* 噪点纹理（内联 SVG，无外部资源） */
+  .bg-noise {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  }
+
+  /* 毛玻璃材质：半透明底 + 高光描边（移除 backdrop-filter 以避免动画背景下持续重绘） */
+  .glass {
+    background-color: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+      0 8px 32px rgba(2, 4, 10, 0.5);
+  }
+  .glass-strong {
+    background-color: rgba(13, 16, 26, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+      0 12px 40px rgba(2, 4, 10, 0.6);
+  }
+  /* 玻璃卡片悬停时的高光扫过 */
+  .glass-sheen {
+    position: relative;
+  }
+  .glass-sheen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    pointer-events: none;
+  }
+  .glass-sheen:hover::after {
+    opacity: 1;
+  }
+
+  /* 不支持 backdrop-filter 时的回退 */
+  @supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+    .glass { background-color: rgba(15, 18, 28, 0.82); }
+    .glass-strong { background-color: rgba(11, 13, 22, 0.9); }
+  }
+}
+
+/* 滚动渐显动画基类：由 v-reveal 指令添加 is-visible */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ============================================================
+   浅色主题覆盖层
+   工作台/登录/社区页面大量使用深色系 Tailwind 工具类
+   （text-slate-*、bg-white/*、border-white/* 等），
+   这里按类名逐一映射为浅色等效值，实现整站一键换肤。
+   注意：不在 @layer 中书写，保证覆盖 utilities 层。
+   ============================================================ */
+
+/* ---- 文本：slate 亮色系 → 暗色系 ---- */
+html[data-theme='light'] .text-slate-200 { color: #1e293b; }
+html[data-theme='light'] .text-slate-300 { color: #334155; }
+html[data-theme='light'] .text-slate-400 { color: #475569; }
+html[data-theme='light'] .text-slate-500 { color: #64748b; }
+html[data-theme='light'] .text-slate-600 { color: #475569; }
+html[data-theme='light'] .text-slate-300\/80 { color: rgba(51, 65, 85, 0.8); }
+
+/* 主文本：白 → 近黑（元素自身带品牌渐变底色时保持白字） */
+html[data-theme='light'] .text-white { color: #0f172a; }
+html[data-theme='light'] .text-white.bg-gradient-to-r,
+html[data-theme='light'] .text-white.bg-gradient-to-br,
+html[data-theme='light'] .text-white.bg-gradient-to-l,
+html[data-theme='light'] .text-white.bg-gradient-to-t { color: #fff; }
+
+/* ---- 彩色状态文本：300/200 亮色 → 700 深色 ---- */
+html[data-theme='light'] .text-emerald-300 { color: #047857; }
+html[data-theme='light'] .text-emerald-200 { color: #047857; }
+html[data-theme='light'] .text-rose-300 { color: #be123c; }
+html[data-theme='light'] .text-rose-200 { color: #be123c; }
+html[data-theme='light'] .text-amber-300 { color: #b45309; }
+html[data-theme='light'] .text-amber-200 { color: #b45309; }
+html[data-theme='light'] .text-indigo-300 { color: #4338ca; }
+html[data-theme='light'] .text-indigo-200 { color: #4338ca; }
+
+/* ---- 背景：白色半透明 → 深色半透明 ---- */
+html[data-theme='light'] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.04); }
+html[data-theme='light'] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.07); }
+html[data-theme='light'] .bg-white\/20 { background-color: rgba(15, 23, 42, 0.12); }
+
+/* ---- 边框 / 分隔线 ---- */
+html[data-theme='light'] .border-white\/5 { border-color: rgba(15, 23, 42, 0.06); }
+html[data-theme='light'] .border-white\/10 { border-color: rgba(15, 23, 42, 0.1); }
+html[data-theme='light'] .border-white\/15 { border-color: rgba(15, 23, 42, 0.14); }
+html[data-theme='light'] .border-white\/20 { border-color: rgba(15, 23, 42, 0.18); }
+html[data-theme='light'] .border-white\/25 { border-color: rgba(15, 23, 42, 0.22); }
+html[data-theme='light'] .divide-white\/5 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(15, 23, 42, 0.06); }
+html[data-theme='light'] .ring-white\/10 { --tw-ring-color: rgba(15, 23, 42, 0.1); }
+
+/* ---- 交互态 ---- */
+html[data-theme='light'] .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05); }
+html[data-theme='light'] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08); }
+html[data-theme='light'] .hover\:text-slate-200:hover { color: #1e293b; }
+html[data-theme='light'] .hover\:text-slate-300:hover { color: #334155; }
+html[data-theme='light'] .hover\:text-white:hover { color: #0f172a; }
+html[data-theme='light'] .hover\:text-indigo-200:hover { color: #4338ca; }
+html[data-theme='light'] .hover\:text-rose-300:hover { color: #be123c; }
+html[data-theme='light'] .hover\:border-white\/20:hover { border-color: rgba(15, 23, 42, 0.2); }
+html[data-theme='light'] .hover\:border-white\/25:hover { border-color: rgba(15, 23, 42, 0.28); }
+html[data-theme='light'] .focus\:bg-white\/10:focus { background-color: rgba(15, 23, 42, 0.06); }
+
+/* ---- 玻璃材质：浅色玻璃 ---- */
+html[data-theme='light'] .glass {
+  background-color: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 8px 32px rgba(15, 23, 42, 0.08);
+}
+html[data-theme='light'] .glass-strong {
+  background-color: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
+    0 12px 40px rgba(15, 23, 42, 0.12);
+}
+html[data-theme='light'] .glass-sheen::after {
+  background: linear-gradient(120deg, transparent 30%, rgba(15, 23, 42, 0.05) 50%, transparent 70%);
+}
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  html[data-theme='light'] .glass { background-color: rgba(255, 255, 255, 0.94); }
+  html[data-theme='light'] .glass-strong { background-color: rgba(255, 255, 255, 0.98); }
+}
+
+/* ---- 动态背景：网格与光晕降低存在感 ---- */
+html[data-theme='light'] .bg-grid {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.045) 1px, transparent 1px);
+}
+html[data-theme='light'] .bg-grid-anim {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
+}
+html[data-theme='light'] .orb { opacity: 0.28; }
+html[data-theme='light'] .scanline { opacity: 0.25; }
+
+/* ---- 表单选项浮层（select 展开）跟随浅色 ---- */
+html[data-theme='light'] option { color: #1e293b; }
+
+/* ============================================================
+   深色主题补充
+   首页（DS 浅色设计）的深色适配在 ds.css 中；
+   这里处理首页卡片 600 号彩色文本在深色下过暗的问题。
+   ============================================================ */
+html[data-theme='dark'] .text-emerald-600 { color: #34d399; }
+html[data-theme='dark'] .text-indigo-600 { color: #818cf8; }
+html[data-theme='dark'] .text-amber-600 { color: #fbbf24; }

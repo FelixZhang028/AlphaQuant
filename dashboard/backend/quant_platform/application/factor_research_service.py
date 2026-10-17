@@ -1,0 +1,192 @@
+"""Fit factor combinations on training data and compare frozen models on a holdout."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date
+from math import isfinite
+
+import pandas as pd
+
+from quant_platform.core import deadline
+from quant_platform.data.extras import extra_columns
+from quant_platform.data.index_constituents import UNIVERSE_COLUMN
+from quant_platform.factors.base import FactorDefinition
+from quant_platform.factors.combine import combine_factors, correlation_matrix, prepare_frames, drop_highly_correlated
+from quant_platform.factors.evaluation import FactorEvaluator, FactorReport
+
+
+@dataclass(frozen=True)
+class FrameFactor(FactorDefinition):
+    values: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    def compute(self, bars: pd.DataFrame) -> pd.DataFrame:
+        cutoff = pd.to_datetime(bars["trade_date"]).max()
+        return self.values[self.values.date <= cutoff].copy()
+
+
+class BoundedRepository:
+    """Cap both factor history and forward-return prices at the phase boundary."""
+
+    def __init__(self, repository, end: date, symbols=None):
+        self.repository, self.end, self.symbols = repository, end, symbols
+
+    def get_daily_bars(self, symbols=None, end_date=None, **options):
+        cutoff = min(pd.Timestamp(end_date or self.end), pd.Timestamp(self.end)).date()
+        return self.repository.get_daily_bars(
+            symbols=symbols if symbols is not None else self.symbols, end_date=cutoff, **options
+        )
+
+
+@dataclass
+class CombinationResult:
+    weights: dict[str, float]
+    correlation: pd.DataFrame
+    comparison: pd.DataFrame
+    reports: dict[str, FactorReport]
+    spec: list[dict]
+    dropped: list[str] = field(default_factory=list)
+    train_signal_end: date | None = None
+    purged_sessions: int = 0
+
+
+def research_combination(
+    repository,
+    components: tuple[FactorDefinition, ...],
+    *,
+    train_start: date,
+    train_end: date,
+    test_start: date,
+    test_end: date,
+    mode: str = "equal",
+    custom_weights: dict[str, float] | None = None,
+    clip: bool = True,
+    missing: str = "drop",
+    horizon: int = 5,
+    n_groups: int = 5,
+    symbols: list[str] | None = None,
+    corr_threshold: float | None = None,
+) -> CombinationResult:
+    if not train_start <= train_end < test_start <= test_end:
+        raise ValueError("日期需满足：训练开始 ≤ 训练结束 < 测试开始 ≤ 测试结束。")
+    if len(components) < 2 or len({f.name for f in components}) != len(components):
+        raise ValueError("请选择至少两个不同因子。")
+    if mode not in {"equal", "manual", "ic"}:
+        raise ValueError("未知权重方式")
+    if mode == "manual" and set(custom_weights or {}).difference(f.name for f in components):
+        raise ValueError("权重包含未选择的因子。")
+    if missing not in {"drop", "median"}:
+        raise ValueError("研究组合请选择剔除缺失或中位数填充。")
+
+    extra = extra_columns(field for factor in components for field in factor.required_fields)
+
+    def frames_until(end):
+        bars = repository.get_daily_bars(symbols=symbols, end_date=end, **({"extras": extra} if extra else {}))
+        if bars.empty:
+            raise ValueError("所选区间没有本地行情，请先更新数据。")
+        # 指数当时的成分股：只有那天在指数里的股票才是样本。
+        members = bars[bars[UNIVERSE_COLUMN]] if UNIVERSE_COLUMN in bars.columns else bars
+        universe = members[["trade_date", "symbol"]].rename(columns={"trade_date": "date"})
+        universe["date"] = pd.to_datetime(universe["date"]).dt.normalize()
+        frames = {}
+        for factor in components:
+            deadline.check()
+            values = factor.compute(bars)
+            values["date"] = pd.to_datetime(values["date"]).dt.normalize()
+            frames[factor.name] = universe.merge(values, on=["date", "symbol"], how="left")
+        sessions = pd.DatetimeIndex(pd.to_datetime(bars.trade_date).unique()).sort_values()
+        return prepare_frames(frames, clip=clip, missing=missing), sessions
+
+    train_frames, sessions = frames_until(train_end)
+    sessions = sessions[sessions >= pd.Timestamp(train_start)]
+    # Labels enter on t+1 and exit on t+horizon+1. Purge all signals whose
+    # labels would cross train_end, including correlation-based selection.
+    purge = horizon + 1
+    if len(sessions) <= purge:
+        raise ValueError("训练期交易日不足，无法隔离跨边界收益标签。")
+    signal_end = sessions[-(purge + 1)].date()
+    train_slice = {
+        name: frame[frame.date.between(pd.Timestamp(train_start), pd.Timestamp(signal_end))]
+        for name, frame in train_frames.items()
+    }
+    if any(frame.empty for frame in train_slice.values()):
+        raise ValueError("训练期清洗后没有共同样本，请扩大日期范围或补齐行情。")
+    correlation = correlation_matrix(train_slice)
+    dropped = drop_highly_correlated(correlation, threshold=corr_threshold, priority=[f.name for f in components]) if corr_threshold is not None else []
+    components = tuple(f for f in components if f.name not in dropped)
+    if len(components) < 2:
+        raise ValueError("训练期剔除高相关因子后不足两个，请更换组合或调高阈值。")
+    weights = {}
+    for factor in components:
+        if mode == "equal":
+            weight = 1.0
+        elif mode == "manual":
+            weight = float((custom_weights or {}).get(factor.name, 0))
+        else:
+            proxy = FrameFactor(
+                name=factor.name,
+                display_name=factor.display_name,
+                direction=factor.direction,
+                values=train_slice[factor.name],
+            )
+            report = FactorEvaluator(BoundedRepository(repository, train_end, symbols)).evaluate(
+                proxy, train_start, train_end, horizon=horizon, n_groups=n_groups
+            )
+            weight = report.rank_ic_mean
+            weight = max(weight, 0.0) if isfinite(weight) else 0.0
+        if not isfinite(weight) or weight < 0:
+            raise ValueError("权重必须是非负有限数值；因子方向由因子定义统一处理。")
+        weights[factor.name] = weight
+    total = sum(weights.values())
+    if total <= 0:
+        raise ValueError("没有正权重：请调整手动权重，或改用等权；训练期负 IC 不会自动取绝对值。")
+    weights = {name: value / total for name, value in weights.items()}
+
+    # The test set is accessed only after all weights are fixed.
+    frames, _ = frames_until(test_end)
+    frames = {f.name: frames[f.name] for f in components}
+    directions = {factor.name: factor.direction for factor in components}
+    candidates = {
+        f"单因子 · {factor.display_name} ({factor.name})": FrameFactor(
+            name=factor.name,
+            display_name=factor.display_name,
+            direction=factor.direction,
+            values=frames[factor.name],
+        )
+        for factor in components
+    }
+    for label, model_weights in [
+        ("等权组合", {f.name: 1.0 for f in components}),
+        ("我的组合", weights),
+    ]:
+        candidates[label] = FrameFactor(
+            name=label,
+            display_name=label,
+            values=combine_factors(frames, model_weights, directions=directions, missing="drop"),
+        )
+    reports = {}
+    rows = []
+    evaluator = FactorEvaluator(BoundedRepository(repository, test_end, symbols))
+    for label, factor in candidates.items():
+        report = evaluator.evaluate(
+            factor, test_start, test_end, horizon=horizon, n_groups=n_groups
+        )
+        reports[label] = report
+        rows.append(
+            {
+                "方案": label,
+                "Rank IC": report.rank_ic_mean,
+                "Rank IC IR": report.rank_ic_ir,
+                "IC": report.ic_mean,
+                "同日多空收益差": report.long_short_mean,
+                "成员更替率": report.turnover_mean,
+                "有效 IC 天数": int(report.daily_ic.rank_ic.notna().sum()),
+            }
+        )
+    if not any(row["有效 IC 天数"] for row in rows):
+        raise ValueError("测试期没有有效 IC 样本，请检查日期、股票数量和因子是否为常数。")
+    spec = [
+        {"name": f.name, "version": f.version, "weight": weights[f.name], "direction": f.direction, "clip": clip, "missing": missing}
+        for f in components
+    ]
+    return CombinationResult(weights, correlation, pd.DataFrame(rows), reports, spec, dropped, signal_end, purge)

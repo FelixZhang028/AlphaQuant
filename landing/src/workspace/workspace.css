@@ -1,0 +1,82 @@
+/* 工作台独立字号层级；保留原有主题、颜色和官网样式。 */
+.workspace-shell {
+  --workspace-font-body: 15px;
+  --workspace-font-label: 14px;
+  --workspace-font-caption: 13px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* 全宽外壳内的阅读区域在侧栏右侧居中，不随大屏无限拉长。 */
+.workspace-content {
+  width: 100%;
+  max-width: 1280px;
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.workspace-content--wide {
+  max-width: 1440px;
+}
+
+.workspace-content--compact {
+  max-width: 960px;
+}
+
+.workspace-shell .text-sm {
+  font-size: var(--workspace-font-body);
+  line-height: 1.6;
+}
+
+.workspace-shell .text-xs {
+  font-size: var(--workspace-font-label);
+  line-height: 1.5;
+}
+
+.workspace-shell :is(.text-\[10px\], .text-\[11px\], .text-\[12px\], .text-\[13px\]) {
+  font-size: var(--workspace-font-caption);
+  line-height: 1.5;
+}
+
+.workspace-shell aside nav button.text-sm {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.workspace-shell header h1 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.workspace-shell main :is(h2.text-sm, h2.text-base) {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.workspace-shell :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.workspace-shell table {
+  font-size: var(--workspace-font-body);
+  line-height: 1.6;
+}
+
+.workspace-shell table thead {
+  font-size: var(--workspace-font-label);
+  line-height: 1.5;
+}
+
+/* 放大字号后仍为相邻列保留间距，尤其是右对齐数值与日期列。 */
+.workspace-shell table :is(th, td) {
+  padding-inline: 12px;
+}
+
+.workspace-shell table :is(th, td):first-child {
+  padding-left: 0;
+}
+
+.workspace-shell table :is(th, td):last-child {
+  padding-right: 0;
+}

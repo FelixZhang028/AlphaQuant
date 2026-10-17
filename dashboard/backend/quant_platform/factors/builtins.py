@@ -1,0 +1,455 @@
+"""内置因子库：仅依赖 daily_bars 已有字段的 10 个经典量价因子。
+
+可用字段（见 ``data/normalizers.CANONICAL_BAR_COLUMNS`` 与复权拼接逻辑）：
+``raw_open/raw_high/raw_low/raw_close/pre_close/volume/amount/adjusted_close``。
+当前数据源没有换手率（turnover）字段，因此量比类因子用成交量构造。
+
+所有实现均为因果算子（rolling / shift / expanding），保证无未来函数。
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+
+from quant_platform.data.extras import require_extra_data
+from quant_platform.factors.base import (
+    FACTOR_COLUMNS,
+    FactorDefinition,
+    melt_wide,
+    pivot_field,
+)
+
+_PRICE = "adjusted_close"
+
+
+def _close(bars: pd.DataFrame) -> pd.DataFrame:
+    """前复权收盘价宽表；缺失 adjusted_close 时退化为 raw_close。"""
+
+    if _PRICE in bars.columns and bars[_PRICE].notna().any():
+        return pivot_field(bars, _PRICE)
+    return pivot_field(bars, "raw_close")
+
+
+def _momentum_20(bars: pd.DataFrame) -> pd.DataFrame:
+    close = _close(bars)
+    return melt_wide(close / close.shift(20) - 1.0)
+
+
+def _reversal_5(bars: pd.DataFrame) -> pd.DataFrame:
+    close = _close(bars)
+    return melt_wide(close / close.shift(5) - 1.0)
+
+
+def _volatility_20(bars: pd.DataFrame) -> pd.DataFrame:
+    returns = _close(bars).pct_change()
+    return melt_wide(returns.rolling(20, min_periods=20).std())
+
+
+def _amount_change_20(bars: pd.DataFrame) -> pd.DataFrame:
+    amount = pivot_field(bars, "amount")
+    recent = amount.rolling(5, min_periods=5).mean()
+    baseline = amount.rolling(20, min_periods=20).mean()
+    return melt_wide(recent / baseline - 1.0)
+
+
+def _rsi_14(bars: pd.DataFrame) -> pd.DataFrame:
+    diff = _close(bars).diff()
+    gain = diff.clip(lower=0.0)
+    loss = -diff.clip(upper=0.0)
+    avg_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rsi = 100.0 - 100.0 / (1.0 + rs)
+    rsi = rsi.where(avg_loss != 0.0, 100.0)
+    return melt_wide(rsi)
+
+
+def _high_distance_20(bars: pd.DataFrame) -> pd.DataFrame:
+    close = _close(bars)
+    if "raw_high" in bars.columns:
+        adjusted = bars.copy()
+        if "adjusted_close" in bars.columns and bars["adjusted_close"].notna().any():
+            scale = pd.to_numeric(bars["adjusted_close"], errors="coerce").div(
+                pd.to_numeric(bars["raw_close"], errors="coerce").replace(0, np.nan)
+            )
+            adjusted["raw_high"] = pd.to_numeric(bars["raw_high"], errors="coerce") * scale
+        high = pivot_field(adjusted, "raw_high")
+    else:
+        high = close
+    rolling_high = high.rolling(20, min_periods=20).max()
+    return melt_wide(close / rolling_high - 1.0)
+
+
+def _volume_ratio_5(bars: pd.DataFrame) -> pd.DataFrame:
+    volume = pivot_field(bars, "volume")
+    recent = volume.rolling(5, min_periods=5).mean()
+    baseline = volume.rolling(20, min_periods=20).mean()
+    return melt_wide(recent / baseline)
+
+
+def _pv_corr_20(bars: pd.DataFrame) -> pd.DataFrame:
+    close = _close(bars)
+    volume = pivot_field(bars, "volume")
+    result: dict[str, pd.Series] = {}
+    for symbol in close.columns:
+        if symbol not in volume.columns:
+            continue
+        result[symbol] = close[symbol].rolling(20, min_periods=20).corr(volume[symbol])
+    if not result:
+        return pd.DataFrame(columns=FACTOR_COLUMNS)
+    return melt_wide(pd.DataFrame(result))
+
+
+def _bias_10(bars: pd.DataFrame) -> pd.DataFrame:
+    close = _close(bars)
+    ma10 = close.rolling(10, min_periods=10).mean()
+    return melt_wide(close / ma10 - 1.0)
+
+
+def _amplitude_20(bars: pd.DataFrame) -> pd.DataFrame:
+    high = pivot_field(bars, "raw_high")
+    low = pivot_field(bars, "raw_low")
+    pre_close = (
+        pivot_field(bars, "pre_close")
+        if "pre_close" in bars.columns
+        else _close(bars).shift(1)
+    )
+    amplitude = (high - low) / pre_close.replace(0.0, np.nan)
+    return melt_wide(amplitude.rolling(20, min_periods=20).mean())
+
+
+def _indicator(bars: pd.DataFrame, name: str) -> pd.DataFrame:
+    """估值或换手率宽表；本地还没有这项数据时给出可以照着做的提示。"""
+
+    require_extra_data(bars, [name])
+    return pivot_field(bars, name)
+
+
+def _yield_of(name: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """估值倍数的倒数（收益率形式）：亏损时为负、排在最后，不像市盈率那样在 0 附近跳变。"""
+
+    def compute(bars: pd.DataFrame) -> pd.DataFrame:
+        ratio = _indicator(bars, name)
+        return melt_wide(1.0 / ratio.where(ratio != 0))
+
+    return compute
+
+
+def _roe_ttm(bars: pd.DataFrame) -> pd.DataFrame:
+    # 净利润 / 净资产 = (股价 / 每股净资产) / (股价 / 每股收益)；净资产为负时没有意义。
+    pb, pe = _indicator(bars, "pb_mrq"), _indicator(bars, "pe_ttm")
+    return melt_wide(pb.where(pb > 0) / pe.where(pe != 0))
+
+
+def _net_margin_ttm(bars: pd.DataFrame) -> pd.DataFrame:
+    # 净利润 / 营业收入 = (股价 / 每股营收) / (股价 / 每股收益)。
+    ps, pe = _indicator(bars, "ps_ttm"), _indicator(bars, "pe_ttm")
+    return melt_wide(ps.where(ps > 0) / pe.where(pe != 0))
+
+
+def _reported(name: str) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """财报里的一项，按公告日对齐到每个交易日后原样使用。"""
+
+    return lambda bars: melt_wide(_indicator(bars, name))
+
+
+def _debt_ratio(bars: pd.DataFrame) -> pd.DataFrame:
+    # 权益乘数 = 总资产 / 净资产，所以负债 / 总资产 = 1 - 1 / 权益乘数；净资产为负时没有意义。
+    multiplier = _indicator(bars, "asset_to_equity")
+    return melt_wide(1.0 - 1.0 / multiplier.where(multiplier > 0))
+
+
+def _ln_market_cap(bars: pd.DataFrame) -> pd.DataFrame:
+    value = pivot_field(bars, "raw_close") * _indicator(bars, "total_shares")
+    return melt_wide(np.log(value.where(value > 0)))
+
+
+def _turnover_20(bars: pd.DataFrame) -> pd.DataFrame:
+    return melt_wide(_indicator(bars, "turnover_rate").rolling(20, min_periods=20).mean())
+
+
+def _turnover_change_20(bars: pd.DataFrame) -> pd.DataFrame:
+    turnover = _indicator(bars, "turnover_rate")
+    baseline = turnover.rolling(20, min_periods=20).mean()
+    return melt_wide(turnover.rolling(5, min_periods=5).mean() / baseline.where(baseline > 0) - 1.0)
+
+
+@dataclass(frozen=True)
+class BuiltinFactor(FactorDefinition):
+    """由计算函数参数化的内置因子。"""
+
+    func: Callable[[pd.DataFrame], pd.DataFrame] = field(
+        default=lambda bars: pd.DataFrame(columns=FACTOR_COLUMNS), repr=False
+    )
+
+    def compute(self, bars: pd.DataFrame) -> pd.DataFrame:
+        missing = [f for f in self.required_fields if f not in bars.columns]
+        if missing:
+            raise ValueError(f"因子 {self.name} 缺少字段: {missing}")
+        result = self.func(bars)
+        return result[FACTOR_COLUMNS].reset_index(drop=True)
+
+
+def builtin_factors() -> list[FactorDefinition]:
+    """返回全部内置因子定义。"""
+
+    return [
+        BuiltinFactor(
+            name="momentum_20",
+            display_name="20日动量",
+            description="过去 20 个交易日的累计涨跌幅，捕捉中期趋势延续效应。",
+            formula="adjusted_close(t) / adjusted_close(t-20) - 1",
+            required_fields=(_PRICE,),
+            min_history=21,
+            direction=1,
+            category="动量",
+            func=_momentum_20,
+        ),
+        BuiltinFactor(
+            name="reversal_5",
+            display_name="5日反转",
+            description="过去 5 日涨跌幅的反转因子：短期跌得越多，预期反弹越强。",
+            formula="adjusted_close(t) / adjusted_close(t-5) - 1（反向使用）",
+            required_fields=(_PRICE,),
+            min_history=6,
+            direction=-1,
+            category="反转",
+            func=_reversal_5,
+        ),
+        BuiltinFactor(
+            name="volatility_20",
+            display_name="20日波动率",
+            description="过去 20 日日收益率标准差，低波动股票风险调整后收益通常更优。",
+            formula="std(daily_return, 20)",
+            required_fields=(_PRICE,),
+            min_history=21,
+            direction=-1,
+            category="波动",
+            func=_volatility_20,
+        ),
+        BuiltinFactor(
+            name="amount_change_20",
+            display_name="20日成交额变化率",
+            description="近 5 日平均成交额相对近 20 日平均成交额的变化率，刻画资金关注度提升。",
+            formula="mean(amount, 5) / mean(amount, 20) - 1",
+            required_fields=("amount",),
+            min_history=20,
+            direction=1,
+            category="量价",
+            func=_amount_change_20,
+        ),
+        BuiltinFactor(
+            name="rsi_14",
+            display_name="RSI14",
+            description="14 日相对强弱指标，数值越高代表短期超买，反向使用。",
+            formula="RSI = 100 - 100 / (1 + 14日平均涨幅 / 14日平均跌幅)（Wilder 平滑）",
+            required_fields=(_PRICE,),
+            min_history=15,
+            direction=-1,
+            category="反转",
+            func=_rsi_14,
+        ),
+        BuiltinFactor(
+            name="high_distance_20",
+            display_name="20日新高距离",
+            description="收盘价相对过去 20 日最高价的距离，越接近新高（值越接近 0）突破动能越强。",
+            formula="adjusted_close(t) / max(raw_high × adjusted_close / raw_close, 20) - 1",
+            required_fields=(_PRICE, "raw_high", "raw_close"),
+            version="1.1.0",
+            min_history=20,
+            direction=1,
+            category="动量",
+            func=_high_distance_20,
+        ),
+        BuiltinFactor(
+            name="volume_ratio_5",
+            display_name="5日量比",
+            description="近 5 日平均成交量与近 20 日平均成交量之比，衡量短期放量程度。",
+            formula="mean(volume, 5) / mean(volume, 20)",
+            required_fields=("volume",),
+            min_history=20,
+            direction=1,
+            category="量价",
+            func=_volume_ratio_5,
+        ),
+        BuiltinFactor(
+            name="pv_corr_20",
+            display_name="20日量价相关性",
+            description="过去 20 日收盘价与成交量的相关系数，量价背离（负相关）常预示反转。",
+            formula="corr(adjusted_close, volume, 20)（反向使用）",
+            required_fields=(_PRICE, "volume"),
+            min_history=20,
+            direction=-1,
+            category="量价",
+            func=_pv_corr_20,
+        ),
+        BuiltinFactor(
+            name="bias_10",
+            display_name="10日乖离率",
+            description="收盘价偏离 10 日均线的幅度，偏离越大回归压力越大，反向使用。",
+            formula="adjusted_close(t) / ma(adjusted_close, 10) - 1（反向使用）",
+            required_fields=(_PRICE,),
+            min_history=10,
+            direction=-1,
+            category="反转",
+            func=_bias_10,
+        ),
+        BuiltinFactor(
+            name="amplitude_20",
+            display_name="20日振幅",
+            description="过去 20 日（最高-最低）/昨收 的均值，低振幅股票走势更稳健。",
+            formula="mean((raw_high - raw_low) / pre_close, 20)（反向使用）",
+            required_fields=("raw_high", "raw_low", "pre_close"),
+            min_history=21,
+            direction=-1,
+            category="波动",
+            func=_amplitude_20,
+        ),
+        BuiltinFactor(
+            name="ep_ttm",
+            display_name="盈利收益率",
+            description="市盈率（TTM）的倒数：每 1 元股价对应的过去十二个月净利润，越高越便宜；亏损的公司为负。",
+            formula="1 / pe_ttm",
+            required_fields=("pe_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pe_ttm"),
+        ),
+        BuiltinFactor(
+            name="bp_mrq",
+            display_name="账面市值比",
+            description="市净率（最近一季）的倒数：每 1 元股价对应的净资产，越高越便宜。",
+            formula="1 / pb_mrq",
+            required_fields=("pb_mrq",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pb_mrq"),
+        ),
+        BuiltinFactor(
+            name="sp_ttm",
+            display_name="营收市值比",
+            description="市销率（TTM）的倒数：每 1 元股价对应的过去十二个月营业收入，越高越便宜。",
+            formula="1 / ps_ttm",
+            required_fields=("ps_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("ps_ttm"),
+        ),
+        BuiltinFactor(
+            name="cfp_ttm",
+            display_name="现金流市值比",
+            description="市现率（TTM）的倒数：每 1 元股价对应的过去十二个月经营现金流净额，越高越便宜；现金流为负的公司为负。",
+            formula="1 / pcf_ttm",
+            required_fields=("pcf_ttm",),
+            min_history=1,
+            direction=1,
+            category="估值",
+            func=_yield_of("pcf_ttm"),
+        ),
+        BuiltinFactor(
+            name="roe_ttm",
+            display_name="净资产收益率（TTM）",
+            description="过去十二个月净利润相对净资产的比例，由市净率除以市盈率得到，每天更新；越高说明用股东的钱赚得越多。",
+            formula="pb_mrq / pe_ttm",
+            required_fields=("pb_mrq", "pe_ttm"),
+            min_history=1,
+            direction=1,
+            category="质量",
+            func=_roe_ttm,
+        ),
+        BuiltinFactor(
+            name="net_margin_ttm",
+            display_name="净利率（TTM）",
+            description="过去十二个月净利润相对营业收入的比例，由市销率除以市盈率得到，每天更新。",
+            formula="ps_ttm / pe_ttm",
+            required_fields=("ps_ttm", "pe_ttm"),
+            min_history=1,
+            direction=1,
+            category="质量",
+            func=_net_margin_ttm,
+        ),
+        BuiltinFactor(
+            name="gross_margin",
+            display_name="毛利率",
+            description="最新已公告财报的销售毛利率，从公告日起生效；银行等没有毛利率的行业为缺失。",
+            formula="gross_margin（最新已公告财报）",
+            required_fields=("gross_margin",),
+            min_history=1,
+            direction=1,
+            category="质量",
+            func=_reported("gross_margin"),
+        ),
+        BuiltinFactor(
+            name="debt_ratio",
+            display_name="资产负债率",
+            description="最新已公告财报的负债相对总资产的比例，由权益乘数换算；杠杆越高财务风险越大，反向使用。不同行业差别很大（银行天然很高）。",
+            formula="1 - 1 / asset_to_equity（最新已公告财报，反向使用）",
+            required_fields=("asset_to_equity",),
+            min_history=1,
+            direction=-1,
+            category="质量",
+            func=_debt_ratio,
+        ),
+        BuiltinFactor(
+            name="yoy_net_profit",
+            display_name="净利润同比增长",
+            description="最新已公告财报的净利润相对上年同期的增长率，从公告日起生效。",
+            formula="yoy_net_profit（最新已公告财报）",
+            required_fields=("yoy_net_profit",),
+            min_history=1,
+            direction=1,
+            category="成长",
+            func=_reported("yoy_net_profit"),
+        ),
+        BuiltinFactor(
+            name="yoy_equity",
+            display_name="净资产同比增长",
+            description="最新已公告财报的净资产相对上年同期的增长率，从公告日起生效。",
+            formula="yoy_equity（最新已公告财报）",
+            required_fields=("yoy_equity",),
+            min_history=1,
+            direction=1,
+            category="成长",
+            func=_reported("yoy_equity"),
+        ),
+        BuiltinFactor(
+            name="ln_market_cap",
+            display_name="总市值（对数）",
+            description="收盘价乘以最新已公告财报的总股本，取自然对数；A 股历史上小市值股票收益更高，反向使用。",
+            formula="ln(raw_close * total_shares)（反向使用）",
+            required_fields=("raw_close", "total_shares"),
+            min_history=1,
+            direction=-1,
+            category="规模",
+            func=_ln_market_cap,
+        ),
+        BuiltinFactor(
+            name="turnover_20",
+            display_name="20日平均换手率",
+            description="过去 20 日换手率（成交量 / 流通股本）的均值，交易越不拥挤的股票预期收益越高，反向使用。",
+            formula="mean(turnover_rate, 20)（反向使用）",
+            required_fields=("turnover_rate",),
+            min_history=20,
+            direction=-1,
+            category="换手",
+            func=_turnover_20,
+        ),
+        BuiltinFactor(
+            name="turnover_change_20",
+            display_name="换手率变化",
+            description="近 5 日平均换手率相对近 20 日平均换手率的变化，刻画交易热度突然升温，反向使用。",
+            formula="mean(turnover_rate, 5) / mean(turnover_rate, 20) - 1（反向使用）",
+            required_fields=("turnover_rate",),
+            min_history=20,
+            direction=-1,
+            category="换手",
+            func=_turnover_change_20,
+        ),
+    ]
