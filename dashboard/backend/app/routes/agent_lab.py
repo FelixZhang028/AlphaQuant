@@ -53,6 +53,7 @@ from quant_platform.ai_research.brief import (
     retry_messages,
 )
 from quant_platform.ai_research.decisions import tilt_odds
+from quant_platform.ai_research.stock_report import REPORT_VERSION, stock_report
 from quant_platform.ai_research.facts import StockFacts, stock_facts
 from quant_platform.ai_research.outcome import later_moves
 
@@ -69,6 +70,8 @@ router = APIRouter(prefix="/api/v1/agent-lab", tags=["agent-lab"])
 _AGENT_ROOT = BACKEND_ROOT / "data" / "runtime" / "agent_lab"
 # 追问时带上最近几轮对话，太早的不再发给模型。
 MAX_HISTORY = 6
+TEXT_MODEL_NOTE = "平台还没有配置文本模型，暂不提供文字解读和追问。"
+LEGACY_MODEL_NOTE = "平台还没有配置 AI 模型，这次只显示数据。"
 # 正在解读的分析：同一次分析不会同时问两次模型（也就不会重复计数）。
 _READING: set[str] = set()
 _READING_LOCK = threading.Lock()
@@ -116,10 +119,12 @@ def _ai_failure(exc: Exception) -> str:
 @router.get("/status", summary="AI 研究员：模型是否可用、今天还剩几次")
 def agent_status(user: dict = Depends(get_current_user)):
     model = platform_ai.platform_model()
+    decision = platform_ai.decision_client()
     bounds = market_repository().daily_bar_bounds()
     return {
         "ai": {"available": model is not None, "model": model.label if model else None},
-        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question")},
+        "decision": {"available": decision is not None, "model": decision.model if decision else None},
+        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "review")},
         "experience_count": len(_prior_store(user["id"]).list()),
         "latest_date": bounds[1].isoformat() if bounds else None,
     }
@@ -189,7 +194,8 @@ def _record(row) -> dict[str, Any]:
         "model": row["model"] or None,
         "facts": json.loads(row["facts"]),
         "brief": stored.get("reading"),
-        "ai_note": stored.get("note", ""),
+        "odds": stored.get("odds") or (stored.get("reading") or {}).get("odds"),
+        "ai_note": TEXT_MODEL_NOTE if stored.get("note") == LEGACY_MODEL_NOTE else stored.get("note", ""),
         "use_experience": bool(stored.get("experience", False)),
         "questions": json.loads(row["questions"] or "[]"),
     }
@@ -216,9 +222,13 @@ def _read_brief(model: platform_ai.PlatformModel, stock: StockFacts, experience:
 
 
 def _store_reading(brief_id: str, user: dict, reading: dict[str, Any] | None, note: str, experience: bool, model: str) -> None:
-    stored = json.dumps({"reading": reading, "note": note, "experience": experience}, ensure_ascii=False)
     with get_conn() as conn:
-        conn.execute("UPDATE stock_briefs SET brief = ?, model = ? WHERE id = ? AND user_id = ?", (stored, model, brief_id, user["id"]))
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT brief FROM stock_briefs WHERE id = ? AND user_id = ?", (brief_id, user["id"])).fetchone()
+        stored = json.loads(row["brief"]) if row and row["brief"] else {}
+        stored.update(reading=reading, note=note, experience=experience)
+        conn.execute("UPDATE stock_briefs SET brief = ?, model = ? WHERE id = ? AND user_id = ?",
+                     (json.dumps(stored, ensure_ascii=False), model, brief_id, user["id"]))
 
 
 def _with_later(record: dict[str, Any]) -> dict[str, Any]:
@@ -254,7 +264,7 @@ def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
 
-    note = "" if platform_ai.platform_model() else "平台还没有配置 AI 模型，这次只显示数据。"
+    note = "" if platform_ai.platform_model() else TEXT_MODEL_NOTE
     brief_id = secrets.token_hex(8)
     stored = json.dumps({"reading": None, "note": note, "experience": body.use_experience}, ensure_ascii=False)
     with get_conn() as conn:
@@ -273,7 +283,7 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
         return _with_later(record)  # 已经解读过，不再调用、不再计数
     model = platform_ai.platform_model()
     if model is None:
-        _store_reading(brief_id, user, None, "平台还没有配置 AI 模型，这次只显示数据。", record["use_experience"], "")
+        _store_reading(brief_id, user, None, TEXT_MODEL_NOTE, record["use_experience"], "")
         return _with_later(_record(_load(brief_id, user)))
     with _READING_LOCK:
         if brief_id in _READING:
@@ -282,13 +292,12 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
     try:
         reading, label, note = None, "", ""
         try:
-            platform_ai.require_quota(user, "brief")
             experience = _prior_store(user["id"]).render(None) if record["use_experience"] else ""
             stock = StockFacts.from_dict(record["facts"])
-            reading = _read_brief(model, stock, experience)
-            platform_ai.record_use(user, "brief")
+            with platform_ai.quota_call(user, "brief"):
+                reading = _read_brief(model, stock, experience)
             label = model.label
-            reading["odds"] = _tilt_odds(stock)
+            reading["odds"] = record["odds"] or _tilt_odds(stock)
         except platform_ai.QuotaExceeded as exc:
             note = f"{exc}下面的数据不受次数限制。"
         except Exception as exc:  # noqa: BLE001 - 模型失败时仍然给出数据
@@ -298,6 +307,44 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
     finally:
         with _READING_LOCK:
             _READING.discard(brief_id)
+    return _with_later(_record(_load(brief_id, user)))
+
+
+@router.post("/briefs/{brief_id}/decision", summary="用 Jev 判断已保存的数据，不需要文本模型")
+def brief_decision(brief_id: str, upgrade: bool = Query(False), user: dict = Depends(get_current_user)):
+    record = _record(_load(brief_id, user))
+    if record["odds"] is not None and (not upgrade or record["odds"].get("report_version", 1) >= REPORT_VERSION):
+        return _with_later(record)
+    client = platform_ai.decision_client()
+    if client is None:
+        raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能使用。")
+    try:
+        with computing(user):
+            # Re-read under the per-user computation guard to prevent duplicate upgrades.
+            record = _record(_load(brief_id, user))
+            if record["odds"] is not None and (not upgrade or record["odds"].get("report_version", 1) >= REPORT_VERSION):
+                return _with_later(record)
+            return _save_stock_report(brief_id, user, record, client)
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"决策模型调用失败：{_ai_failure(exc)}") from None
+
+
+def _save_stock_report(brief_id: str, user: dict, record: dict, client):
+    with platform_ai.quota_call(user, "review"):
+        odds = stock_report(client, StockFacts.from_dict(record["facts"]))
+        with get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT brief FROM stock_briefs WHERE id = ? AND user_id = ?", (brief_id, user["id"])).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="没有找到这次分析")
+            stored = json.loads(row["brief"]) if row["brief"] else {}
+            stored["odds"] = odds
+            conn.execute("UPDATE stock_briefs SET brief = ? WHERE id = ? AND user_id = ?",
+                         (json.dumps(stored, ensure_ascii=False), brief_id, user["id"]))
     return _with_later(_record(_load(brief_id, user)))
 
 
@@ -311,9 +358,11 @@ def brief_list(limit: int = Query(20, ge=1, le=100), user: dict = Depends(get_cu
     moves = later_moves(market_repository(), [(row["symbol"], date.fromisoformat(row["trade_date"])) for row in rows])
     items = []
     for row in rows:
-        reading = (json.loads(row["brief"]) if row["brief"] else {}).get("reading") or {}
+        stored = json.loads(row["brief"]) if row["brief"] else {}
+        reading = stored.get("reading") or {}
+        odds = stored.get("odds") or reading.get("odds") or {}
         items.append({"id": row["id"], "symbol": row["symbol"], "name": row["name"], "trade_date": row["trade_date"],
-                      "created_at": row["created_at"], "tilt": reading.get("tilt"),
+                      "created_at": row["created_at"], "tilt": reading.get("tilt") or odds.get("choice"),
                       "later": moves.get((row["symbol"], date.fromisoformat(row["trade_date"])))})
     return {"items": items}
 
@@ -335,20 +384,18 @@ def brief_ask(brief_id: str, body: QuestionIn, user: dict = Depends(get_current_
     record = _record(_load(brief_id, user))
     model = platform_ai.platform_model()
     if model is None:
-        raise HTTPException(status_code=422, detail="平台还没有配置 AI 模型，暂时不能追问。")
-    try:
-        platform_ai.require_quota(user, "question")
-    except platform_ai.QuotaExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail="平台还没有配置文本模型，暂时不能追问。")
     stock = StockFacts.from_dict(record["facts"])
     experience = _prior_store(user["id"]).render(None) if record["use_experience"] else ""
     messages = ask_messages(stock, record["brief"], record["questions"][-MAX_HISTORY:], body.message.strip(), experience)
     try:
-        answer = platform_ai.model_client(model).chat(messages, temperature=0.3, max_tokens=600).text
+        with platform_ai.quota_call(user, "question"):
+            answer = platform_ai.model_client(model).chat(messages, temperature=0.3, max_tokens=600).text
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
     except Exception as exc:  # noqa: BLE001
         logger.warning("AI question failed for %s: %s", brief_id, exc)
         raise HTTPException(status_code=422, detail=f"回答没有完成（{_ai_failure(exc)}），这次不计入次数。") from exc
-    platform_ai.record_use(user, "question")
     questions = [*record["questions"], {"question": body.message.strip(), "answer": check_answer(answer), "at": _now()}]
     with get_conn() as conn:
         conn.execute("UPDATE stock_briefs SET questions = ? WHERE id = ? AND user_id = ?",

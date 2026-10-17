@@ -1,9 +1,9 @@
 name: FellowQuant checks
 on:
   push:
-    branches: [main, fellowquant_v4]
+    branches: [main, fellowquant_v4, fq-v5]
   pull_request:
-    branches: [main, fellowquant_v4]
+    branches: [main, fellowquant_v4, fq-v5]
 permissions:
   contents: read
 jobs:

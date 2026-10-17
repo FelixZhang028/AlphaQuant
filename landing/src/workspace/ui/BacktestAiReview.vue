@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { getBacktestReview, runBacktestReview } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { factGroups, overfitText, percent, remainingText } from '../aiPresentation.js'
+import { confidenceLabel, probabilityLabel } from '../jevReportPresentation.js'
 
 const props = defineProps({
   backtestId: { type: [Number, String], default: null },
@@ -14,6 +15,7 @@ const running = ref(false)
 const review = computed(() => state.value?.review || null)
 const groups = computed(() => factGroups(review.value?.facts))
 const left = computed(() => remainingText(state.value?.usage, '评估'))
+const validityNotes = computed(() => (review.value?.facts || []).filter(fact => fact.key?.startsWith('issue_')))
 
 async function load(id) {
   state.value = null
@@ -54,10 +56,20 @@ async function run() {
     <p v-else-if="!review && left" class="mt-2 text-xs text-slate-500">{{ left }}；评估过的回测再打开不会重复计数。</p>
 
     <template v-if="review">
+      <div class="mt-4 rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4">
+        <p class="text-xs text-slate-400">先看结论</p>
+        <p class="mt-2 text-base leading-relaxed text-slate-200">本次回测的模型风险评级为<span class="font-semibold text-white">{{ review.risk.level }}</span>。{{ overfitText(review.overfit.probability) }}</p>
+        <p class="mt-2 text-xs text-slate-500">这是对已有回测的判断，不是策略在未来赚钱的概率。</p>
+      </div>
+      <div v-if="validityNotes.length" class="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-4">
+        <p class="text-sm font-medium text-amber-200">先核查这些研究边界</p>
+        <ul class="mt-2 space-y-1 text-xs leading-relaxed text-slate-400"><li v-for="fact in validityNotes" :key="fact.key">{{ fact.text }}</li></ul>
+      </div>
       <div class="mt-4 grid gap-4 md:grid-cols-2">
         <div class="min-w-0">
           <p class="text-xs text-slate-400">风险等级</p>
           <p class="mt-1 text-lg font-semibold text-white">{{ review.risk.level }}</p>
+          <p class="mt-1 text-xs text-slate-500">模型置信度 {{ probabilityLabel(review.risk.confidence) }}（{{ confidenceLabel(review.risk.confidence) }}）</p>
           <ul class="mt-2 space-y-1" aria-label="各等级的概率">
             <li v-for="(p, level) in review.risk.probabilities" :key="level" class="flex items-center gap-3 text-xs">
               <span class="w-16 shrink-0 text-slate-400">{{ level }}</span>

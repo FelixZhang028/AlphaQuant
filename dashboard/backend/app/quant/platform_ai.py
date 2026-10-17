@@ -2,7 +2,8 @@
 
 Keys live only in the server's environment; users never see or enter one. The chat model uses
 ``OPENROUTER_API_KEY`` (or ``FELLOWQUANT_AI_API_KEY`` for another OpenAI-compatible service). The
-decision model Jev runs only on OpenRouter, so it needs ``OPENROUTER_API_KEY``. Each kind of call
+decision model Jev uses ``TYPESAFE_API_KEY`` (or ``JEV_API_KEY``) for TypeSafe's official API,
+with ``OPENROUTER_API_KEY`` as a fallback for OpenRouter. Each kind of call
 has a daily limit per user, counted in China time; administrators have none. A call is counted
 only when the model answered.
 """
@@ -10,12 +11,14 @@ only when the model answered.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from quant_platform.jev import JevClient
 from quant_platform.jev.client import DEFAULT_MODEL as DEFAULT_JEV_MODEL
 from quant_platform.jev.client import OPENROUTER_DECISIONS_URL
+from quant_platform.jev.client import OPENROUTER_MODEL, TYPESAFE_DECISIONS_URL
 from trading_agents.llm.base import OpenAICompatClient
 
 from ..database import get_conn
@@ -63,13 +66,17 @@ def model_client(model: PlatformModel) -> OpenAICompatClient:
 
 
 def decision_client() -> JevClient | None:
-    """Jev on OpenRouter, or None when the server has no OpenRouter key."""
+    """Select the endpoint and model for the configured key's provider."""
 
-    key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    key = os.getenv("TYPESAFE_API_KEY", "").strip() or os.getenv("JEV_API_KEY", "").strip()
+    url, model = TYPESAFE_DECISIONS_URL, DEFAULT_JEV_MODEL
+    if not key:
+        key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        url, model = OPENROUTER_DECISIONS_URL, OPENROUTER_MODEL
     if not key:
         return None
-    return JevClient(api_key=key, base_url=os.getenv("FELLOWQUANT_JEV_URL", "").strip() or OPENROUTER_DECISIONS_URL,
-                     model=os.getenv("FELLOWQUANT_JEV_MODEL", "").strip() or DEFAULT_JEV_MODEL)
+    return JevClient(api_key=key, base_url=os.getenv("FELLOWQUANT_JEV_URL", "").strip() or url,
+                     model=os.getenv("FELLOWQUANT_JEV_MODEL", "").strip() or model)
 
 
 def _today() -> str:
@@ -111,3 +118,32 @@ def record_use(user: dict, kind: str) -> None:
             "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
             (user["id"], _today(), kind),
         )
+
+
+@contextmanager
+def quota_call(user: dict, kind: str):
+    """Reserve a daily call atomically; failed calls release the reservation.
+
+    The transaction ends before the network request. Concurrent requests cannot all
+    pass the same last remaining slot. Keep the reservation's day even across midnight.
+    """
+    day = _today()
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT count FROM ai_usage WHERE user_id = ? AND day = ? AND kind = ?",
+                           (user["id"], day, kind)).fetchone()
+        if not user.get("is_admin") and (int(row["count"]) if row else 0) >= daily_limit(kind):
+            word = LIMITS[kind][2]
+            raise QuotaExceeded(f"今天的{' ' if word[0].isascii() else ''}{word}次数已经用完（每天 {daily_limit(kind)} 次），明天再来。")
+        conn.execute(
+            "INSERT INTO ai_usage (user_id, day, kind, count) VALUES (?, ?, ?, 1) "
+            "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
+            (user["id"], day, kind),
+        )
+    try:
+        yield
+    except BaseException:
+        with get_conn() as conn:
+            conn.execute("UPDATE ai_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ? AND kind = ?",
+                         (user["id"], day, kind))
+        raise

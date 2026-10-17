@@ -17,6 +17,7 @@ from quant_platform.weknora import WeKnoraClient
 def response(data):
     result = MagicMock()
     result.__enter__.return_value = result
+    result.status_code = 200
     result.json.return_value = data
     return result
 

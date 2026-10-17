@@ -13,6 +13,7 @@ import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -70,6 +71,18 @@ def _sanitize_error(exc: Exception) -> str:
     if not text or len(text) < 2:
         return "服务器内部错误，请稍后重试"
     return text
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """参数校验失败：不返回 pydantic 的英文/代码层细节，统一友好提示。"""
+    # Pydantic errors include raw input, which can contain passwords and API keys.
+    fields = [{"loc": error["loc"], "type": error["type"]} for error in exc.errors()[:3]]
+    logger.info("Validation error on %s %s: %s", request.method, request.url.path, fields)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "请求参数不正确，请检查输入后重试"},
+    )
 
 
 @app.exception_handler(Exception)
