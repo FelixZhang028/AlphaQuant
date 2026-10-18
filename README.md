@@ -2,7 +2,7 @@
   <img src="landing/public/fellowquant-logo.png" alt="FellowQuant logo" width="88" />
 </p>
 
-<h1 align="center">FellowQuant · 智投引擎</h1>
+<h1 align="center">FellowQuant</h1>
 
 <p align="center">从投资想法，到可验证的量化研究。</p>
 

@@ -134,9 +134,9 @@ const feed = [
       ]"
     >
       <a href="/" class="flex items-center gap-2.5">
-        <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-lg shadow-indigo-500/40">智</span>
+        <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-lg shadow-indigo-500/40">F</span>
         <div class="leading-tight">
-          <p class="text-sm font-semibold text-white">智投引擎</p>
+          <p class="text-sm font-semibold text-white">FellowQuant</p>
           <p class="text-[10px] text-slate-500">管理后台</p>
         </div>
       </a>

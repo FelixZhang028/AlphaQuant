@@ -344,7 +344,7 @@ onActivated(async () => {
     </SectionCard>
 
     <!-- 回测结果 -->
-    <SectionCard title="回测结果" hint="一次回测的收益、风险、交易成本与持仓">
+    <SectionCard title="回测结果" hint="一次回测的收益、风险、交易成本与持仓 · 基于历史数据，仅供研究参考">
       <template #actions>
         <button class="text-sm text-indigo-300 hover:text-indigo-200" @click="openResearch('run-library')">查看以前的回测 →</button>
       </template>

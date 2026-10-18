@@ -1,4 +1,4 @@
-# 智投引擎 · 实时监控后端（FastAPI）
+# FellowQuant · 后端（FastAPI）
 
 为前端实时监控大屏提供数据的 FastAPI 服务，当前使用内置模拟器生成拟真数据，
 可平滑替换为真实数据源（见 `app/models.py` 与 `app/simulator.py` 中的注释）。

@@ -44,7 +44,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="智投引擎 · 后端",
+    title="FellowQuant · 后端",
     description="为官网/功能台/管理后台提供认证与实时监控数据（当前业务指标为模拟数据，可替换为真实数据源）",
     version="1.0.0",
     lifespan=lifespan,
@@ -130,4 +130,4 @@ app.include_router(ws_router)
 
 @app.get("/", summary="健康检查")
 def root():
-    return {"status": "ok", "service": "智投引擎后端", "docs": "/docs"}
+    return {"status": "ok", "service": "FellowQuant 后端", "docs": "/docs"}

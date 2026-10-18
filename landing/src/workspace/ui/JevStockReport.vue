@@ -123,6 +123,7 @@ const probabilityColors = { 偏多: 'bg-rose-400', 中性: 'bg-indigo-400', 偏�
           <summary class="cursor-pointer text-sm text-amber-200">数据缺口与适用范围<span v-if="report.coverage.missing.length"> · {{ report.coverage.missing.length }} 项数据缺口</span></summary>
           <ul class="mt-3 space-y-2 text-xs leading-relaxed text-slate-400"><li v-for="item in report.coverage.missing" :key="item.group + item.reason"><span class="text-slate-300">{{ item.group }}：</span>{{ item.reason }}</li><li v-for="note in report.coverage.notes" :key="note">{{ note }}</li></ul>
         </details>
+        <p class="text-xs text-slate-500">以上结果基于历史数据，仅供研究参考。</p>
       </template>
     </div>
   </section>

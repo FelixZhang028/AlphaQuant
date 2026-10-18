@@ -1,4 +1,4 @@
-# 智投引擎 · 管理后台（独立项目）
+# FellowQuant · 管理后台（独立项目）
 
 后台管理界面，与官网（landing）解耦的独立 Vite + Vue 3 + Tailwind 项目。
 

@@ -90,7 +90,7 @@ const heading = computed(
   () =>
     ({
       login: { title: '欢迎回来', sub: '登录以进入你的量化工作台' },
-      register: { title: '创建账户', sub: '几分钟内开启你的量化之旅' },
+      register: { title: '创建账户', sub: '几分钟后就能开始第一次研究' },
       forgot: { title: '忘记密码', sub: '验证账号身份后即可重置密码' },
     })[mode.value]
 )
@@ -211,9 +211,9 @@ async function onForgotSubmit() {
 }
 
 const features = [
-  { t: '极速撮合引擎', d: '微秒级延迟，Rust 高性能通道' },
+  { t: '完整的本地数据', d: '全市场行情与财报，每个交易日自动更新' },
+  { t: '可信的历史回测', d: '用当时的成分股和真实成本，并做可信度审计' },
   { t: '规则策略免写代码', d: '模板、一句话或表单，几分钟搭好就能回测' },
-  { t: '全天候风控', d: '动态回撤与暴露监控' },
 ]
 </script>
 
@@ -266,14 +266,14 @@ const features = [
           <a href="/" class="flex items-center gap-2.5">
             <span
               class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-lg shadow-indigo-500/40"
-            >智</span>
-            <span class="text-xl font-semibold tracking-wide text-white">智投引擎</span>
+            >F</span>
+            <span class="text-xl font-semibold tracking-wide text-white">FellowQuant</span>
           </a>
           <p class="mt-8 text-2xl font-bold leading-snug text-white">
-            数据驱动决策，<br />算法解锁 <span class="font-serif italic text-indigo-300">Alpha</span>
+            让数据说话，<br />把判断留给<span class="font-serif italic text-indigo-300">你</span>
           </p>
           <p class="mt-4 max-w-xs text-sm leading-relaxed text-slate-300/80">
-            为量化而生 · 极速、稳定、智能的一站式量化平台。
+            A 股量化研究工具：数据、回测、因子和 AI 解读，在一处完成。
           </p>
         </div>
 
@@ -668,23 +668,6 @@ const features = [
           </Transition>
           </div>
 
-          <!-- 第三方登录（忘记密码模式下隐藏） -->
-          <div v-if="!isForgot" class="my-6 flex items-center gap-3 text-xs text-slate-500">
-            <span class="h-px flex-1 bg-white/10" />
-            或使用以下方式
-            <span class="h-px flex-1 bg-white/10" />
-          </div>
-          <div v-if="!isForgot" class="grid grid-cols-3 gap-3">
-            <button
-              v-for="s in ['GitHub', 'Google', '微信']"
-              :key="s"
-              type="button"
-              class="flex items-center justify-center rounded-xl border border-white/10 bg-white/5 py-2.5 text-xs font-medium text-slate-300 transition hover:border-white/25 hover:bg-white/10 hover:text-white"
-            >
-              {{ s }}
-            </button>
-          </div>
-
           <p v-if="!isForgot" class="mt-7 text-center text-xs text-slate-400">
             {{ isLogin ? '还没有账户？' : '已有账户？' }}
             <button
@@ -698,7 +681,7 @@ const features = [
 
           <p class="mt-6 text-center text-[11px] leading-relaxed text-slate-600">
             登录即代表您接受我们的服务条款与隐私政策。<br />
-            本平台仅供专业交易者使用，投资有风险，入市需谨慎。
+            平台的所有分析结果仅供研究参考，投资决策请独立判断。
           </p>
         </div>
       </div>
