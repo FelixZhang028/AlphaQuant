@@ -515,20 +515,19 @@ def nl_status(user: dict = Depends(get_current_user)):
 def nl_generate(body: NlGenerateIn, user: dict = Depends(get_current_user)):
     model = platform_ai.platform_model()
     note = ""
-    if model is not None:
-        try:
-            platform_ai.require_quota(user, "strategy")
-        except platform_ai.QuotaExceeded as exc:
-            model, note = None, f"{exc}这次用离线规则识别，只能识别简单的句子。"
-    client = platform_ai.model_client(model) if model is not None else MockLLMClient()
     try:
-        definition = NLStrategyBuilder(client).generate(body.description)
+        if model is not None:
+            try:
+                with platform_ai.quota_call(user, "strategy"):
+                    definition = NLStrategyBuilder(platform_ai.model_client(model)).generate(body.description)
+            except platform_ai.QuotaExceeded as exc:
+                model, note = None, f"{exc}这次用离线规则识别，只能识别简单的句子。"
+        if model is None:
+            definition = NLStrategyBuilder(MockLLMClient()).generate(body.description)
     except ConfigurationError as exc:
         raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - LLM 调用异常统一转 422
         raise HTTPException(status_code=422, detail=f"生成失败：{_sanitize_detail(exc)}") from exc
-    if model is not None:
-        platform_ai.record_use(user, "strategy")
     return {
         "definition": definition_to_frontend(definition.to_dict()),
         "explanation": definition_explanation(
@@ -2108,7 +2107,7 @@ def universe_filters(body: dict[str, Any], user: dict = Depends(get_current_user
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO universe (user_id, symbols, exclude_st, exclude_suspended, minimum_listing_days, minimum_history_days, minimum_average_amount, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET exclude_st=excluded.exclude_st, exclude_suspended=excluded.excluded.exclude_suspended, minimum_listing_days=excluded.minimum_listing_days, minimum_history_days=excluded.minimum_history_days, minimum_average_amount=excluded.minimum_average_amount, updated_at=excluded.updated_at",
+            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET exclude_st=excluded.exclude_st, exclude_suspended=excluded.exclude_suspended, minimum_listing_days=excluded.minimum_listing_days, minimum_history_days=excluded.minimum_history_days, minimum_average_amount=excluded.minimum_average_amount, updated_at=excluded.updated_at",
             (user["id"], json.dumps(symbols, ensure_ascii=False), 1 if body.get("exclude_st", True) else 0,
              1 if body.get("exclude_suspended", True) else 0, body.get("minimum_listing_days", 60),
              body.get("minimum_history_days", 120), body.get("minimum_average_amount", 0), _now()),
@@ -2122,10 +2121,10 @@ def universe_filters(body: dict[str, Any], user: dict = Depends(get_current_user
 
 class JevDecideIn(BaseModel):
     type: str = Field(..., pattern="^(choice|noul|score)$")
-    question: str = ""
-    condition: str = ""
-    options: list[str] = Field(default_factory=list)
-    levels: list[str] = Field(default_factory=list)
+    question: str = Field("", max_length=10000)
+    condition: str = Field("", max_length=10000)
+    options: list[str] = Field(default_factory=list, max_length=255)
+    levels: list[str] = Field(default_factory=list, max_length=10)
     state: dict[str, Any] | list[Any] | str | None = Field(default_factory=dict)
 
 
@@ -2145,6 +2144,14 @@ def _integration_call(action):
         raise HTTPException(status_code=502, detail="服务调用失败，请检查服务地址、API Key、权限及网络连接") from None
 
 
+def _jev_call(action):
+    from .agent_lab import _ai_failure
+    try:
+        return action()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"决策模型调用失败：{_ai_failure(exc)}") from None
+
+
 @router.get("/jev/status", summary="决策模型是否可用、今天还剩几次")
 def jev_status(user: dict = Depends(get_current_user)):
     client = platform_ai.decision_client()
@@ -2160,27 +2167,25 @@ def jev_decide(body: JevDecideIn, user: dict = Depends(get_current_user)):
     if client is None:
         raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能使用。")
     try:
-        platform_ai.require_quota(user, "review")
-    except platform_ai.QuotaExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    try:
-        if body.type == "choice":
-            if not body.question.strip() or len(body.options) < 2 or any(not x.strip() for x in body.options) or len(set(body.options)) != len(body.options):
-                raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空选项")
-            req = ChoiceRequest(question=body.question, options=body.options, state=body.state)
-            resp = _integration_call(lambda: client.choice(req))
-        elif body.type == "noul":
-            if not body.condition.strip():
-                raise HTTPException(status_code=422, detail="Noul 决策需要提供 condition 条件描述")
-            req = NoulRequest(condition=body.condition, state=body.state)
-            resp = _integration_call(lambda: client.noul(req))
-        else:
-            if not body.question.strip() or len(body.levels) < 2 or any(not x.strip() for x in body.levels) or len(set(body.levels)) != len(body.levels):
-                raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空等级")
-            req = ScoreRequest(question=body.question, levels=body.levels, state=body.state)
-            resp = _integration_call(lambda: client.score(req))
-        platform_ai.record_use(user, "review")
+        with platform_ai.quota_call(user, "review"):
+            if body.type == "choice":
+                if not body.question.strip() or len(body.options) < 2 or any(not x.strip() for x in body.options) or len(set(body.options)) != len(body.options):
+                    raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空选项")
+                req = ChoiceRequest(question=body.question, options=body.options, state=body.state)
+                resp = _jev_call(lambda: client.choice(req))
+            elif body.type == "noul":
+                if not body.condition.strip():
+                    raise HTTPException(status_code=422, detail="Noul 决策需要提供 condition 条件描述")
+                req = NoulRequest(condition=body.condition, state=body.state)
+                resp = _jev_call(lambda: client.noul(req))
+            else:
+                if not body.question.strip() or len(body.levels) < 2 or any(not x.strip() for x in body.levels) or len(set(body.levels)) != len(body.levels):
+                    raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空等级")
+                req = ScoreRequest(question=body.question, levels=body.levels, state=body.state)
+                resp = _jev_call(lambda: client.score(req))
         return resp.__dict__
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

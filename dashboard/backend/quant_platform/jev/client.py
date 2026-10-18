@@ -1,4 +1,4 @@
-"""OpenRouter Decisions API (Jev): typed questions about one state, answered with probabilities.
+"""TypeSafe and OpenRouter Jev APIs: typed decisions about one state.
 
 One request carries a ``state`` and any number of named questions; they are answered
 independently and the price depends only on the input, so related questions share one request.
@@ -24,7 +24,9 @@ import requests
 from .models import ChoiceRequest, ChoiceResponse, NoulRequest, NoulResponse, ScoreRequest, ScoreResponse
 
 OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
-DEFAULT_MODEL = "typesafe/jev-1.13"
+TYPESAFE_DECISIONS_URL = "https://api.typesafe.ai/v1/systemone"
+OPENROUTER_MODEL = "typesafe/jev-1.13"
+DEFAULT_MODEL = "jev-latest"
 DEFAULT_TIMEOUT = 30.0
 
 
@@ -76,20 +78,23 @@ def parse_answer(question: dict[str, Any], answer: Any) -> dict[str, Any]:
 
 
 class JevClient:
-    def __init__(self, api_key: str, base_url: str = OPENROUTER_DECISIONS_URL,
+    def __init__(self, api_key: str, base_url: str = TYPESAFE_DECISIONS_URL,
                  timeout: float = DEFAULT_TIMEOUT, model: str = DEFAULT_MODEL):
         if not api_key:
-            raise ValueError("Jev 需要 OpenRouter API Key")
+            raise ValueError("Jev 需要 API Key")
         self.api_key, self.base_url, self.timeout, self.model = api_key, base_url, timeout, model
 
     def ask(self, state: Any, questions: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Answer all ``questions`` about ``state`` in one request, keyed like ``questions``."""
 
-        data = self._post({"model": self.model, "state": state, "questions": questions})
+        data = self._post({"model": self.model, "state": {} if state is None else state, "questions": questions})
         answers = data.get("answers") if isinstance(data, dict) else None
         if not isinstance(answers, dict):
             raise ValueError("Invalid Decisions response")
-        return {name: parse_answer(question, answers.get(name)) for name, question in questions.items()}
+        try:
+            return {name: parse_answer(question, answers.get(name)) for name, question in questions.items()}
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError("Jev 返回的数据格式无效") from None
 
     def choice(self, req: ChoiceRequest) -> ChoiceResponse:
         answer = self.ask(req.state, {"decision": choice_question(req.question, {opt: opt for opt in req.options})})["decision"]
@@ -106,6 +111,8 @@ class JevClient:
     def _post(self, payload: dict[str, Any]):
         with requests.post(self.base_url, json=payload,
                            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                           timeout=self.timeout) as resp:
+                           timeout=self.timeout, allow_redirects=False) as resp:
+            if 300 <= resp.status_code < 400:
+                raise ValueError("Jev 服务地址发生重定向，请检查配置")
             resp.raise_for_status()
             return resp.json()

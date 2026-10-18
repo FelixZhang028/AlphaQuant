@@ -253,6 +253,11 @@ def backtest_ai_review(bid: int, user: dict = Depends(get_current_user)):
 
 @router.post("/{bid}/ai-review", summary="让 AI 评估这次回测：风险等级、在新数据上做不到的可能")
 def backtest_ai_review_run(bid: int, user: dict = Depends(get_current_user)):
+    with computing(user):
+        return _run_ai_review(bid, user)
+
+
+def _run_ai_review(bid: int, user: dict):
     saved = _saved_review(bid, user)
     if saved is not None:
         return {"review": saved, "available": True, "usage": platform_ai.usage(user, "review")}  # 评估过：不再调用、不再计数
@@ -263,17 +268,15 @@ def backtest_ai_review_run(bid: int, user: dict = Depends(get_current_user)):
     client = platform_ai.decision_client()
     if client is None:
         raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能评估。")
-    try:
-        platform_ai.require_quota(user, "review")
-    except platform_ai.QuotaExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
     result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
     facts = backtest_facts({"from_date": row["from_date"], "to_date": row["to_date"]}, result, benchmark_comparison(run_directory(result)))
     try:
-        review = review_backtest(client, facts)
+        with platform_ai.quota_call(user, "review"):
+            review = review_backtest(client, facts)
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"AI 评估没有完成（{_ai_failure(exc)}），这次不计入次数。") from exc
-    platform_ai.record_use(user, "review")
     review["facts"] = [fact.to_dict() for fact in facts]
     with get_conn() as conn:
         conn.execute("INSERT OR REPLACE INTO ai_reviews (user_id, backtest_id, review, created_at) VALUES (?,?,?,?)",

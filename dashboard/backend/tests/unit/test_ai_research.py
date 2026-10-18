@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 
 import numpy as np
 import pandas as pd
@@ -357,6 +358,9 @@ class FakeJev:
             if question["type"] == "choice":
                 answers[name] = {"type": "choice", "choice": "中性", "confidence": 0.5,
                                  "probabilities": {"偏多": 0.3, "中性": 0.5, "偏空": 0.2}}
+                if "偏多" not in question["criteria"]:
+                    answers[name]["probabilities"] = {key: .5 if key == "中性" else .5 / (len(question["criteria"]) - 1)
+                                                       for key in question["criteria"]}
             elif question["type"] == "noul":
                 answers[name] = {"type": "noul", "probability": 0.7}
             else:
@@ -379,6 +383,67 @@ def test_reading_adds_the_decision_model_odds_and_survives_its_failure(api, monk
     monkeypatch.setattr(platform_ai, "decision_client", lambda: FakeJev(fail=True))
     again = analyse(client, "600000.SH")
     assert again["brief"]["tilt"] == "偏多" and again["brief"]["odds"] is None
+
+
+def test_jev_alone_can_analyse_saved_data_and_reuse_it_privately(api, monkeypatch):
+    client, current = api
+    jev = FakeJev()
+    monkeypatch.setattr(platform_ai, 'decision_client', lambda: jev)
+    assert not client.get('/api/v1/agent-lab/status').json()['ai']['available']
+    assert client.get('/api/v1/agent-lab/status').json()['decision']['available']
+    created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
+    result = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision")
+    assert result.status_code == 200, result.text
+    assert result.json()['brief'] is None and result.json()['odds']['choice'] == '中性'
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 1
+    again = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").json()
+    assert again['odds'] == result.json()['odds'] and len(jev.calls) == 1
+    # A failed/missing text model must not erase the independently saved decision.
+    after_reading = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/reading").json()
+    assert after_reading['odds'] == again['odds']
+    current['user'] = {'id': 2}
+    assert client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").status_code == 404
+
+
+def test_independent_jev_failure_does_not_charge_or_store_a_result(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr(platform_ai, 'decision_client', lambda: FakeJev(fail=True))
+    created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
+    assert client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").status_code == 502
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 0
+    assert client.get(f"/api/v1/agent-lab/briefs/{created['id']}").json()['odds'] is None
+
+
+def test_legacy_report_requires_explicit_upgrade_and_upgrades_only_once(api, monkeypatch):
+    client, _ = api
+    jev = FakeJev()
+    monkeypatch.setattr(platform_ai, 'decision_client', lambda: jev)
+    created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
+    legacy = {'choice': '中性', 'probabilities': {'偏多': .12, '中性': .85, '偏空': .03}, 'confidence': .6, 'model': 'jev-latest'}
+    with database.get_conn() as conn:
+        conn.execute('UPDATE stock_briefs SET brief=? WHERE id=?', (json.dumps({'odds': legacy}), created['id']))
+    path = f"/api/v1/agent-lab/briefs/{created['id']}/decision"
+    assert client.post(path).json()['odds'] == legacy and not jev.calls
+    upgraded = client.post(path + '?upgrade=true')
+    assert upgraded.status_code == 200, upgraded.text
+    assert upgraded.json()['odds']['report_version'] == 2
+    assert len(upgraded.json()['odds']['dimensions']) == 5 and len(jev.calls) == 1
+    assert client.post(path + '?upgrade=true').json()['odds'] == upgraded.json()['odds']
+    assert len(jev.calls) == 1
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 1
+
+
+def test_failed_upgrade_preserves_old_report_and_refunds_quota(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr(platform_ai, 'decision_client', lambda: FakeJev(fail=True))
+    created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
+    legacy = {'choice': '中性', 'probabilities': {'偏多': .12, '中性': .85, '偏空': .03}, 'confidence': .6, 'model': 'jev-latest'}
+    with database.get_conn() as conn:
+        conn.execute('UPDATE stock_briefs SET brief=? WHERE id=?', (json.dumps({'odds': legacy}), created['id']))
+    path = f"/api/v1/agent-lab/briefs/{created['id']}"
+    assert client.post(path + '/decision?upgrade=true').status_code == 502
+    assert client.get(path).json()['odds'] == legacy
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 0
 
 
 RESULT = {

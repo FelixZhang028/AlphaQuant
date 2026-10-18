@@ -1,11 +1,12 @@
 <script setup>
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
-import { aiStatus, askBrief, createBrief, deleteBrief, getBrief, listBriefs, readBrief, universeSearch } from '../../api.js'
+import { aiStatus, askBrief, createBrief, decideBrief, deleteBrief, getBrief, listBriefs, readBrief, universeSearch } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
 import PriorKnowledgeView from './PriorKnowledgeView.vue'
+import JevStockReport from '../ui/JevStockReport.vue'
 import { openResearch } from '../researchNavigation.js'
 import {
-  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
+  evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
 } from '../aiPresentation.js'
 
 const props = defineProps({
@@ -21,7 +22,7 @@ const suggestions = ref([])
 const highlighted = ref(-1)
 const tradeDate = ref('')
 const useExperience = ref(true)
-const step = ref('') // '' | 'data' | 'reading'
+const step = ref('') // '' | 'data' | 'decision' | 'reading'
 const loadingRecord = ref(false)
 const error = ref('')
 const record = ref(null)
@@ -29,11 +30,13 @@ const history = ref([])
 const question = ref('')
 const asking = ref(false)
 const chatBox = ref(null)
+const upgradingReport = ref(false)
 
 const facts = computed(() => record.value?.facts || null)
 const groups = computed(() => factGroups(facts.value?.facts))
 const brief = computed(() => record.value?.brief || null)
-const busy = computed(() => step.value !== '')
+const odds = computed(() => record.value?.odds || brief.value?.odds || null)
+const busy = computed(() => step.value !== '' || upgradingReport.value)
 const canAsk = computed(() => Boolean(brief.value && status.value?.ai?.available))
 const questionsLeft = computed(() => remainingText(status.value?.usage?.question, '追问'))
 
@@ -111,6 +114,13 @@ async function run() {
     let data = await createBrief({ symbol: code, trade_date: tradeDate.value, use_experience: useExperience.value })
     record.value = data
     openResearch('agent-lab', { brief: data.id })
+    if (status.value?.decision?.available) {
+      step.value = 'decision'
+      try {
+        data = await decideBrief(data.id)
+        if (record.value?.id === data.id) record.value = data
+      } catch (e) { props.notify(e.message || '决策模型暂时不可用') }
+    }
     if (status.value?.ai?.available) {
       step.value = 'reading'
       data = await readBrief(data.id)
@@ -133,6 +143,22 @@ async function remove(item) {
     await loadHistory()
   } catch (e) {
     props.notify(e.message || '删除失败')
+  }
+}
+
+async function upgradeReport() {
+  if (busy.value || !record.value) return
+  const id = record.value.id
+  upgradingReport.value = true
+  try {
+    const data = await decideBrief(id, { upgrade: true })
+    if (record.value?.id === id) record.value = data
+  } catch (e) {
+    props.notify(e.message || '报告补全失败，已保留原判断')
+  } finally {
+    upgradingReport.value = false
+    loadStatus()
+    loadHistory()
   }
 }
 
@@ -204,8 +230,10 @@ function moveTone(value) {
         参考我的研究经验（{{ status?.experience_count ?? 0 }} 条）
       </label>
       <p class="mt-3 text-sm" :class="status && !status.ai?.available ? 'text-amber-200' : 'text-slate-400'">{{ modelText(status) }}</p>
+      <p v-if="status?.decision?.available" class="mt-2 text-xs text-slate-400">Jev 决策模型已连接，可独立判断本地数据。{{ remainingText(status.usage?.review, '决策评估') }}</p>
       <ol v-if="busy" class="mt-3 space-y-1 text-sm" aria-label="分析进度">
         <li :class="step === 'data' ? 'text-indigo-200' : 'text-slate-400'">{{ step === 'data' ? '…' : '✓' }} 整理本地数据（几秒）</li>
+        <li v-if="status?.decision?.available" :class="step === 'decision' ? 'text-indigo-200' : 'text-slate-500'">{{ step === 'decision' ? '…' : '○' }} Jev 判断数据中的倾向</li>
         <li v-if="status?.ai?.available" :class="step === 'reading' ? 'text-indigo-200' : 'text-slate-500'">
           {{ step === 'reading' ? '…' : '○' }} AI 根据这些数据写解读（通常十几秒到一分钟，下面的数据可以先看）
         </li>
@@ -223,12 +251,15 @@ function moveTone(value) {
       <p v-for="note in facts.notes" :key="note" class="text-sm text-amber-200">{{ note }}</p>
       <p v-if="record.later" class="text-sm text-slate-300">{{ laterText(record.later) }}</p>
 
+      <JevStockReport v-if="odds" :report="odds" :trade-date="record.trade_date" :text-tilt="brief?.tilt || ''"
+        :upgrading="upgradingReport" :can-upgrade="Boolean(status?.decision?.available)"
+        :remaining="status?.usage?.review?.remaining ?? null" @upgrade="upgradeReport" />
+
       <SectionCard v-if="brief" title="AI 解读" :hint="`只根据下面的数据写成，每条后面是它引用的数据 · 模型 ${record.model}`">
         <div class="flex flex-wrap items-center gap-3">
           <span class="rounded-full border px-4 py-1.5 text-base font-semibold" :class="tiltTone(brief.tilt)">{{ brief.tilt }}</span>
           <span class="text-sm text-slate-400">信心：{{ brief.confidence }}</span>
         </div>
-        <p v-if="brief.odds" class="mt-3 text-xs text-slate-400">{{ oddsText(brief.odds) }}<span v-if="oddsDisagree(brief.odds, brief.tilt)" class="text-amber-200">。两个模型看法不同，说明数据给出的信号不一致</span></p>
         <p v-if="brief.summary" class="mt-4 text-sm leading-relaxed text-slate-200">{{ brief.summary }}</p>
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
           <div v-for="section in pointSections" :key="section.key" class="min-w-0 rounded-xl border border-white/10 bg-white/5 p-4">

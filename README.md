@@ -45,7 +45,7 @@ v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。�
 | 数据管理 | 数据概览、数据更新、股票池管理；XTick 位于概览的「数据源与高级工具」 |
 | 系统 | 个人中心、账户独立的服务配置 |
 
-**能力边界：**回测与因子评估需要先下载行情数据；监控大屏使用模拟指标。AI 功能需要服务器配置 `OPENROUTER_API_KEY`，没有配置时不显示 AI 结果（不提供演示结果）；WeKnora 文档问答需要独立部署的服务。项目用于研究与模拟，不连接真实资金交易。
+**能力边界：**回测与因子评估需要先下载行情数据；监控大屏使用模拟指标。文本 AI 需要服务器配置 `OPENROUTER_API_KEY` 或其他兼容服务，Jev 决策可单独使用 `TYPESAFE_API_KEY`，没有配置时不显示相应 AI 结果；WeKnora 文档问答需要独立部署的服务。项目用于研究与模拟，不连接真实资金交易。
 
 ## 🚀 快速开始
 
@@ -84,16 +84,17 @@ npm run dev -- --host 127.0.0.1
 
 ## ⚙️ 可选配置
 
-将 `dashboard/backend/.env.example` 复制为同目录的 `.env`，填写需要的配置；后端启动时自动读取。用户在页面保存的模型和 WeKnora 配置优先于相应环境变量。
+将 `dashboard/backend/.env.example` 复制为同目录的 `.env`，填写需要的配置；后端启动时自动读取。模型密钥由服务器统一配置；用户在页面保存的 WeKnora 配置优先于相应环境变量。`.env` 不进入 Git。
 
 | 配置 | 用途 |
 | --- | --- |
 | `APP_SECRET` | 登录令牌签名；留空时自动生成并持久化本机随机密钥 |
 | `FELLOWQUANT_ADMIN_EMAIL` / `FELLOWQUANT_ADMIN_PASSWORD` | 首次创建管理员，初始密码至少 12 位；不提供公共默认密码 |
 | `OPENROUTER_API_KEY` | 平台统一提供的 AI 模型（AI研究员、用一句话生成规则），也用于 Jev 决策服务；用户不需要自己填写密钥 |
+| `TYPESAFE_API_KEY` / `JEV_API_KEY` | TypeSafe 官方 Jev 密钥（前者优先）；配置后 Jev 独立于聊天模型，默认调用官方 `/v1/systemone`，未配置时使用 OpenRouter |
 | `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
 | `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估次数（默认 5 / 20 / 10 / 10），管理员不限 |
-| `FELLOWQUANT_JEV_MODEL` | 可选：决策模型，默认 `typesafe/jev-1.13`（只在 OpenRouter 上提供） |
+| `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_COMPUTE_SLOTS` / `_PER_USER` / `_TIMEOUT` / `_CACHE` | 耗时计算（回测、参数验证、因子评估与组合研究）的限制：全站同时最多几件（默认 CPU 核数的一半，2 到 4）、每人同时几件（默认 1）、一件最多多少秒（默认 600）、记住多少份因子研究结果（默认 64） |
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可在页面配置 |
@@ -106,7 +107,11 @@ npm run dev -- --host 127.0.0.1
 
 未配置 SMTP 时密码重置不可用；验证码只发送至注册邮箱，不返回到浏览器。重置密码后旧登录令牌失效。本机账户、行情、运行记录和密钥保存在后端 `data/` 中，不进入 Git。
 
-WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。AI研究员和“用一句话生成规则”使用平台的聊天模型；没有配置时，AI研究员只显示本地数据，生成规则改用离线规则识别。决策模型 Jev 按概率回答选择、是非、评分三类问题：AI研究员用它给出偏多/中性/偏空的概率，回测结果页用它评估风险等级和过度拟合的可能，材料都由平台从本地数据自动整理。
+WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。AI研究员的文字解读和“用一句话生成规则”使用平台的聊天模型；没有配置时，生成规则改用离线规则识别。决策模型 Jev 按概率回答选择、是非、评分三类问题：AI研究员可只使用 Jev 给出偏多/中性/偏空的概率，无需文本模型；回测结果页用它评估风险等级和过度拟合的可能。材料由平台从本地数据自动整理，结果按账户保存，重复打开不再计费；独立判断计入每日评估额度。TypeSafe 的请求协议见[官方文档](https://docs.typesafe.ai/api)。
+
+需要验证实际集成时，在项目根目录运行 `python scripts/verify_jev.py --live`。该命令会向配置的 Jev 服务发送本地行情和回测摘要，消耗 API 额度；使用独立账户数据库，报告保存在 Git 忽略的 `outputs/`，不会修改现有账户和行情。
+
+完整的配置、网页操作、API 示例、额度说明和故障排查见 [Jev 使用文档](docs/JEV_USAGE.md)。
 
 ## 🧩 项目结构
 

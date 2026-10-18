@@ -31,7 +31,9 @@ export function remainingText(usage, word) {
 
 export function modelText(status) {
   if (!status) return '正在读取 AI 模型状态…'
-  if (!status.ai?.available) return '平台还没有配置 AI 模型：分析时只显示数据，不会有 AI 解读。'
+  if (!status.ai?.available) return status.decision?.available
+    ? '已配置 Jev 决策模型：可判断数据中的倾向；文字解读和追问需要另外配置文本模型。'
+    : '平台还没有配置 AI 模型：分析时只显示数据，不会有 AI 解读。'
   const left = remainingText(status.usage?.brief, '分析')
   return `AI 模型 ${status.ai.model}${left ? ` · ${left}` : ''}`
 }

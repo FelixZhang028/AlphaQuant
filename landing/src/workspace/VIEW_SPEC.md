@@ -96,7 +96,9 @@ const props = defineProps({
 - `deleteCustomFactor(name)`
 
 ### AI 研究员
-- `aiStatus()` → `{ ai:{available,model},usage:{brief:{limit,used,remaining},question:{...}},experience_count,latest_date }`；管理员的 `limit`、`remaining` 为 null（不限次数）
+- `aiStatus()` → `{ ai:{available,model},decision:{available,model},usage:{brief:{limit,used,remaining},question:{...},review:{...}},experience_count,latest_date }`；管理员的 `limit`、`remaining` 为 null（不限次数）
+- `decideBrief(id)` → 根据已经保存的数据调用 Jev；分析记录增加 `odds:{choice,probabilities,confidence,model}|null`。不依赖文本模型，成功计入评估额度，失败退还额度；已有结果直接返回。文字解读继续保存于 `brief`。
+- 新报告 `odds.report_version=2`，增加 `summary,as_of,dimensions:[{key,title,status,assessment,confidence,probabilities,interpretation,evidence}],supports,concerns,coverage,followups,risk`。五个维度按实际数据可用性提问，缺项单独显示，不与中性混淆。`decideBrief(id,{upgrade:true})` 主动补全旧记录；补全失败保留原报告，已经是新版时不重复计费。页面使用 `JevStockReport.vue`，旧版保留概率图和升级入口。
 - `createBrief({symbol,trade_date,use_experience})` → 第一步，只整理本地数据（`brief` 为 null）；`readBrief(id)` → 第二步，AI 根据保存的数据写解读（已解读过的直接返回，不再计数）。两者都返回一次分析：`{ id,symbol,name,trade_date,created_at,model,facts:{symbol,name,trade_date,facts:[{key,group,label,text,value,as_of}],missing:[{group,reason}],notes:[]},brief:{tilt,confidence,summary,bull_points:[{text,evidence:[fact]}],risk_points,watch_points,removed}|null,ai_note,use_experience,questions:[{question,answer,at}],later:{end_date,days,change,benchmark,benchmark_change}|null }`
 - `getBrief(id)` / `listBriefs()` / `deleteBrief(id)` → 同上 / `{ items:[{id,symbol,name,trade_date,created_at,tilt,later}] }` / 无内容
 - `askBrief(id, message)` → `{ questions:[...],usage }`
@@ -185,7 +187,7 @@ const props = defineProps({
 - 有模型时显示 AI 解读：倾向（偏多/中性/偏空）、信心、一段话和三组要点（看多的理由、风险、接下来留意），每条要点下面列出它引用的本地数据。没有依据、数字和数据对不上、或给出买卖建议（买入、仓位、目标价等）的要点会被去掉并写明条数。不显示交易提案、目标价、止损和模拟成交。
 - 分析编号写进链接（`brief=`），刷新或后退可以打开同一次分析；有 AI 解读时可以继续追问，追问只用这次的数据。
 - 决策辅助（不在侧栏）的三个标签为方案比较、条件判断、等级评分，使用平台的决策模型并计入每天的“AI 评估”次数；没有配置时说明“平台还没有配置决策模型”，不再给演示结果。设置页不再配置 Jev。
-- AI研究员的 AI 解读下方显示决策模型对同一张数据表给出的偏多/中性/偏空概率；和 AI 解读的倾向不同时说明“两个模型看法不同”。
+- AI研究员先整理数据，再独立调用 Jev 判断倾向，最后按文本模型是否可用生成文字解读。Jev 的概率单独显示在“Jev 数据判断”卡片；和文字解读的倾向不同时说明“两个模型看法不同”。没有文本模型时仍可显示 Jev 结果，并在历史分析中显示倾向。
 - 回测结果页的“AI 评估”：点按钮后由决策模型根据这次回测自己的数字（区间、收益、回撤、交易、成本、和基准比较、有效性警告）估计风险等级（五级及各级概率）和在新数据上做不到的可能；“AI 看到的数据”列出发给模型的全部内容。每次回测只评估一次并保存，再打开不重复计数。
 - `getBacktestReview(id)` / `runBacktestReview(id)` → `{ review:{risk:{level,score,probabilities,confidence},overfit:{probability},model,facts:[],created_at}|null,available,usage }`；`jevStatus()` → `{ available,model,usage }`
 
