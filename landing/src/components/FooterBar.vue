@@ -8,13 +8,11 @@ const columns = [
       { label: '零代码策略', href: '/app.html?view=strategy-studio' },
       { label: '因子实验室', href: '/app.html?view=factor-lab' },
       { label: 'AI研究员', href: '/app.html?view=agent-lab' },
-      { label: 'XTick 专项查询', href: '/app.html?view=xtick-data' },
     ],
   },
   {
     title: '资源',
     links: [
-      { label: '开发文档', href: '#belief' },
       { label: '策略示例', href: '/app.html?view=strategy-hub' },
       { label: '社区论坛', href: '/community.html' },
       { label: '新手引导', href: '/app.html?view=overview' },
@@ -24,7 +22,6 @@ const columns = [
     title: '公司',
     links: [
       { label: '关于我们', href: '#hero' },
-      { label: '加入我们', href: '#belief' },
       { label: '联系方式', href: '#belief' },
       { label: '服务协议', href: '#belief' },
     ],
@@ -52,7 +49,7 @@ const year = new Date().getFullYear()
               </svg>
               <span class="ds-logo-wordmark">FellowQuant</span>
             </a>
-            <p class="ds-text-caption m-0 text-ds-description">数据驱动决策，算法解锁 Alpha</p>
+            <p class="ds-text-caption m-0 text-ds-description">让数据说话，把判断留给你</p>
           </div>
         </div>
 
@@ -79,7 +76,7 @@ const year = new Date().getFullYear()
         class="flex w-full flex-col items-start justify-between gap-4 border-t border-ds-border-subtle pt-ds-6 md:flex-row md:items-center"
       >
         <p class="ds-text-caption m-0 text-ds-description">
-          © {{ year }} FellowQuant 智投引擎. 保留所有权利。
+          © {{ year }} FellowQuant. 保留所有权利。平台提供的数据、回测与分析结果仅供研究参考，不构成任何投资建议。
         </p>
         <div class="ds-text-caption flex gap-6 text-ds-description">
           <a href="#belief" class="no-underline hover:text-ds-primary">隐私政策</a>

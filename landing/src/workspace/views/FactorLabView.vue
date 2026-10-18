@@ -761,7 +761,7 @@ onBeforeUnmount(() => {
           <LineChart :series="evalView.series" :height="180" />
         </SectionCard>
 
-        <SectionCard title="分层收益" hint="按因子值排序分为 N 组，各组平均收益">
+        <SectionCard title="分层收益" hint="按因子值排序分为 N 组，各组平均收益 · 基于历史数据，仅供研究参考">
           <DataTable :columns="evalView.groupCols" :rows="evalView.groupRows" empty="暂无数据" />
         </SectionCard>
       </template>
@@ -898,7 +898,7 @@ onBeforeUnmount(() => {
             <LineChart :series="compView.series" :height="180" />
           </SectionCard>
 
-          <SectionCard title="合成因子分层收益" hint="按合成因子值排序分为 N 组，各组平均收益">
+          <SectionCard title="合成因子分层收益" hint="按合成因子值排序分为 N 组，各组平均收益 · 基于历史数据，仅供研究参考">
             <DataTable :columns="compView.groupCols" :rows="compView.groupRows" empty="暂无数据" />
           </SectionCard>
         </template>

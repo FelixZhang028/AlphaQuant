@@ -196,7 +196,7 @@ function moveTone(value) {
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" />
       <h2 class="text-xl font-bold text-white">AI研究员</h2>
       <p class="mt-1 text-sm text-slate-400">输入一只股票，先看本地数据整理出的走势、估值和风险，再看 AI 根据这些数据写的解读。</p>
-      <p class="mt-1 text-xs text-slate-500">仅供研究，不构成投资建议。</p>
+      <p class="mt-1 text-xs text-slate-500">分析依据本地数据生成，仅供研究参考。</p>
     </div>
 
     <SectionCard title="分析一只股票" hint="日期留空表示本地最近一个交易日">

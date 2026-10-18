@@ -24,12 +24,12 @@ const CATEGORIES = [
 const SEED_POSTS = [
   {
     id: 1,
-    title: '欢迎使用智投引擎社区',
+    title: '欢迎使用 FellowQuant 社区',
     category: 'notice',
     author: '官方团队',
     time: '2026-09-01 10:00',
     likes: 128,
-    content: '欢迎来到智投引擎社区！这里可以交流量化策略、因子研究心得与数据处理经验。\n\n新手建议先完成工作台内的新手引导（顶栏 ? 图标），再尝试零代码策略模板。',
+    content: '欢迎来到 FellowQuant 社区！这里可以交流量化策略、因子研究心得与数据处理经验。\n\n新手建议先完成工作台内的新手引导（顶栏 ? 图标），再尝试零代码策略模板。',
     replies: [
       { author: '量化小白', time: '2026-09-01 11:20', content: '引导很清晰，跑通了第一个动量模板回测！' },
     ],

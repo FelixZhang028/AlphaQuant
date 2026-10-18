@@ -1,4 +1,4 @@
-# 智投引擎 · 实时监控前端（Vue 3 + Vite + Pinia + ECharts）
+# FellowQuant · 实时监控前端（Vue 3 + Vite + Pinia + ECharts）
 
 深色科技风的量化交易系统实时监控大屏，数据来自配套的 FastAPI 后端
 （`../backend`，WebSocket 实时推送，断线自动降级为 HTTP 轮询）。

@@ -21,7 +21,7 @@ try {
         Add-Type -Path (Join-Path $PSScriptRoot 'ProcessGroup.cs')
     }
     Write-Host '============================================'
-    Write-Host '  智投引擎 FellowQuant - 一键启动'
+    Write-Host '  FellowQuant - 一键启动'
     Write-Host '============================================'
     Write-Host ''
     Write-Host "[启动] 后端服务  http://127.0.0.1:$BackendPort  （API 文档 /docs）"

@@ -1,6 +1,6 @@
-# 智投引擎 · 品牌首页（Landing）
+# FellowQuant · 首页与功能台（Landing）
 
-「智投引擎」量化交易平台的品牌官网首页 + 登录/功能台（聚合了 FellowQuant 工作台的全部功能模块）。深色奢华风格，Vue 3 + Vite + Tailwind CSS v3。
+FellowQuant A 股量化研究工具的官网首页 + 登录/功能台（聚合了 FellowQuant 工作台的全部功能模块）。深色奢华风格，Vue 3 + Vite + Tailwind CSS v3。
 
 ## 技术栈
 

@@ -4,7 +4,7 @@
     <header class="top-bar">
       <div class="brand">
         <span class="brand-dot"></span>
-        <h1 class="brand-title">智投引擎 · 实时监控</h1>
+        <h1 class="brand-title">FellowQuant · 实时监控</h1>
       </div>
       <ConnectionBadge />
     </header>
