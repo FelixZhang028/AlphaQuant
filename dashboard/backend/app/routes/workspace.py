@@ -1,0 +1,2273 @@
+"""
+功能台聚合路由：把 FellowQuant_v3 工作台的各功能模块以 REST 形式聚合到本后端。
+
+模块覆盖（与 v3 工作台对应）：
+- 策略创作中心 / 自然语言建策略 / 零代码策略工作台
+- 因子研究室 / 智能体分析台
+- 单次回测与复盘（复用 backtests）/ 参数优化与稳健性验证 / 回测记录库
+- 数据管理 / XTick 数据服务 / 风险管理 / 模拟交易 / 股票池管理
+
+说明：与现有 stats/backtests 一致，当前业务数据为「可复现的模拟数据」，
+替换真实数据源时只需改每个 endpoint 的取数逻辑，模型结构保持不变。
+"""
+from __future__ import annotations
+
+import json
+import random
+import re
+from dataclasses import replace as dc_replace
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any, Literal
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict, model_validator
+
+from ..database import _now, get_conn
+from ..quant.result_adapter import backtest_run_to_result, factor_report_to_dict
+from ..quant.result_adapter import _round
+from ..quant.run_evidence import with_run_evidence, run_directory
+from ..quant.run_comparison import compare_persisted_runs
+from ..quant.market_catalog import LocalMarketCatalog
+from ..quant import platform_ai
+from ..quant.markets import CURRENT_POOL, market_options, use_market
+from ..quant.run_trades import symbol_trades, traded_symbols
+from ..quant.research_runs import (
+    MAX_BACKTESTS,
+    MAX_COMBINATIONS,
+    ResearchInputError,
+    baseline_request,
+    parameter_grid,
+    run_optimization,
+    run_walk_forward,
+    tunable_parameters,
+    walk_forward_range,
+)
+from ..quant import daily_schedule
+from ..quant.compute import cached, computing
+from ..quant.runtime import (
+    BACKEND_ROOT,
+    CONFIG_PATH,
+    DATA_UPDATE_LOCK,
+    RUNTIME_ROOT,
+    _backend_cwd,
+    available_trading_days,
+    build_backtest_service,
+    build_data_center_service,
+    build_factor_evaluator,
+    build_factor_registry,
+    default_universe_settings,
+    local_data_bounds,
+    market_repository,
+    security_names,
+    user_risk_limits,
+    user_universe_symbols,
+)
+from ..quant.rules import (
+    INDICATOR_TO_QUANT as _FRONTEND_INDICATORS,
+    OPERATOR_TO_QUANT as _FRONTEND_OPERATORS,
+    definition_to_frontend,
+    definition_to_quant,
+)
+from ..quant.symbols import to_bare, to_canonical
+from ..routes.agent_lab import _llm_store
+from ..routes.admin import require_admin
+from ..routes.auth import get_current_user
+from quant_platform.agents_bridge.data_credentials import DataCredentialStore
+from quant_platform.application.strategy_studio_service import (
+    StrategyPackage,
+    StrategyStudioService,
+)
+from quant_platform.application.benchmarks import BENCHMARKS
+from quant_platform.application.data_jobs import exclusive
+from quant_platform.application.factor_research_service import research_combination
+from quant_platform.data.index_constituents import INDEX_UNIVERSES, IndexUniverseRepository
+from quant_platform.factors.evaluation import FactorEvaluator
+from quant_platform.core.exceptions import ConfigurationError
+from quant_platform.factors.combine import (
+    CompositeFactor,
+    correlation_matrix,
+    drop_highly_correlated,
+)
+from quant_platform.strategies.nl_builder import NLStrategyBuilder, definition_explanation
+from quant_platform.strategies.rule_schema import (
+    IndicatorSpec,
+    INDICATOR_LABELS,
+    OPERATOR_LABELS,
+    RuleStrategyDefinition,
+)
+from quant_platform.strategies.templates import beginner_templates, get_beginner_template
+from quant_platform.web.factor_fields import field_description
+from quant_platform.web.security_names import xtick_security_names
+from quant_platform.jev import ChoiceRequest, NoulRequest, ScoreRequest
+from quant_platform.weknora import WeKnoraClient
+from trading_agents.llm.mock import MockLLMClient
+
+router = APIRouter(prefix="/api/v1", tags=["workspace"])
+
+# --------------------------------------------------------------------------- #
+# 因子库展示：逻辑分类（迁移自 AlphaQuant web/factor_library.py）
+# --------------------------------------------------------------------------- #
+
+_FACTOR_LOGICAL_CATEGORIES = {
+    "动量": "动量与趋势",
+    "反转": "反转与价格位置",
+    "波动": "波动与风险",
+    "量价": "K线与量价关系",
+    "K线": "K线与量价关系",
+    "估值": "价值与估值",
+    "换手": "成交与流动性",
+    "质量": "盈利与质量",
+    "成长": "成长",
+    "规模": "规模",
+    "技术": "反转与价格位置",
+}
+_FACTOR_CATEGORY_OVERRIDES = {
+    "amount_change_20": "成交与流动性",
+    "volume_ratio_5": "成交与流动性",
+    "high_distance_20": "反转与价格位置",
+    "bias_10": "反转与价格位置",
+    "amplitude_20": "波动与风险",
+}
+
+
+def factor_logical_category(factor: Any) -> str:
+    """按投资逻辑归并因子类别，自定义因子按算子归类。"""
+
+    if factor.source == "自定义":
+        operator = getattr(factor, "operator", "")
+        return {
+            "momentum": "动量与趋势",
+            "bias": "反转与价格位置",
+            "sma": "基础行情特征",
+            "ma_ratio": "动量与趋势",
+            "rolling_std": "波动与风险",
+            "volatility": "波动与风险",
+            "pv_corr": "K线与量价关系",
+        }.get(operator, "未分类")
+    return _FACTOR_CATEGORY_OVERRIDES.get(
+        factor.name, _FACTOR_LOGICAL_CATEGORIES.get(factor.category, factor.category)
+    )
+
+def _stamp() -> str:
+    return _now()
+
+
+# --------------------------------------------------------------------------- #
+# 1. 策略创作中心 / 零代码策略工作台 / 自然语言建策略
+# --------------------------------------------------------------------------- #
+
+_BUILTIN_INDICATORS = {name: INDICATOR_LABELS[quant] for name, (quant, _) in _FRONTEND_INDICATORS.items()}
+_OPERATORS = {name: OPERATOR_LABELS[quant] for name, quant in _FRONTEND_OPERATORS.items()}
+_FREQUENCIES = ["daily", "weekly", "monthly"]
+_DIRECTIONS = ["descending", "ascending"]
+_STYLES = ["conservative", "balanced", "aggressive"]
+
+
+class DefinitionIn(BaseModel):
+    strategy_id: str | None = None
+    name: str = Field("", max_length=80)
+    description: str = ""
+    entry_logic: str = Field("all", description="all / any")
+    entry_rules: list[dict[str, Any]] = []
+    ranking: dict[str, Any] | None = None
+
+
+class PackageIn(BaseModel):
+    definition: DefinitionIn
+    top_n: int = Field(5, ge=1, le=50)
+    rebalance: Literal["daily", "weekly", "monthly"] = "weekly"
+    source: str = Field("visual_builder")
+    style: Literal["conservative", "balanced", "aggressive"] = "balanced"
+
+
+class PackageBacktestIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    from_date: str = Field("", validation_alias=AliasChoices("from_date", "start_date"))
+    to_date: str = Field("", validation_alias=AliasChoices("to_date", "end_date"))
+    initial_cash: float = Field(1_000_000, gt=0, allow_inf_nan=False)
+    top_n: int | None = Field(None, ge=1, le=50)
+    rebalance: Literal["daily", "weekly", "monthly"] | None = None
+    style: Literal["conservative", "balanced", "aggressive"] = "balanced"
+    market: str = Field(CURRENT_POOL, max_length=40)
+
+
+class CopyIn(BaseModel):
+    name: str | None = None
+
+
+def _describe(definition: dict[str, Any], top_n: int, rebalance: str) -> str:
+    freq = {"daily": "每日", "weekly": "每周", "monthly": "每月"}.get(rebalance, rebalance)
+    logic = "同时满足" if definition.get("entry_logic") == "all" else "满足任一"
+    rules = definition.get("entry_rules") or []
+    parts = []
+    for i, rule in enumerate(rules[:6], 1):
+        left = rule.get("left", {})
+        op = _OPERATORS.get(rule.get("operator", ""), rule.get("operator", ""))
+        val = rule.get("value")
+        if val is not None:
+            parts.append(f"条件{i}：{left.get('name', '指标')} {op} {val}")
+        else:
+            right = rule.get("right", {})
+            parts.append(f"条件{i}：{left.get('name', '指标')} {op} {right.get('name', '指标')}")
+    ranking = definition.get("ranking") or {}
+    rank_txt = f"按{ranking.get('indicator', {}).get('name', '指标')}{'从高到低' if ranking.get('direction') == 'descending' else '从低到高'}排序"
+    body = "；".join(parts) if parts else "无附加条件"
+    return f"{freq}调仓，{logic}{body}；{rank_txt}，等权持有前 {top_n} 只，不在条件内的持仓自动卖出。"
+
+
+def _package_row_to_dict(r) -> dict[str, Any]:
+    canonical = json.loads(r["definition"])
+    definition = definition_to_frontend(canonical)
+    try:
+        rule_def = RuleStrategyDefinition.from_mapping(canonical)
+        describe_text = rule_def.describe(top_n=r["top_n"], rebalance=r["rebalance"])
+    except ConfigurationError:
+        describe_text = _describe(definition, r["top_n"], r["rebalance"])
+    return {
+        "package_id": r["package_id"],
+        "name": r["name"],
+        "definition": definition,
+        "top_n": r["top_n"],
+        "rebalance": r["rebalance"],
+        "source": r["source"],
+        "created_at": r["created_at"],
+        "describe_text": describe_text,
+    }
+
+
+@router.get("/packages", summary="策略包列表")
+def list_packages(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM strategy_packages WHERE user_id = ? ORDER BY id DESC", (user["id"],)
+        ).fetchall()
+    return {"items": [_package_row_to_dict(r) for r in rows], "total": len(rows)}
+
+
+@router.post("/packages", status_code=status.HTTP_201_CREATED, summary="保存策略包")
+def create_package(body: PackageIn, user: dict = Depends(get_current_user)):
+    definition = body.definition.model_dump()
+    if not definition.get("name"):
+        definition["name"] = "我的策略"
+    if not definition.get("strategy_id"):
+        definition["strategy_id"] = f"strategy_{random.Random().randint(0, 0xFFFFFFFF):08x}"
+    canonical = definition_to_quant(definition)
+    source = body.source
+    preset = None
+    if source.startswith("template:"):
+        try:
+            preset = get_beginner_template(source.split(":")[1]).presets[body.style]
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        if not definition.get("entry_rules"):
+            # 没有提交规则的旧客户端：按模板原文保存。
+            canonical = preset.definition.to_dict()
+    try:
+        rule_def = RuleStrategyDefinition.from_mapping(canonical)
+    except ConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+    if preset is not None:
+        # 保存的是页面上看到的规则；来源标签如实记录它是否还和模板一致。
+        saved, published = rule_def.to_dict(), preset.definition.to_dict()
+        unchanged = all(saved[key] == published[key] for key in ("entry_logic", "entry_rules", "ranking"))
+        source = f"{'template' if unchanged else 'template_modified'}:{source.split(':')[1]}:{body.style}"
+    package_id = f"{re.sub(r'[^A-Za-z0-9_]', '', rule_def.strategy_id)[:24]}-{random.Random().randint(0, 0xFFFFFFFF):08x}"
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO strategy_packages (user_id, package_id, name, definition, top_n, rebalance, source, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (user["id"], package_id, rule_def.name, json.dumps(rule_def.to_dict(), ensure_ascii=False),
+             body.top_n, body.rebalance, source, _now()),
+        )
+        row = conn.execute(
+            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
+        ).fetchone()
+    return _package_row_to_dict(row)
+
+
+@router.get("/packages/{package_id}", summary="策略包详情")
+def get_package(package_id: str, user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="策略包不存在")
+    return _package_row_to_dict(row)
+
+
+@router.post("/packages/{package_id}/copy", status_code=status.HTTP_201_CREATED, summary="复制策略包")
+def copy_package(package_id: str, body: CopyIn | None = None, user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="策略包不存在")
+        definition = _stored_package(row).definition.to_dict()
+        new_name = (body.name if body and body.name else None) or f"{row['name']}（副本）"
+        definition["name"] = new_name
+        new_id = f"{re.sub(r'[^A-Za-z0-9_]', '', definition.get('strategy_id') or 'strategy')[:20]}-{random.Random().randint(0, 0xFFFFFFFF):08x}"
+        conn.execute(
+            "INSERT INTO strategy_packages (user_id, package_id, name, definition, top_n, rebalance, source, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (user["id"], new_id, new_name, json.dumps(definition, ensure_ascii=False), row["top_n"], row["rebalance"],
+             f"copy:{package_id}", _now()),
+        )
+        new_row = conn.execute(
+            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (new_id, user["id"])
+        ).fetchone()
+    return _package_row_to_dict(new_row)
+
+
+@router.delete("/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除策略包")
+def delete_package(package_id: str, user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
+        )
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="策略包不存在")
+    return None
+
+
+@router.post("/packages/preflight", summary="回测前预检")
+def preflight_package(body: PackageIn, user: dict = Depends(get_current_user)):
+    definition = body.definition.model_dump()
+    if not definition.get("strategy_id"):
+        definition["strategy_id"] = f"strategy_{random.Random().randint(0, 0xFFFFFFFF):08x}"
+    try:
+        package = _package_from_definition(definition, body.top_n, body.rebalance, body.source)
+    except ConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+    available_days = available_trading_days()
+    warnings = list(StrategyStudioService.preflight(package, available_days=available_days))
+    return {"warnings": warnings, "minimum_history_days": package.definition.minimum_history_days,
+            "description": package.definition.describe(top_n=body.top_n, rebalance=body.rebalance)}
+
+
+@router.post("/packages/{package_id}/backtest", status_code=status.HTTP_201_CREATED, summary="运行策略包回测")
+def backtest_package(package_id: str, body: PackageBacktestIn | None = None, user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM strategy_packages WHERE package_id = ? AND user_id = ?", (package_id, user["id"])
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="策略包不存在")
+    body = body or PackageBacktestIn()
+
+    if not local_data_bounds():
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    bounds = local_data_bounds()
+    try:
+        requested_start = date.fromisoformat(body.from_date) if body.from_date else bounds[0]
+        requested_end = date.fromisoformat(body.to_date) if body.to_date else bounds[1]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="日期格式需为 YYYY-MM-DD")
+    start, end = max(requested_start, bounds[0]), min(requested_end, bounds[1])
+    if start >= end:
+        raise HTTPException(status_code=422, detail="开始日期需早于结束日期，且区间须与本地行情有交集。")
+
+    service = build_backtest_service(user)
+    try:
+        use_market(service, body.market)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    studio = StrategyStudioService(service)
+    try:
+        package = _stored_package(row, body.style)
+        package = dc_replace(package, top_n=body.top_n or package.top_n,
+                             rebalance=body.rebalance or package.rebalance)
+    except (ValueError, ConfigurationError) as exc:
+        raise HTTPException(status_code=422, detail=f"策略定义无效：{_sanitize_detail(exc)}")
+
+    base = dc_replace(
+        service.default_request(),
+        start_date=start,
+        end_date=end,
+        initial_cash=body.initial_cash,
+        risk_limits=dc_replace(user_risk_limits(user["id"]), max_positions=package.top_n),
+    )
+    with computing(user):
+        try:
+            run = studio.run(package, base_request=base)
+        except ConfigurationError as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
+        except Exception as exc:  # noqa: BLE001 - 回测引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=_friendly_engine_error(exc))
+
+    result = backtest_run_to_result(run, names=security_names())
+    result["effective_config"] = {
+        "strategy_reference": f"package:{package_id}", "package_id": package_id,
+        "strategy_plugin": "rule_builder", "market": body.market,
+        "strategy_parameters": {"definition_json": package.definition.to_json()},
+        "initial_capital": base.initial_cash, "max_positions": package.top_n,
+        "rebalance": package.rebalance, "from_date": start.isoformat(), "to_date": end.isoformat(),
+    }
+    result = with_run_evidence(result)
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO backtests (user_id, strategy, market, from_date, to_date, status, result, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (user["id"], row["name"], body.market, start.isoformat(), end.isoformat(), "完成",
+             json.dumps(result, ensure_ascii=False), _now()),
+        )
+        bid = cur.lastrowid
+    return {"id": bid, "run_id": result["run_id"], "status": "完成", "summary": result}
+
+
+def _stored_package(row, legacy_style: str = "balanced") -> StrategyPackage:
+    source = str(row["source"] or "")
+    # Legacy template rows stored placeholder rules; resolve their actual preset.
+    if source.startswith("template:") and len(source.split(":")) == 2:
+        preset = get_beginner_template(source.split(":")[1]).presets[legacy_style]
+        definition = preset.definition.to_dict()
+    else:
+        definition = json.loads(row["definition"])
+    return _package_from_definition(definition, row["top_n"], row["rebalance"], source)
+
+
+def _package_from_definition(definition: dict[str, Any], top_n: int, rebalance: str, source: str) -> StrategyPackage:
+    """前端/已存定义 -> 可执行的 StrategyPackage（校验失败抛 ConfigurationError）。"""
+
+    canonical = definition_to_quant(definition)
+    if not canonical["strategy_id"]:
+        canonical["strategy_id"] = f"strategy_{random.Random().randint(0, 0xFFFFFFFF):08x}"
+    rule_def = RuleStrategyDefinition.from_mapping(canonical)
+    package = StrategyPackage(
+        package_id="inline",
+        name=rule_def.name,
+        definition=rule_def,
+        top_n=int(top_n),
+        rebalance=str(rebalance),
+        source=str(source or "visual_builder"),
+        created_at=datetime.now(UTC),
+    )
+    package.validate()
+    return package
+
+
+@router.get("/studio/options", summary="零代码工作台选项与模板目录")
+def studio_options(user: dict = Depends(get_current_user)):
+    templates = []
+    for template in beginner_templates():
+        preset = template.presets.get("balanced") or next(iter(template.presets.values()))
+        templates.append({
+            "template_id": template.template_id,
+            "name": template.name,
+            "summary": template.summary,
+            "suitable_market": template.suitable_market,
+            "main_risk": template.main_risk,
+            "top_n": preset.top_n,
+            "rebalance": preset.rebalance,
+            # 每种风格的实际规则：选模板后直接填进表单，用户能看到也能修改。
+            "presets": {
+                style: {"definition": definition_to_frontend(item.definition.to_dict()),
+                        "top_n": item.top_n, "rebalance": item.rebalance}
+                for style, item in template.presets.items()
+            },
+        })
+    indicator_windows = {}
+    for frontend, (quant, default) in _FRONTEND_INDICATORS.items():
+        if default is None:
+            indicator_windows[frontend] = None
+            continue
+        minimum, maximum = IndicatorSpec(quant, default).window_limits
+        indicator_windows[frontend] = {"default": default, "minimum": minimum, "maximum": maximum}
+    indicators = {
+        frontend: INDICATOR_LABELS[quant]
+        for frontend, (quant, _) in _FRONTEND_INDICATORS.items()
+    }
+    operators = {
+        frontend: OPERATOR_LABELS[quant]
+        for frontend, quant in _FRONTEND_OPERATORS.items()
+    }
+    return {
+        "templates": templates,
+        "indicators": indicators,
+        "indicator_windows": indicator_windows,
+        "operators": operators,
+        "frequencies": _FREQUENCIES,
+        "directions": _DIRECTIONS,
+        "styles": _STYLES,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 2. 自然语言建策略
+# --------------------------------------------------------------------------- #
+
+class NlGenerateIn(BaseModel):
+    description: str = Field(..., min_length=3)
+    top_n: int = Field(5, ge=1, le=50)
+    rebalance: str = "weekly"
+
+
+@router.get("/nl/status", summary="用一句话建策略：用哪个模型、今天还剩几次")
+def nl_status(user: dict = Depends(get_current_user)):
+    model = platform_ai.platform_model()
+    return {"ai": {"available": model is not None, "model": model.label if model else None},
+            "usage": platform_ai.usage(user, "strategy")}
+
+
+@router.post("/nl/generate", summary="一句话生成结构化策略规则（平台模型；没有模型或次数用完时用离线规则识别）")
+def nl_generate(body: NlGenerateIn, user: dict = Depends(get_current_user)):
+    model = platform_ai.platform_model()
+    note = ""
+    try:
+        if model is not None:
+            try:
+                with platform_ai.quota_call(user, "strategy"):
+                    definition = NLStrategyBuilder(platform_ai.model_client(model)).generate(body.description)
+            except platform_ai.QuotaExceeded as exc:
+                model, note = None, f"{exc}这次用离线规则识别，只能识别简单的句子。"
+        if model is None:
+            definition = NLStrategyBuilder(MockLLMClient()).generate(body.description)
+    except ConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - LLM 调用异常统一转 422
+        raise HTTPException(status_code=422, detail=f"生成失败：{_sanitize_detail(exc)}") from exc
+    return {
+        "definition": definition_to_frontend(definition.to_dict()),
+        "explanation": definition_explanation(
+            definition, top_n=body.top_n, rebalance=body.rebalance
+        ),
+        "minimum_history_days": definition.minimum_history_days,
+        "model": model.label if model is not None else None,
+        "note": note,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 4. 因子研究室
+# --------------------------------------------------------------------------- #
+
+
+def _clamped_range(start_str: str, end_str: str) -> tuple[date, date]:
+    """把请求区间收敛到本地数据可用范围（前端默认区间常超出本地数据）。"""
+
+    bounds = local_data_bounds()
+    if bounds is None:
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    local_start, local_end = bounds
+
+    def _parse(value: str, default: date) -> date:
+        try:
+            return date.fromisoformat(str(value or ""))
+        except ValueError:
+            return default
+
+    start = max(_parse(start_str, local_start), local_start)
+    end = min(_parse(end_str, local_end), local_end)
+    if start >= end:
+        raise HTTPException(
+            status_code=422,
+            detail=f"所选区间与本地数据（{local_start} ~ {local_end}）无交集。",
+        )
+    return start, end
+
+
+def _factor_symbols(user: dict) -> list[str] | None:
+    symbols = user_universe_symbols(user["id"])
+    if not symbols:
+        service = build_backtest_service(user)
+        symbols = service.configs.get("universe", {}).get("universe", {}).get("symbols") or []
+    if not symbols:
+        raise HTTPException(status_code=422, detail="请先配置研究股票池")
+    return list(symbols)
+
+
+def _factor_scope(user: dict, universe: str, start: date, end: date) -> tuple[Any, list[str] | None]:
+    """因子研究用的行情和股票：当前股票池，或某个指数在这段时间里当过成分股的全部股票（每天标明是不是成分股）。"""
+
+    if universe == CURRENT_POOL:
+        return market_repository(), _factor_symbols(user)
+    if universe not in INDEX_UNIVERSES:
+        raise HTTPException(status_code=422, detail="不支持这个股票范围，请选择当前股票池或列表里的指数。")
+    try:
+        repository = IndexUniverseRepository(market_repository(), universe, start, end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+    return repository, repository.symbols
+
+
+def _scope_note(universe: str) -> str:
+    if universe == CURRENT_POOL:
+        return "使用当前固定股票池，仍可能有事后选股偏差。"
+    return f"使用{INDEX_UNIVERSES[universe][0]}当时的成分股：每天只用那天在指数里的股票。"
+
+
+# 引擎英文报错 -> 中文提示（避免把 "No daily bars available for backtest" 直接抛给用户）
+_ENGINE_ERROR_MESSAGES = {
+    "No daily bars available for backtest": "本地没有所选区间的日线数据，请先在数据管理中下载行情。",
+    "No trading calendar data in requested range": "所选区间没有交易日历数据，请先在数据管理中下载数据。",
+    "MISSING_CORPORATE_ACTION": "有股票在回测期间发生除权除息但缺少分红明细，请在数据管理中更新公司行为数据。",
+    "INVALID_CORPORATE_ACTION_DATE": "公司行为日期不在交易日历中，请更新交易日历数据。",
+    "MISSING_DELISTING_SETTLEMENT": "有股票退市但缺少退市结算数据，请在数据管理中更新退市信息。",
+    "MISSING_EQUITY": "净值记录缺少账户权益数据。",
+    "MISSING_ADJ_FACTOR": "缺少复权因子数据，请在数据管理中下载复权数据。",
+}
+
+import re as _re
+
+
+def _sanitize_detail(exc: Exception) -> str:
+    """清洗异常信息，去除技术细节，只保留用户可读消息。"""
+    text = str(exc).strip()
+    if not text:
+        return "操作失败，请检查输入或稍后重试"
+    # 去除 Python 异常类名前缀：ValueError: xxx
+    text = _re.sub(r"^[A-Z]\w*(?:Error|Exception|Warning|Interrupt):\s*", "", text)
+    # 去除引擎错误码前缀：MISSING_CORPORATE_ACTION: xxx / INVALID_DATE: xxx
+    text = _re.sub(r"^[A-Z][A-Z_]{2,}:\s*", "", text)
+    # 去除文件路径和行号
+    text = _re.sub(r'File ["\'][^"\']+["\'],\s*line\s*\d+[^)]*', "", text)
+    text = _re.sub(r"[\w./\\-]+\.py:\d+:\s*", "", text)
+    # 去除 traceback 残留
+    if "Traceback" in text:
+        lines = [l.strip() for l in text.split("\n") if l.strip() and not l.startswith("Traceback") and not l.startswith('  File')]
+        text = lines[-1] if lines else ""
+    text = text.strip()
+    if not text or len(text) < 2:
+        return "操作失败，请检查输入或稍后重试"
+    return text
+
+
+def _friendly_engine_error(exc: Exception) -> str:
+    text = str(exc)
+    for english, chinese in _ENGINE_ERROR_MESSAGES.items():
+        if english in text:
+            return chinese
+    return f"回测失败：{_sanitize_detail(exc)}"
+
+
+class FactorEvalIn(BaseModel):
+    factor_name: str
+    start_date: str = ""
+    end_date: str = ""
+    horizon: int = Field(5, ge=1, le=20)
+    n_groups: int = Field(5, ge=5, le=10)
+    # 中性化：去掉因子值里能被行业、市值解释的部分。
+    neutralization: Literal["none", "industry", "size", "both"] = "none"
+    # 股票范围：当前股票池，或某个指数当时的成分股（指数代码）。
+    universe: str = Field(CURRENT_POOL, max_length=40)
+
+
+class FactorCompositeIn(BaseModel):
+    factor_names: list[str]
+    weight_mode: str = "equal"
+    weights: dict[str, float] | None = None
+    winsorize: bool = True
+    zscore: bool = False
+    fill_method: str = "drop"
+    corr_threshold: float = 0.7
+    start_date: str = ""
+    end_date: str = ""
+    train_end: str = ""
+    test_start: str = ""
+    horizon: int = Field(5, ge=1, le=20)
+    n_groups: int = Field(5, ge=5, le=10)
+    universe: str = Field(CURRENT_POOL, max_length=40)
+
+
+class FactorResearchIn(BaseModel):
+    factor_names: list[str]
+    train_start: str = ""
+    train_end: str = ""
+    test_start: str = ""
+    test_end: str = ""
+    weight_mode: str = "equal"  # equal | manual | ic
+    weights: dict[str, float] | None = None
+    clip: bool = True
+    missing: str = "drop"  # drop | median
+    horizon: int = Field(5, ge=1, le=20)
+    n_groups: int = Field(5, ge=5, le=10)
+    universe: str = Field(CURRENT_POOL, max_length=40)
+
+
+class CustomFactorIn(BaseModel):
+    name: str = Field(..., pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    display_name: str = ""
+    description: str = ""
+    field: str
+    operator: str
+    window: int = Field(..., ge=1)
+    window2: int | None = None
+    direction: int = Field(1, ge=-1, le=1)
+
+
+@router.get("/factors", summary="因子库")
+def list_factors(user: dict = Depends(get_current_user)):
+    registry = build_factor_registry(user)
+    factors = [
+        {
+            "name": factor.name,
+            "display_name": factor.display_name or factor.name,
+            "category": factor.category,
+            "logical_category": factor_logical_category(factor),
+            "source": factor.source,
+            "feature_type": factor.feature_type,
+            "description": factor.description,
+            "formula": factor.formula,
+            "required_fields": [
+                {"field": field, "label": field_description(field)[0], "note": field_description(field)[1]}
+                for field in factor.required_fields
+            ],
+            "min_history": int(factor.min_history),
+            "direction": factor.direction,
+            "version": factor.version,
+            "source_url": factor.source_url or "",
+        }
+        for factor in registry.list()
+    ]
+    return {"factors": factors}
+
+
+@router.get("/factors/universes", summary="因子研究可以用的股票范围")
+def factor_universes(user: dict = Depends(get_current_user)):
+    return {"items": market_options()}
+
+
+@router.post("/factors/evaluate", summary="单因子评估")
+def factor_evaluate(body: FactorEvalIn, user: dict = Depends(get_current_user)):
+    registry = build_factor_registry(user)
+    try:
+        factor = registry.get(body.factor_name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"因子不存在：{body.factor_name}")
+    start, end = _clamped_range(body.start_date, body.end_date)
+    repository, symbols = _factor_scope(user, body.universe, start, end)
+
+    def evaluate() -> dict[str, Any]:
+        evaluator = build_factor_evaluator() if body.universe == CURRENT_POOL else FactorEvaluator(repository)
+        try:
+            report = evaluator.evaluate(
+                factor, start, end, symbols=symbols,
+                horizon=body.horizon, n_groups=body.n_groups, neutralization=body.neutralization,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+        return factor_report_to_dict(report)
+
+    # 同样的因子、范围和日期，在同一份数据上算过就直接返回。
+    request = {"body": body.model_dump(), "range": [start, end], "symbols": symbols, "factor": repr(factor)}
+    return cached("factor_evaluate", user, request, market_repository().root, evaluate)
+
+
+@router.post("/factors/composite", summary="多因子合成并评估")
+def factor_composite(body: FactorCompositeIn, user: dict = Depends(get_current_user)):
+    if len(body.factor_names) < 2 or len(set(body.factor_names)) != len(body.factor_names):
+        raise HTTPException(status_code=400, detail="请至少选择两个不同因子")
+    if body.weight_mode not in {"equal", "custom", "ic"}:
+        raise HTTPException(status_code=422, detail="未知权重方式")
+    registry = build_factor_registry(user)
+    try:
+        components = tuple(registry.get(name) for name in body.factor_names)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="因子不存在") from exc
+    start, end = _clamped_range(body.start_date, body.end_date)
+    split = start + timedelta(days=int((end-start).days*0.7))
+    repository, symbols = _factor_scope(user, body.universe, start, end)
+    request = {"body": body.model_dump(), "range": [start, end], "symbols": symbols, "factors": [repr(f) for f in components]}
+    return cached("factor_composite", user, request, market_repository().root,
+                  lambda: _factor_composite(body, components, repository, symbols, start, end, split))
+
+
+def _factor_composite(body: FactorCompositeIn, components: tuple, repository: Any, symbols: list[str] | None,
+                      start: date, end: date, split: date) -> dict[str, Any]:
+    try:
+        train_end = date.fromisoformat(body.train_end) if body.train_end else split
+        test_start = date.fromisoformat(body.test_start) if body.test_start else train_end + timedelta(days=1)
+        if not 0 < body.corr_threshold <= 1:
+            raise ValueError("相关性阈值需在 (0, 1] 内")
+        result = research_combination(
+            repository, components, train_start=start, train_end=train_end,
+            test_start=test_start, test_end=end,
+            mode="manual" if body.weight_mode == "custom" else body.weight_mode,
+            custom_weights=body.weights, clip=body.winsorize, missing=body.fill_method,
+            horizon=body.horizon, n_groups=body.n_groups,
+            symbols=symbols, corr_threshold=body.corr_threshold,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc)) from exc
+    corr = result.correlation.astype(object).where(pd.notna(result.correlation), None).to_dict()
+    return {
+        "correlation_matrix": corr, "dropped_factors": result.dropped,
+        "weights": result.weights, "composite_spec": result.spec,
+        "report": factor_report_to_dict(result.reports["我的组合"]),
+        "evaluation_mode": "out_of_sample", "train_start": start.isoformat(),
+        "train_end": train_end.isoformat(), "test_start": test_start.isoformat(), "test_end": end.isoformat(),
+        "train_signal_end": result.train_signal_end.isoformat(), "purged_sessions": result.purged_sessions,
+        "universe_symbols": symbols,
+        "note": _scope_note(body.universe) + "权重、方向及相关性剔除在训练期冻结；报告只评价测试期。负 IC 不取绝对值。合成前固定按日标准化。",
+    }
+
+
+@router.post("/factors/research", summary="因子组合研究：训练期定权重，测试期比较")
+def factor_research(body: FactorResearchIn, user: dict = Depends(get_current_user)):
+    """迁移自 AlphaQuant factor_research_service：训练/测试集严格隔离的研究流程。"""
+
+    if len(body.factor_names) < 2:
+        raise HTTPException(status_code=400, detail="请至少选择两个因子进行研究")
+    registry = build_factor_registry(user)
+    components = []
+    for name in body.factor_names:
+        try:
+            components.append(registry.get(name))
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"因子不存在：{name}")
+    bounds = local_data_bounds()
+    if bounds is None:
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    local_start, local_end = bounds
+
+    def _parse(value: str, default: str) -> date:
+        try:
+            return date.fromisoformat(str(value or ""))
+        except ValueError:
+            return date.fromisoformat(default)
+
+    # 各边界缺省时自动切分为：前 70% 训练 / 后 30% 测试，并收敛到本地数据范围。
+    train_start = _parse(body.train_start, local_start.isoformat())
+    test_end = _parse(body.test_end, local_end.isoformat())
+    train_end = _parse(body.train_end, str(date.fromordinal(
+        train_start.toordinal() + max(1, int((test_end.toordinal() - train_start.toordinal()) * 0.7))
+    )))
+    test_start = _parse(body.test_start, str(date.fromordinal(train_end.toordinal() + 1)))
+    train_start = max(train_start, local_start)
+    test_end = min(test_end, local_end)
+    repository, symbols = _factor_scope(user, body.universe, train_start, test_end)
+    request = {"body": body.model_dump(), "range": [train_start, train_end, test_start, test_end], "symbols": symbols,
+               "factors": [repr(f) for f in components]}
+    return cached("factor_research", user, request, market_repository().root,
+                  lambda: _factor_research(body, components, repository, symbols, train_start, train_end, test_start, test_end))
+
+
+def _factor_research(body: FactorResearchIn, components: list, repository: Any, symbols: list[str] | None,
+                     train_start: date, train_end: date, test_start: date, test_end: date) -> dict[str, Any]:
+    try:
+        result = research_combination(
+            repository,
+            tuple(components),
+            train_start=train_start,
+            train_end=train_end,
+            test_start=test_start,
+            test_end=test_end,
+            mode=body.weight_mode,
+            custom_weights=body.weights,
+            clip=body.clip,
+            missing=body.missing,
+            horizon=body.horizon,
+            n_groups=body.n_groups,
+            symbols=symbols,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+
+    corr: dict[str, dict[str, float]] = {}
+    if not result.correlation.empty:
+        for name in body.factor_names:
+            corr[name] = {
+                other: _round(result.correlation.loc[name, other], 3)
+                for other in body.factor_names
+                if other in result.correlation.columns
+            }
+    comparison = result.comparison.astype(object).where(pd.notna(result.comparison), None).to_dict(orient="records")
+    for row in comparison:
+        for key, value in list(row.items()):
+            if isinstance(value, float):
+                row[key] = round(value, 4)
+    return {
+        "train_start": train_start.isoformat(),
+        "train_end": train_end.isoformat(),
+        "train_signal_end": result.train_signal_end.isoformat(),
+        "purged_sessions": result.purged_sessions,
+        "test_start": test_start.isoformat(),
+        "test_end": test_end.isoformat(),
+        "weights": {k: round(float(v), 4) for k, v in result.weights.items()},
+        "correlation_matrix": corr,
+        "comparison": comparison,
+        "composite_spec": result.spec,
+        "reports": {label: factor_report_to_dict(report) for label, report in result.reports.items()},
+    }
+
+
+@router.post("/factors/custom", status_code=status.HTTP_201_CREATED, summary="创建自定义因子")
+def factor_custom_create(body: CustomFactorIn, user: dict = Depends(get_current_user)):
+    if body.operator == "ma_ratio" and (not body.window2 or body.window2 <= body.window):
+        raise HTTPException(status_code=422, detail="ma_ratio 算子的第二窗口需大于第一窗口")
+    with get_conn() as conn:
+        exists = conn.execute("SELECT id FROM custom_factors WHERE user_id = ? AND name = ?", (user["id"], body.name)).fetchone()
+        if exists:
+            raise HTTPException(status_code=409, detail="因子标识已存在")
+        conn.execute(
+            "INSERT INTO custom_factors (user_id, name, display_name, description, field, operator, window, window2, direction, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (user["id"], body.name, body.display_name, body.description, body.field, body.operator, body.window,
+             body.window2, body.direction, _now()),
+        )
+    return {"created": body.model_dump()}
+
+
+@router.delete("/factors/custom/{name}", status_code=status.HTTP_204_NO_CONTENT, summary="删除自定义因子")
+def factor_custom_delete(name: str, user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM custom_factors WHERE user_id = ? AND name = ?", (user["id"], name))
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="自定义因子不存在")
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# 5. 智能体分析台 —— 已迁移到 app/routes/agent_lab.py（真实 LLM 多智能体流水线）
+# --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# 6. 参数优化与稳健性验证 / 回测记录库
+# --------------------------------------------------------------------------- #
+
+_OBJECTIVES = {"sharpe": "夏普比率", "annual_return": "年化收益", "calmar": "卡玛比率", "max_drawdown": "最大回撤"}
+
+
+@router.get("/research/baselines", summary="可作为实验基线的成功回测及其可调参数")
+def research_baselines(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, strategy, market, from_date, to_date, status, result, created_at FROM backtests WHERE user_id = ? AND status = '完成' ORDER BY id DESC LIMIT 50",
+            (user["id"],),
+        ).fetchall()
+    service = build_backtest_service(user)
+    items = []
+    for r in rows:
+        result = json.loads(r["result"]) if r["result"] else {}
+        # 没有保存运行明细的旧记录无法重建配置，不能作为基准。
+        if run_directory(result) is None:
+            continue
+        config = result.get("effective_config") or {}
+        try:
+            metadata = service.catalog.get_metadata(str(config.get("strategy_plugin")))
+            parameters = tunable_parameters(metadata, config.get("strategy_parameters") or {},
+                                            top_n=config.get("max_positions"), rebalance=config.get("rebalance"))
+        except Exception:  # noqa: BLE001 - 策略已删除或无法加载时仍列出记录，只是没有可调参数
+            parameters = []
+        items.append({"run_id": f"run-{r['id']}", "strategy": r["strategy"], "market": r["market"],
+                      "from_date": r["from_date"], "to_date": r["to_date"], "created_at": r["created_at"],
+                      "display_label": f"{r['strategy']}｜{r['from_date']}~{r['to_date']}", "parameters": parameters})
+    return {"items": items, "max_combinations": MAX_COMBINATIONS, "max_backtests": MAX_BACKTESTS}
+
+
+def _research_baseline(run_ref: str, user: dict):
+    """基准记录 -> (回测服务, 与基准一致的请求, 策略元数据, 引擎运行编号)。"""
+
+    _, result = _audit_run_row(run_ref, user)
+    directory = run_directory(result)
+    if directory is None:
+        raise HTTPException(status_code=422, detail="这条回测记录没有保存运行明细，不能作为基准。")
+    service = build_backtest_service(user)
+    try:
+        base, metadata = baseline_request(service, directory.name)
+    except ResearchInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return service, base, metadata, directory.name
+
+
+class OptimizeIn(BaseModel):
+    baseline_run_id: str = ""
+    parameter_grid: dict[str, list[Any]] = {}
+    objective: str = "sharpe"
+    max_drawdown_limit: float = 0.30
+
+
+@router.post("/research/optimize", summary="参数优化：每组候选参数运行一次真实回测")
+def research_optimize(body: OptimizeIn, user: dict = Depends(get_current_user)):
+    service, base, metadata, engine_run_id = _research_baseline(body.baseline_run_id, user)
+    with computing(user):
+        try:
+            grid = parameter_grid(metadata, body.parameter_grid)
+            return run_optimization(service, base, grid, objective=body.objective,
+                                    max_drawdown_limit=body.max_drawdown_limit, baseline_run_id=engine_run_id)
+        except ResearchInputError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=f"参数优化失败：{_sanitize_detail(exc)}")
+
+
+class WalkForwardIn(BaseModel):
+    baseline_run_id: str = ""
+    parameter_grid: dict[str, list[Any]] = {}
+    objective: str = "sharpe"
+    training_months: int = Field(12, ge=3, le=60)
+    test_months: int = Field(3, ge=1, le=24)
+    step_months: int = Field(3, ge=1, le=24)
+    max_windows: int = Field(8, ge=1, le=24)
+
+
+@router.post("/research/walk-forward", summary="滚动样本外验证：训练期选参数，后续测试期运行真实回测")
+def research_walk_forward(body: WalkForwardIn, user: dict = Depends(get_current_user)):
+    if body.step_months < body.test_months:
+        raise HTTPException(status_code=400, detail="滚动步长不能小于测试月数")
+    bounds = local_data_bounds()
+    if bounds is None:
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    service, base, metadata, engine_run_id = _research_baseline(body.baseline_run_id, user)
+    # 基准回测的区间通常不够长；滚动验证改用本地最近的一段行情，其余配置与基准一致。
+    start, end = walk_forward_range(bounds, training_months=body.training_months, test_months=body.test_months,
+                                    step_months=body.step_months, max_windows=body.max_windows)
+    with computing(user):
+        try:
+            grid = parameter_grid(metadata, body.parameter_grid)
+            return run_walk_forward(service, dc_replace(base, start_date=start, end_date=end), grid,
+                                    objective=body.objective, training_months=body.training_months,
+                                    test_months=body.test_months, step_months=body.step_months,
+                                    max_windows=body.max_windows, baseline_run_id=engine_run_id)
+        except ResearchInputError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 - 引擎内部错误统一转 422
+            raise HTTPException(status_code=422, detail=f"滚动验证失败：{_sanitize_detail(exc)}")
+
+
+@router.get("/runs", summary="回测记录库列表")
+def run_library(user: dict = Depends(get_current_user), strategy: str = "", run_kind: str = "", status: str = "", keyword: str = ""):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, strategy, market, from_date, to_date, status, result, created_at FROM backtests WHERE user_id = ? ORDER BY id DESC",
+            (user["id"],),
+        ).fetchall()
+    items = []
+    for r in rows:
+        res = with_run_evidence(json.loads(r["result"]) if r["result"] else {})
+        label = f"{r['strategy']}｜{r['from_date']}~{r['to_date']}｜{r['created_at'][:10]}"
+        if keyword and keyword.lower() not in label.lower():
+            continue
+        kind = res.get("run_kind", "unknown")
+        state = "SUCCESS" if r["status"] == "完成" else r["status"]
+        if (strategy and strategy != r["strategy"]) or (run_kind and run_kind != kind) or (status and status != state):
+            continue
+        items.append({"run_id": f"run-{r['id']}", "backtest_id": r["id"],
+                      "strategy_reference": (res.get("effective_config") or {}).get("strategy_reference")
+                          or (res.get("effective_config") or {}).get("strategy_plugin"),
+                      "run_label": label, "run_kind": kind, "status": state,
+                      **{k: res[k] for k in ("validity_status", "metrics_reliable", "legacy_unverified", "validity_issues")},
+                      "grade": _cached_grade(int(r["id"]), res),
+                      "strategy": r["strategy"], "start_date": r["from_date"], "end_date": r["to_date"],
+                      "updated_at": r["created_at"], "cumulative_return": res.get("total_return"), "max_drawdown": res.get("max_drawdown"),
+                      "sharpe": res.get("sharpe"), "sortino": res.get("sortino"), "calmar": res.get("calmar")})
+    total = len(items)
+    return {"items": items, "total": total,
+            "stats": {"all": total, "success": sum(i["status"] == "SUCCESS" for i in items),
+                      "failed": sum(i["status"] in {"FAILED", "失败"} for i in items),
+                      "legacy_unverified": sum(i["legacy_unverified"] for i in items),
+                      "experiment": sum(i["run_kind"] not in {"single", "unknown"} for i in items)}}
+
+
+@router.post("/runs/compare", summary="对比 2~5 次回测")
+def run_compare(body: dict[str, Any], user: dict = Depends(get_current_user)):
+    run_ids = body.get("run_ids", [])
+    if not isinstance(run_ids, list) or not 2 <= len(run_ids) <= 5 or any(not isinstance(r, str) for r in run_ids):
+        raise HTTPException(status_code=400, detail="请选择 2~5 次回测进行对比")
+    if len(set(run_ids)) != len(run_ids):
+        raise HTTPException(status_code=400, detail="不能重复选择同一回测")
+    records = [(rid, *_audit_run_row(rid, user)) for rid in run_ids]
+    return compare_persisted_runs(records)
+
+
+# --------------------------------------------------------------------------- #
+# 6.5 可信度审计（迁移自 AlphaQuant audit_report.py + credibility.py）
+# --------------------------------------------------------------------------- #
+
+
+def _audit_run_row(run_ref: str, user: dict):
+    """run-<id> -> 该用户的一条回测记录（含引擎持久化目录）。"""
+
+    prefix, _, raw_id = str(run_ref).rpartition("-")
+    if prefix != "run" or not raw_id.isdigit():
+        raise HTTPException(status_code=400, detail="回测记录编号无效")
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, strategy, from_date, to_date, status, result, created_at FROM backtests WHERE id = ? AND user_id = ?",
+            (int(raw_id), user["id"]),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="回测记录不存在")
+    result = with_run_evidence(json.loads(row["result"]) if row["result"] else {})
+    return row, result
+
+
+@router.get("/runs/audit", summary="可审计的回测记录列表")
+def audit_run_list(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, strategy, from_date, to_date, status, result, created_at FROM backtests WHERE user_id = ? ORDER BY id DESC",
+            (user["id"],),
+        ).fetchall()
+    items = []
+    for r in rows:
+        result = with_run_evidence(json.loads(r["result"]) if r["result"] else {})
+        if not result.get("output_dir"):
+            continue
+        items.append({
+            "run_id": f"run-{r['id']}",
+            "run_label": f"{r['strategy']}｜{r['from_date']}~{r['to_date']}｜{r['created_at'][:10]}",
+            "status": r["status"],
+            "metrics_reliable": result["metrics_reliable"],
+            "validity_status": result["validity_status"],
+            "legacy_unverified": result["legacy_unverified"],
+            "grade": _cached_grade(int(r["id"]), result),
+        })
+    return {"items": items}
+
+
+# 运行一旦完成即不可变，评级按记录编号缓存；失败返回 None 由前端显示"待检查"。
+_GRADE_CACHE: dict[int, str | None] = {}
+
+
+def _cached_grade(db_id: int, result: dict) -> str | None:
+    if result.get("legacy_unverified") or not result.get("metrics_reliable"):
+        return "D"
+    if db_id in _GRADE_CACHE:
+        cached = _GRADE_CACHE[db_id]
+        return "B" if cached == "A" and result.get("validity_status") == "WARNING" else cached
+    output_dir = run_directory(result)
+    if output_dir is None:
+        raise HTTPException(status_code=404, detail="该记录没有可验证的运行明细")
+    grade = None
+    if (output_dir / "summary.json").exists():
+        try:
+            from quant_platform.backtest.credibility import audit_persisted_run
+
+            grade = audit_persisted_run(output_dir).grade
+        except Exception:  # noqa: BLE001 - 单条失败不拖垮整个列表
+            grade = None
+    if result.get("validity_status") == "WARNING" and grade == "A":
+        grade = "B"
+    _GRADE_CACHE[db_id] = grade
+    return grade
+
+
+def _run_trade_directory(run_ref: str, user: dict):
+    row, result = _audit_run_row(run_ref, user)
+    directory = run_directory(result)
+    if directory is None or not (directory / "fills.parquet").exists():
+        raise HTTPException(status_code=404, detail="该记录没有保存成交明细，无法在K线上显示")
+    return row, directory
+
+
+@router.get("/runs/{run_ref}/trades", summary="一次回测交易过的股票及成交次数")
+def run_traded_symbols(run_ref: str, user: dict = Depends(get_current_user)):
+    row, directory = _run_trade_directory(run_ref, user)
+    return {"run_id": run_ref, "run_label": f"{row['strategy']}｜{row['from_date']}~{row['to_date']}",
+            "start_date": row["from_date"], "end_date": row["to_date"],
+            "symbols": traded_symbols(directory, _local_market_catalog().names)}
+
+
+@router.get("/runs/{run_ref}/trades/{symbol}", summary="一次回测在单只股票上的成交、未成交订单与持仓区间")
+def run_symbol_trades(run_ref: str, symbol: str, user: dict = Depends(get_current_user)):
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="请提供有效的六位股票代码")
+    _, directory = _run_trade_directory(run_ref, user)
+    return symbol_trades(directory, symbol)
+
+
+@router.get("/runs/{run_ref}/audit", summary="回测可信度审计：六维评级与证据链")
+def run_audit(run_ref: str, user: dict = Depends(get_current_user)):
+    from quant_platform.backtest.credibility import audit_persisted_run
+    from quant_platform.backtest.multiple_testing import SCOPE_NOTE
+    from quant_platform.backtest.validity import load_persisted_validity
+
+    row, result = _audit_run_row(run_ref, user)
+    output_dir = run_directory(result)
+    if output_dir is None:
+        raise HTTPException(status_code=404, detail="该记录没有可验证的运行明细")
+    if not (output_dir / "summary.json").exists():
+        raise HTTPException(status_code=404, detail="该记录的运行明细已不存在，无法审计")
+    try:
+        report = audit_persisted_run(output_dir)
+        validity = load_persisted_validity(output_dir)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"读取运行记录失败：{_sanitize_detail(exc)}")
+
+    dimensions = [
+        {
+            "key": d.key,
+            "title": d.title,
+            "status": d.status,
+            "findings": [{"severity": f.severity, "message": f.message} for f in d.findings],
+        }
+        for d in report.dimensions
+    ]
+    # 审计假设表：从运行配置快照提取执行参数（迁移自 AlphaQuant audit_report）。
+    assumptions = {}
+    try:
+        import yaml
+
+        snapshot = yaml.safe_load((output_dir / "config.snapshot.yaml").read_text(encoding="utf-8")) or {}
+        execution = snapshot.get("execution") or {}
+        if isinstance(execution, dict) and isinstance(execution.get("execution"), dict):
+            execution = execution["execution"]
+        if isinstance(execution, dict):
+            assumptions = {
+                "historical_fees": execution.get("historical_fees"),
+                "max_participation": execution.get("max_participation"),
+                "slippage_rate": execution.get("slippage_rate"),
+                "unknown_status_policy": execution.get("unknown_status_policy"),
+            }
+    except Exception:  # noqa: BLE001 - 快照缺失不影响评级本身
+        pass
+    selection = report.selection_bias
+    selection_bias = {
+        "status": selection.status,
+        "message": selection.message,
+        "optimization_id": selection.optimization_id,
+        "objective": selection.objective,
+        "trial_count": selection.trial_count,
+        "valid_trials": selection.valid_trials,
+        "effective_trials": selection.effective_trials,
+        "average_correlation": selection.average_correlation,
+        "best_median_gap": selection.best_median_gap,
+        "dsr": selection.dsr,
+        "psr": selection.psr,
+        "benchmark_sharpe": selection.benchmark_sharpe,
+        "observed_sharpe": selection.observed_sharpe,
+        "observations": selection.observations,
+        "evidence": [dict(row) for row in selection.evidence],
+        "scope_note": SCOPE_NOTE,
+    }
+    return {
+        "run_id": f"run-{row['id']}",
+        "run_label": f"{row['strategy']}｜{row['from_date']}~{row['to_date']}｜{row['created_at'][:10]}",
+        "grade": "D" if not result["metrics_reliable"] else ("B" if result["validity_status"] == "WARNING" and report.grade == "A" else report.grade),
+        "headline": ("存在需要复核的有效性警告。" if result["validity_status"] == "WARNING" and report.grade == "A" else report.headline) if result["metrics_reliable"] else "有效性证据不足或存在错误，绩效指标不可用于策略评价。",
+        "dimensions": dimensions,
+        "validity_status": result["validity_status"],
+        "metrics_reliable": result["metrics_reliable"],
+        "legacy_unverified": result["legacy_unverified"],
+        "observations": report.observations,
+        "maximum_calendar_gap_days": report.maximum_calendar_gap_days,
+        "total_transaction_cost": report.total_transaction_cost,
+        "transaction_cost_ratio": report.transaction_cost_ratio,
+        "issues": [i for i in validity.get("issues", []) if isinstance(i, dict)],
+        "assumptions": assumptions,
+        "selection_bias": selection_bias,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 6.6 外部成交核查（迁移自 AlphaQuant forensics + external_audit）
+# --------------------------------------------------------------------------- #
+
+FORENSICS_TEMPLATE = (
+    "日期,股票代码,买卖方向,数量（股）,成交价（未复权）\n2024-03-01,000001.SZ,买入,1000,10.50\n"
+)
+
+
+class ForensicsPreviewRequest(BaseModel):
+    content: str = Field(..., description="粘贴的成交记录文本（CSV 或 Tab 分隔）")
+
+
+class ForensicsCheckRequest(BaseModel):
+    content: str = Field(..., description="粘贴的成交记录文本")
+    mapping: dict[str, str] = Field(..., description="字段→列名映射")
+    unit: str = Field(..., description="数量单位：股 或 手")
+    basis: str = Field(..., description="价格口径：未复权 或 复权或不确定")
+
+
+@router.get("/forensics/template", summary="下载成交记录模板")
+def forensics_template():
+    from fastapi.responses import Response
+
+    return Response(
+        content=FORENSICS_TEMPLATE.encode("utf-8-sig"),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=成交记录模板.csv"},
+    )
+
+
+@router.post("/forensics/preview", summary="解析成交记录并返回列识别结果")
+def forensics_preview(req: ForensicsPreviewRequest, user: dict = Depends(get_current_user)):
+    from quant_platform.forensics.parsing import LABELS, detect_columns, header, read_material
+
+    try:
+        frame = read_material(req.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+    mapping = detect_columns(frame)
+    preview = frame.head(10).fillna("").to_dict(orient="records")
+    # 转为 list 以便 JSON 序列化（index 为行号）
+    row_numbers = frame.head(10).index.tolist()
+    for rec, num in zip(preview, row_numbers):
+        rec["__row__"] = num
+    missing = [field for field in LABELS if field not in mapping]
+    # 推断单位和价格口径
+    quantity_header = header(mapping["quantity"]) if "quantity" in mapping else ""
+    inferred_unit = "股" if "股" in quantity_header else ("手" if "手" in quantity_header else None)
+    price_header = header(mapping["price"]) if "price" in mapping else ""
+    inferred_raw = "未复权" in price_header
+    return {
+        "total": len(frame),
+        "columns": frame.columns.tolist(),
+        "preview": preview,
+        "mapping": mapping,
+        "missing": missing,
+        "inferred_unit": inferred_unit,
+        "inferred_raw": inferred_raw,
+        "labels": LABELS,
+    }
+
+
+@router.post("/forensics/check", summary="核查外部成交记录")
+def forensics_check(req: ForensicsCheckRequest, user: dict = Depends(get_current_user)):
+    from quant_platform.forensics.checks import ORDER, check_trades, load_evidence, verdict
+    from quant_platform.forensics.parsing import parse_trades, read_material
+
+    try:
+        frame = read_material(req.content)
+        parsed = parse_trades(frame, req.mapping, req.unit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+
+    if not parsed.errors.empty:
+        return {
+            "status": "errors",
+            "errors": parsed.errors.to_dict(orient="records"),
+            "verdict": None,
+            "findings": [],
+            "counts": {},
+            "covered": 0,
+            "total": len(parsed.trades),
+        }
+
+    # 重复记录检测
+    duplicates = []
+    if parsed.trades.duplicated(["date", "symbol", "side", "quantity", "price"]).any():
+        duplicates = parsed.trades[parsed.trades.duplicated(["date", "symbol", "side", "quantity", "price"], keep=False)].index.tolist()
+
+    with computing(user):
+        try:
+            from quant_platform.core.config import load_app_config
+
+            config = load_app_config(str(CONFIG_PATH))
+            root = Path(str(config["data"]["repository"])).resolve()
+            if not root.exists():
+                raise FileNotFoundError(f"数据目录不存在：{root}")
+            master, bars = load_evidence(root, parsed.trades)
+            findings = check_trades(parsed.trades, master, bars, req.basis == "未复权")
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"本地数据暂时无法读取，请检查数据目录是否已初始化")
+
+    finding_records = findings.to_dict(orient="records")
+    counts = {label: int((findings["结论"] == label).sum()) for label in ORDER}
+    covered = len(parsed.trades) - findings[findings["结论"].eq("证据不足")]["表格行"].nunique()
+    return {
+        "status": "ok",
+        "verdict": verdict(findings),
+        "findings": finding_records,
+        "counts": counts,
+        "covered": covered,
+        "total": len(parsed.trades),
+        "duplicates": duplicates,
+        "order": ORDER,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 7. 数据管理
+# --------------------------------------------------------------------------- #
+
+@router.get("/data-center/overview", summary="数据中心概览")
+def data_overview(user: dict = Depends(get_current_user)):
+    service = build_data_center_service(user)
+    overview = service.overview()
+    market = overview.market.to_dict()
+    last_source = ""
+    if not overview.manifests.empty:
+        daily = overview.manifests[
+            overview.manifests["dataset"].eq("daily_bars")
+            & overview.manifests["status"].eq("SUCCESS")
+        ]
+        if not daily.empty:
+            last_source = str(daily.iloc[0]["source"])
+    per_symbol: list[dict[str, Any]] = []
+    if not overview.per_symbol.empty:
+        for _, row in overview.per_symbol.iterrows():
+            start = row["start_date"]
+            end = row["end_date"]
+            per_symbol.append({
+                "symbol": to_bare(str(row["symbol"])),
+                "coverage": round(float(row["coverage_ratio"] or 0.0), 4),
+                "start_date": start.isoformat() if start is not None else None,
+                "end_date": end.isoformat() if end is not None else None,
+                "rows": int(row["rows"] or 0),
+            })
+    # 数据源就绪状态：按行情路由的顺序，第一个是首选来源（BaoStock），迁移自 AlphaQuant 1_data_management。
+    providers: list[dict[str, Any]] = []
+    status_frame = service.market_source_status()
+    if not status_frame.empty:
+        for _, row in status_frame.iterrows():
+            providers.append({
+                "provider": str(row["provider"]),
+                "display_name": str(row["display_name"]),
+                "role": str(row["role"]),
+                "readiness": str(row["readiness"]),
+                "detail": str(row["detail"]),
+            })
+    return {
+        "security_count": overview.security_count,
+        "configured_symbol_count": overview.configured_symbol_count,
+        "coverage_ratio": round(float(market["coverage_ratio"]), 4),
+        "market_rows": int(market["rows"]),
+        "unknown_status_rows": int(market["unknown_status_rows"]),
+        "last_market_source": last_source,
+        "benchmark_symbol": overview.benchmark_symbol,
+        "benchmark_name": service.benchmark_name,
+        "benchmarks": dict(BENCHMARKS),
+        "providers": providers,
+        "per_symbol": per_symbol,
+    }
+
+
+def _local_market_catalog() -> LocalMarketCatalog:
+    try:
+        return LocalMarketCatalog(market_repository().root)
+    except Exception:
+        raise HTTPException(status_code=503, detail="本地行情正在更新或暂时无法读取，请稍后刷新列表")
+
+
+@router.get("/data-center/market", summary="分页查询本地股票行情")
+def local_market_list(q: str = Query("", max_length=80), scope: str = Query("all", pattern="^(all|universe)$"),
+                      page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+                      user: dict = Depends(get_current_user)):
+    return _local_market_catalog().page(
+        _load_universe_symbols(user["id"]), scope=scope, q=q, page=page, page_size=page_size)
+
+
+@router.get("/data-center/market/{symbol}", summary="单只股票行情完整性与缺失区间")
+def local_market_detail(symbol: str, user: dict = Depends(get_current_user)):
+    try:
+        return _local_market_catalog().detail(symbol, _load_universe_symbols(user["id"]))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="本地没有该股票的行情，且该股票不在当前股票池")
+
+
+@router.get("/data-center/market/{symbol}/bars", summary="单只股票日K线（前复权或不复权）")
+def local_market_bars(symbol: str, adjust: str = Query("forward", pattern="^(forward|none)$"),
+                      user: dict = Depends(get_current_user)):
+    try:
+        return _local_market_catalog().kline(symbol, adjust=adjust)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="本地没有该股票的行情，请先更新行情")
+
+
+# 画线工具 -> 需要的点数。名称与前端图表库的图形名称一致。
+DRAWING_TOOLS = {"segment": 2, "rayLine": 2, "horizontalStraightLine": 1, "fibonacciLine": 2}
+MAX_DRAWINGS = 50
+
+
+class DrawingPoint(BaseModel):
+    date: date
+    # 不复权价格：换复权方式、以后再有分红，线仍然落在同一根 K 线的同一个位置。
+    price: float = Field(gt=0, allow_inf_nan=False)
+
+
+class Drawing(BaseModel):
+    name: str
+    points: list[DrawingPoint]
+
+    @model_validator(mode="after")
+    def _known_tool_with_all_points(self):
+        if self.name not in DRAWING_TOOLS:
+            raise ValueError("不支持的画线类型")
+        if len(self.points) != DRAWING_TOOLS[self.name]:
+            raise ValueError("画线的点数不对")
+        return self
+
+
+class DrawingsIn(BaseModel):
+    drawings: list[Drawing] = Field(max_length=MAX_DRAWINGS)
+
+
+def _drawing_symbol(symbol: str) -> str:
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="股票代码格式不正确")
+    return to_bare(symbol)
+
+
+@router.get("/data-center/market/{symbol}/drawings", summary="当前用户在这只股票 K 线上画的线")
+def chart_drawings(symbol: str, user: dict = Depends(get_current_user)):
+    code = _drawing_symbol(symbol)
+    with get_conn() as conn:
+        row = conn.execute("SELECT drawings FROM chart_drawings WHERE user_id = ? AND symbol = ?",
+                           (user["id"], code)).fetchone()
+    return {"symbol": code, "drawings": json.loads(row["drawings"]) if row else [], "max_drawings": MAX_DRAWINGS}
+
+
+@router.put("/data-center/market/{symbol}/drawings", summary="保存这只股票上的全部画线（整体替换）")
+def save_chart_drawings(symbol: str, body: DrawingsIn, user: dict = Depends(get_current_user)):
+    code = _drawing_symbol(symbol)
+    drawings = [item.model_dump(mode="json") for item in body.drawings]
+    with get_conn() as conn:
+        if drawings:
+            conn.execute(
+                "INSERT INTO chart_drawings (user_id, symbol, drawings, updated_at) VALUES (?,?,?,?) "
+                "ON CONFLICT(user_id, symbol) DO UPDATE SET drawings = excluded.drawings, updated_at = excluded.updated_at",
+                (user["id"], code, json.dumps(drawings), _now()))
+        else:
+            conn.execute("DELETE FROM chart_drawings WHERE user_id = ? AND symbol = ?", (user["id"], code))
+    return {"symbol": code, "drawings": drawings, "max_drawings": MAX_DRAWINGS}
+
+
+class SingleStockUpdateIn(BaseModel):
+    start_date: date
+    end_date: date
+
+
+@router.post("/data-center/market/{symbol}/update", summary="更新单只股票行情，不改变股票池")
+def local_market_update(symbol: str, body: SingleStockUpdateIn, user: dict = Depends(require_admin)):
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+        raise HTTPException(status_code=422, detail="请提供有效的六位股票代码")
+    if body.start_date > body.end_date or body.end_date > date.today():
+        raise HTTPException(status_code=422, detail="请检查起止日期，结束日期不能晚于今天")
+    service = build_data_center_service(user)
+    try:
+        # 文件锁：和每天的自动更新、后台任务互斥，不会同时写同一份行情。
+        with DATA_UPDATE_LOCK, exclusive(market_repository().root / ".update.lock"), _backend_cwd():
+            result = service.update_market_data(body.start_date, body.end_date, symbols=[to_canonical(symbol)])
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_sanitize_detail(exc))
+    return {"status": result.status, "message": result.message, "rows": result.rows,
+            "version_id": result.version_id, "symbol": to_bare(symbol)}
+
+
+@router.post("/data-center/update", summary="运行数据更新")
+def data_update(body: dict[str, Any], user: dict = Depends(require_admin)):
+    try:
+        start = date.fromisoformat(str(body.get("start_date") or ""))
+    except ValueError:
+        start = date.today() - timedelta(days=365)
+    try:
+        end = date.fromisoformat(str(body.get("end_date") or ""))
+    except ValueError:
+        end = date.today()
+    service = build_data_center_service(user)
+    # 基准指数多选：允许按名称或代码指定（迁移自 AlphaQuant）。
+    benchmark_symbols: list[str] | None = None
+    raw_benchmarks = body.get("benchmark_symbols")
+    if isinstance(raw_benchmarks, list) and raw_benchmarks:
+        benchmark_symbols = [
+            BENCHMARKS.get(str(item), to_canonical(str(item))) for item in raw_benchmarks
+        ]
+    # 指定行情来源顺序与是否允许回退（迁移自 AlphaQuant）。
+    market_source_order: list[str] | None = None
+    raw_order = body.get("market_source_order")
+    if isinstance(raw_order, list) and raw_order:
+        market_source_order = [str(item) for item in raw_order]
+    allow_fallback = body.get("allow_market_fallback")
+    # 下载为长任务：全局串行执行，且临时切到 backend CWD 以兼容数据源相对路径。
+    with DATA_UPDATE_LOCK, _backend_cwd():
+        results = service.update_all(
+            start,
+            end,
+            include_security_master=bool(body.get("include_security_master", True)),
+            include_market=bool(body.get("include_market", True)),
+            include_benchmark=bool(body.get("include_benchmark", True)),
+            market_source_order=market_source_order,
+            allow_market_fallback=None if allow_fallback is None else bool(allow_fallback),
+            benchmark_symbols=benchmark_symbols,
+        )
+    payload: list[dict[str, Any]] = []
+    for result in results:
+        payload.append({
+            "dataset": result.dataset,
+            "version_id": result.version_id,
+            "status": result.status,
+            "rows": result.rows,
+            "message": result.message,
+            "error": result.error or "",
+            "symbol": getattr(result, "symbol", None) or "",
+        })
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO data_manifests (user_id, dataset, source, status, rows, message, completed_at) VALUES (?,?,?,?,?,?,?)",
+                (user["id"], result.dataset, "auto", result.status, result.rows, result.message, _now()),
+            )
+    return {"results": payload}
+
+
+# --------------------------------------------------------------------------- #
+# 7.5 全市场数据任务面板（迁移自 AlphaQuant data_job_panel.py + data_jobs.py）
+# --------------------------------------------------------------------------- #
+
+
+def _data_jobs() -> "DataJobs":
+    from quant_platform.application.data_jobs import DataJobs
+
+    return DataJobs(RUNTIME_ROOT / "data_jobs", CONFIG_PATH, cwd=BACKEND_ROOT)
+
+
+_DATA_JOB_STATUS_LABELS = {
+    "STARTING": "启动中",
+    "RUNNING": "运行中",
+    "RETRYING": "等待重试",
+    "SUCCESS": "完成",
+    "PARTIAL": "部分失败",
+    "FAILED": "失败",
+    "STOPPED": "已停止",
+    "INTERRUPTED": "意外中断",
+}
+
+
+@router.get("/data-center/jobs", summary="全市场回填任务列表与进度")
+def data_jobs_list(user: dict = Depends(require_admin)):
+    records = _data_jobs().records()
+    for record in records:
+        record["status_label"] = _DATA_JOB_STATUS_LABELS.get(record.get("status", ""), record.get("status", ""))
+    return {"records": records}
+
+
+@router.post("/data-center/jobs/start", status_code=status.HTTP_201_CREATED, summary="启动全市场回填任务")
+def data_jobs_start(body: dict[str, Any], user: dict = Depends(require_admin)):
+    try:
+        start = date.fromisoformat(str(body.get("start_date") or ""))
+        end = date.fromisoformat(str(body.get("end_date") or ""))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="请提供有效的开始/结束日期")
+    datasets = body.get("datasets") or ["bars", "actions", "derived"]
+    # scope=universe：财务数据只下载这个用户股票池里的股票（全市场要十几个小时）。
+    symbols = [to_canonical(str(code)) for code in _load_universe_symbols(user["id"])] if body.get("scope") == "universe" else None
+    if body.get("scope") == "universe" and not symbols:
+        raise HTTPException(status_code=409, detail="股票池是空的，请先在股票池管理里添加股票")
+    try:
+        job = _data_jobs().start(start, end, datasets, symbols=symbols)
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
+    job["status_label"] = _DATA_JOB_STATUS_LABELS.get(job.get("status", ""), job.get("status", ""))
+    return job
+
+
+@router.post("/data-center/jobs/{job_id}/stop", summary="停止全市场回填任务")
+def data_jobs_stop(job_id: str, user: dict = Depends(require_admin)):
+    try:
+        _data_jobs().stop(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=_sanitize_detail(exc))
+    return {"stopped": job_id}
+
+
+@router.get("/data-center/jobs/{job_id}/log", summary="全市场回填任务日志（最近 32KB，已脱敏）")
+def data_jobs_log(job_id: str, user: dict = Depends(require_admin)):
+    from quant_platform.core.diagnostics import redact_text
+
+    return {"log": redact_text(_data_jobs().log(job_id))}
+
+
+@router.get("/data-center/daily-update", summary="每天自动更新的状态（所有用户可看）")
+def daily_update_status(user: dict = Depends(get_current_user)):
+    payload = daily_schedule.status(_data_jobs().records())
+    repository = market_repository()
+    summary = repository.daily_bar_summary()
+    coverage = {"latest_date": None, "stocks_on_latest": 0, "listed": 0}
+    if not summary.empty:
+        latest = summary["end"].max()
+        coverage = {"latest_date": latest.date().isoformat(), "stocks_on_latest": int((summary["end"] == latest).sum())}
+        master = repository.read_table("security_master")
+        if not master.empty and "delist_date" in master.columns:
+            coverage["listed"] = int(master["delist_date"].isna().sum())
+    payload["data"] = coverage
+    if not user.get("is_admin"):
+        payload.pop("job_id", None)
+    return payload
+
+
+@router.post("/data-center/daily-update/run", status_code=status.HTTP_201_CREATED, summary="现在就运行今天的每日更新（管理员）")
+def daily_update_run(user: dict = Depends(require_admin)):
+    today = daily_schedule.china_now().date()
+    try:
+        job = _data_jobs().start(today, today, [daily_schedule.DATASET], trigger="admin")
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
+    return job
+
+
+@router.get("/data-center/closed-loop", summary="全市场数据闭环落地状态（只读，不访问外网）")
+def data_closed_loop_status(user: dict = Depends(get_current_user)):
+    service = build_data_center_service(user)
+    try:
+        return service.closed_loop_status()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"读取闭环状态失败：{_sanitize_detail(exc)}")
+
+
+# --------------------------------------------------------------------------- #
+# 8. XTick 数据服务（真实接口，迁移自 AlphaQuant 11_xtick_data.py）
+# --------------------------------------------------------------------------- #
+
+_XTICK_CATALOG_URL = "http://www.xtick.top/assets/apidoc.json"
+_XTICK_CATALOG_FILE = Path(__file__).resolve().parents[2] / "quant_platform" / "web" / "assets" / "xtick_apidoc.json"
+_XTICK_DEFAULT_BASE_URL = "http://api.xtick.top"
+# 官方文档里个别参数名缺失/有误：/doc/hot/bidhistory 的第二个参数名在文档里为空，
+# 实测真实参数名是 seq（0=开盘数据，1=集合竞价最后一条数据）。
+_XTICK_PARAM_NAME_PATCH = {"": "seq"}
+_XTICK_DATE_PARAM_HINTS = ("startdate", "enddate", "tradedate")
+_XTICK_TAB_NAMES = {1: "行情数据", 2: "盯盘数据", 3: "核心数据", 4: "短线热点", 8: "量化因子", 9: "金融指标"}
+_XTICK_LABELS = {
+    "type": "标的类型", "code": "代码", "fq": "复权", "period": "周期",
+    "startDate": "开始日期", "endDate": "结束日期", "tradeDate": "交易日期",
+    "token": "Token", "symbol": "市场", "field": "字段", "minutes": "最近N分钟",
+    "seq": "序号", "option": "选项",
+}
+
+
+def _xtick_credentials() -> DataCredentialStore:
+    return DataCredentialStore(RUNTIME_ROOT / "data_source_settings.json")
+
+
+def _xtick_resolve() -> tuple[str, str]:
+    """返回 (token, base_url)：本地凭证优先，环境变量兜底。"""
+
+    store = _xtick_credentials()
+    token = store.resolve("xtick", "token", "XTICK_TOKEN")
+    base_url = store.get("xtick").get("base_url", "") or _XTICK_DEFAULT_BASE_URL
+    return token, base_url
+
+
+def _xtick_load_catalog() -> list[dict[str, Any]]:
+    """加载官方接口文档；本地有缓存文件则直接读，否则在线拉取并缓存。"""
+
+    if _XTICK_CATALOG_FILE.exists():
+        return json.loads(_XTICK_CATALOG_FILE.read_text(encoding="utf-8"))
+    import requests
+
+    response = requests.get(_XTICK_CATALOG_URL, timeout=30)
+    response.raise_for_status()
+    catalog = response.json()
+    try:
+        _XTICK_CATALOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _XTICK_CATALOG_FILE.write_text(
+            json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        pass
+    return catalog
+
+
+def _xtick_parse_range(range_str: str | None) -> list[tuple[str, str]]:
+    """把官方文档的枚举串（"1-沪深京A股，2-沪深指数"）解析成 [(值, 含义), ...]。"""
+
+    options: list[tuple[str, str]] = []
+    for item in re.split(r"[，,]", range_str or ""):
+        item = item.strip()
+        if not item:
+            continue
+        if "-" in item:
+            value, _, label = item.partition("-")
+            options.append((value.strip(), label.strip()))
+        else:
+            options.append((item, item))
+    return options
+
+
+def _xtick_demo_defaults(demo_url: str | None) -> dict[str, str]:
+    if not demo_url:
+        return {}
+    from urllib.parse import parse_qsl, urlparse
+
+    return dict(parse_qsl(urlparse(demo_url).query, keep_blank_values=True))
+
+
+def _xtick_input_type(name: str, param: dict[str, Any]) -> str:
+    if param.get("range"):
+        return "select"
+    kind = str(param.get("type", "String")).lower()
+    if kind in ("int", "long", "double", "float", "bigdecimal"):
+        return "number"
+    if name.lower() in _XTICK_DATE_PARAM_HINTS:
+        return "date"
+    return "text"
+
+
+def _xtick_catalog_payload() -> list[dict[str, Any]]:
+    """把官方 apidoc 转成前端可渲染的目录结构（含枚举选项与默认值）。"""
+
+    catalog = _xtick_load_catalog()
+    payload: list[dict[str, Any]] = []
+    for category in catalog:
+        apis: list[dict[str, Any]] = []
+        for api in category.get("docApis", []):
+            demo = _xtick_demo_defaults(api.get("demo"))
+            inputs: list[dict[str, Any]] = []
+            for raw in api.get("inputParas", []):
+                name = _XTICK_PARAM_NAME_PATCH.get(raw.get("name") or "", raw.get("name") or "")
+                if name == "token":
+                    continue
+                options = _xtick_parse_range(raw.get("range"))
+                inputs.append({
+                    "name": name,
+                    "label": _XTICK_LABELS.get(name, name),
+                    "type": _xtick_input_type(name, raw),
+                    "default": demo.get(name, ""),
+                    "range": raw.get("range") or "",
+                    "options": [{"value": value, "label": label} for value, label in options],
+                })
+            apis.append({
+                "id": api.get("id"),
+                "name": api.get("name", ""),
+                "url": api.get("url", ""),
+                "description": api.get("description", ""),
+                "inputs": inputs,
+                "outputs": [
+                    {"name": para.get("name"), "description": para.get("description", "")}
+                    for para in api.get("outputParas") or []
+                    if para.get("name")
+                ],
+            })
+        payload.append({
+            "id": category.get("id"),
+            "name": _XTICK_TAB_NAMES.get(category.get("id"), category.get("name", "")),
+            "apis": apis,
+        })
+    return payload
+
+
+def _xtick_request_api(base_url: str, path: str, token: str, params: dict[str, str]) -> Any:
+    """请求一个 XTick 数据接口并返回解析后的数据。
+
+    兼容两种响应：成功为 ZIP 压缩包（内含 data.json）；失败为普通 JSON。
+    """
+
+    import io
+    import zipfile
+
+    import requests
+
+    response = requests.get(
+        f"{base_url.rstrip('/')}{path}",
+        params={"token": token, **params},
+        timeout=30,
+    )
+    response.raise_for_status()
+    content = response.content
+    if content[:2] == b"PK":  # zip 魔数
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            return json.loads(archive.read("data.json"))
+    payload = json.loads(content.decode("utf-8"))
+    if isinstance(payload, dict) and isinstance(payload.get("code"), int):
+        code = payload["code"]
+        if code not in (0, 200):
+            raise RuntimeError(f"XTick 接口返回错误 [{code}]：{payload.get('message', '未知错误')}")
+        if "data" in payload:
+            return payload["data"]
+    return payload
+
+
+def _xtick_to_rows(result: Any) -> tuple[list[dict[str, Any]], bool]:
+    """把返回数据转成行列表；不支持的返回原始 JSON（is_json=True）。"""
+
+    frame: pd.DataFrame | None = None
+    if isinstance(result, list):
+        frame = pd.json_normalize(result) if result else pd.DataFrame()
+    elif isinstance(result, dict):
+        inner = result.get("data")
+        if isinstance(inner, dict) and inner and all(isinstance(v, list) for v in inner.values()):
+            frame = pd.DataFrame(inner)
+        elif result and all(isinstance(v, list) for v in result.values()):
+            frame = pd.DataFrame(result)
+        elif result and all(not isinstance(v, (dict, list)) for v in result.values()):
+            frame = pd.DataFrame([result])
+    if frame is None:
+        return [{"value": result}] if not isinstance(result, (dict, list)) else [], True
+    return json.loads(frame.to_json(orient="records", force_ascii=False)), False
+
+
+@router.get("/xtick/catalog", summary="XTick 接口目录（官方 apidoc 动态生成）")
+def xtick_catalog(user: dict = Depends(get_current_user)):
+    try:
+        return {"catalog": _xtick_catalog_payload()}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"加载 XTick 接口文档失败：{_sanitize_detail(exc)}")
+
+
+@router.get("/xtick/status", summary="XTick 凭证状态")
+def xtick_status(user: dict = Depends(get_current_user)):
+    token, base_url = _xtick_resolve()
+    return {
+        "configured": bool(token),
+        "base_url": base_url,
+        "message": "XTick 凭证已配置" if token else "尚未配置 XTick Token，请先在下方保存凭证（或设置环境变量 XTICK_TOKEN）",
+    }
+
+
+@router.post("/xtick/credentials", summary="保存 XTick 凭证")
+def xtick_credentials_save(body: dict[str, Any], user: dict = Depends(require_admin)):
+    token = str(body.get("token", "")).strip()
+    base_url = str(body.get("base_url", "")).strip() or _XTICK_DEFAULT_BASE_URL
+    if not token:
+        raise HTTPException(status_code=422, detail="Token 不能为空")
+    _xtick_credentials().save("xtick", token=token, base_url=base_url)
+    return {"ok": True, "message": "XTick 凭证已保存"}
+
+
+@router.post("/xtick/request", summary="请求 XTick 接口（真实调用，自动解包 ZIP 响应）")
+def xtick_request(body: dict[str, Any], user: dict = Depends(require_admin)):
+    token, base_url = _xtick_resolve()
+    if not token:
+        raise HTTPException(status_code=428, detail="尚未配置 XTick Token，请先保存凭证或设置环境变量 XTICK_TOKEN")
+    url = str(body.get("url") or "")
+    if not url:
+        raise HTTPException(status_code=422, detail="缺少接口路径 url")
+    params = {str(k): str(v) for k, v in (body.get("params") or {}).items() if str(v) != ""}
+    request_type = str(params.get("type", ""))
+    try:
+        result = _xtick_request_api(base_url, url, token, params)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=_sanitize_detail(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"XTick 请求失败：{_sanitize_detail(exc)}")
+    rows, is_json = _xtick_to_rows(result)
+    if not is_json and rows:
+        # 统一股票名称展示（迁移自 AlphaQuant security_names.xtick_security_names）。
+        try:
+            frame = pd.DataFrame(rows)
+            if request_type in ("", "1", "2"):
+                frame = xtick_security_names(frame, request_type or None)
+            # 按官方文档 outputParas 重命名列：原字段名 -> 中文描述（原字段名）。
+            rename: dict[str, str] = {}
+            for para in body.get("outputs") or []:
+                name, desc = para.get("name"), para.get("description")
+                if not name or not desc:
+                    continue
+                desc = desc.splitlines()[0].strip()
+                if desc and desc != name and name in frame.columns:
+                    rename[name] = f"{desc}（{name}）"
+            frame = frame.rename(columns=rename)
+            rows = json.loads(frame.to_json(orient="records", force_ascii=False))
+        except Exception:  # noqa: BLE001 - 名称增强失败不影响原始数据返回
+            pass
+    return {"rows": rows, "count": len(rows), "is_json": is_json}
+
+
+# --------------------------------------------------------------------------- #
+# 9. 风险管理
+# --------------------------------------------------------------------------- #
+
+_DEFAULT_RISK = {"enabled": True, "max_total_weight": 0.95, "max_single_weight": 0.20, "max_positions": 20,
+                 "minimum_cash_ratio": 0.05, "max_drawdown": 0.25, "daily_position_limits": True,
+                 "drawdown_action": "reduce", "drawdown_target_weight": 0.50}
+
+
+@router.get("/risk", summary="风控配置")
+def risk_get(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM risk_limits WHERE user_id = ?", (user["id"],)).fetchone()
+    if not row:
+        return dict(_DEFAULT_RISK)
+    return {"enabled": bool(row["enabled"]), "max_total_weight": row["max_total_weight"],
+            "max_single_weight": row["max_single_weight"], "max_positions": row["max_positions"],
+            "minimum_cash_ratio": row["minimum_cash_ratio"], "max_drawdown": row["max_drawdown"],
+            "daily_position_limits": bool(row["daily_position_limits"]), "drawdown_action": row["drawdown_action"],
+            "drawdown_target_weight": row["drawdown_target_weight"]}
+
+
+@router.put("/risk", summary="保存风控配置")
+def risk_save(body: dict[str, Any], user: dict = Depends(get_current_user)):
+    merged = {**_DEFAULT_RISK, **body}
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO risk_limits (user_id, enabled, max_total_weight, max_single_weight, max_positions, minimum_cash_ratio, max_drawdown, daily_position_limits, drawdown_action, drawdown_target_weight, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled, max_total_weight=excluded.max_total_weight, max_single_weight=excluded.max_single_weight, max_positions=excluded.max_positions, minimum_cash_ratio=excluded.minimum_cash_ratio, max_drawdown=excluded.max_drawdown, daily_position_limits=excluded.daily_position_limits, drawdown_action=excluded.drawdown_action, drawdown_target_weight=excluded.drawdown_target_weight, updated_at=excluded.updated_at",
+            (user["id"], 1 if merged["enabled"] else 0, merged["max_total_weight"], merged["max_single_weight"],
+             merged["max_positions"], merged["minimum_cash_ratio"], merged["max_drawdown"],
+             1 if merged["daily_position_limits"] else 0, merged["drawdown_action"], merged["drawdown_target_weight"], _now()),
+        )
+    return {"saved": True}
+
+
+# --------------------------------------------------------------------------- #
+# 10. 股票池管理
+#    （模拟交易入口已移除，迁移自 AlphaQuant 092b2b6 导航调整）
+# --------------------------------------------------------------------------- #
+
+
+
+def _local_symbol_stats() -> dict[str, dict[str, Any]]:
+    """本地 daily_bars 的 symbol -> {local_rows, start_date, end_date} 统计。"""
+
+    # 来自仓库缓存的每只股票汇总，不读全部行情。
+    summary = market_repository().daily_bar_summary()
+    summary = summary[summary["start"].notna()]
+    return {
+        str(symbol): {"local_rows": int(row.rows), "start_date": row.start.date().isoformat(), "end_date": row.end.date().isoformat()}
+        for symbol, row in summary.iterrows()
+    }
+
+
+@router.get("/universe", summary="股票池设置")
+def universe_get(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM universe WHERE user_id = ?", (user["id"],)).fetchone()
+    if not row:
+        defaults, filters = default_universe_settings()
+        symbols = [to_bare(symbol) for symbol in defaults]
+    else:
+        symbols = json.loads(row["symbols"])
+        filters = {"exclude_st": bool(row["exclude_st"]), "exclude_suspended": bool(row["exclude_suspended"]),
+                   "minimum_listing_days": row["minimum_listing_days"], "minimum_history_days": row["minimum_history_days"],
+                   "minimum_average_amount": row["minimum_average_amount"]}
+    names = security_names()
+    stats = _local_symbol_stats()
+    description = []
+    for symbol in symbols:
+        canonical = to_canonical(symbol)
+        stat = stats.get(canonical, {})
+        description.append({
+            "symbol": symbol,
+            "name": names.get(canonical, "未知"),
+            "local_rows": stat.get("local_rows", 0),
+            "start_date": stat.get("start_date", "—"),
+            "end_date": stat.get("end_date", "—"),
+        })
+    return {"symbols": symbols, "filters": filters, "description": description}
+
+
+class UniverseAddIn(BaseModel):
+    symbols: list[str]
+
+
+class UniverseRemoveIn(BaseModel):
+    symbols: list[str]
+
+
+def _load_universe_symbols(user_id: int) -> list[str]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT symbols FROM universe WHERE user_id = ?", (user_id,)).fetchone()
+    if row:
+        return json.loads(row["symbols"])
+    symbols, _ = default_universe_settings()
+    return [to_bare(symbol) for symbol in symbols]
+
+
+def _save_universe(user_id: int, symbols: list[str], filters: dict[str, Any] | None = None) -> None:
+    if filters is None:
+        _, filters = default_universe_settings()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO universe (user_id, symbols, exclude_st, exclude_suspended, minimum_listing_days, minimum_history_days, minimum_average_amount, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET symbols=excluded.symbols, updated_at=excluded.updated_at",
+            (user_id, json.dumps(symbols, ensure_ascii=False), int(bool(filters.get("exclude_st", False))),
+             int(bool(filters.get("exclude_suspended", False))), filters.get("minimum_listing_days", 0),
+             filters.get("minimum_history_days", 0), filters.get("minimum_average_amount", 0), _now()),
+        )
+
+
+@router.post("/universe/add", summary="添加股票")
+def universe_add(body: UniverseAddIn, user: dict = Depends(get_current_user)):
+    current = _load_universe_symbols(user["id"])
+    for s in body.symbols:
+        norm = s.split(".")[0].strip()
+        if re.fullmatch(r"\d{6}", norm) and norm not in current:
+            current.append(norm)
+    _save_universe(user["id"], current)
+    return {"symbols": current, "count": len(current)}
+
+
+@router.post("/universe/remove", summary="移除股票")
+def universe_remove(body: UniverseRemoveIn, user: dict = Depends(get_current_user)):
+    current = _load_universe_symbols(user["id"])
+    remove = {s.split(".")[0].strip() for s in body.symbols}
+    current = [s for s in current if s not in remove]
+    _save_universe(user["id"], current)
+    return {"symbols": current, "count": len(current)}
+
+
+@router.get("/universe/search", summary="按名称搜索证券主表")
+def universe_search(q: str = "", user: dict = Depends(get_current_user)):
+    query = q.strip()
+    if not query:
+        return {"results": []}
+    master = market_repository().read_table("security_master")
+    if master.empty or "name" not in master.columns:
+        return {"results": []}
+    names = master["name"].astype(str)
+    symbols = master["symbol"].astype(str)
+    matched = master[names.str.contains(query, case=False, na=False, regex=False)]
+    if query.isdigit():
+        by_code = master[symbols.str.startswith(query)]
+        matched = pd.concat([matched, by_code]).drop_duplicates("symbol")
+    results = [
+        {"symbol": to_bare(str(symbol)), "name": str(name)}
+        for symbol, name in zip(
+            matched["symbol"].head(20), matched["name"].head(20), strict=False
+        )
+    ]
+    return {"results": results}
+
+
+@router.put("/universe/filters", summary="保存股票过滤设置")
+def universe_filters(body: dict[str, Any], user: dict = Depends(get_current_user)):
+    symbols = _load_universe_symbols(user["id"])
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO universe (user_id, symbols, exclude_st, exclude_suspended, minimum_listing_days, minimum_history_days, minimum_average_amount, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET exclude_st=excluded.exclude_st, exclude_suspended=excluded.exclude_suspended, minimum_listing_days=excluded.minimum_listing_days, minimum_history_days=excluded.minimum_history_days, minimum_average_amount=excluded.minimum_average_amount, updated_at=excluded.updated_at",
+            (user["id"], json.dumps(symbols, ensure_ascii=False), 1 if body.get("exclude_st", True) else 0,
+             1 if body.get("exclude_suspended", True) else 0, body.get("minimum_listing_days", 60),
+             body.get("minimum_history_days", 120), body.get("minimum_average_amount", 0), _now()),
+        )
+    return {"saved": True}
+
+
+# --------------------------------------------------------------------------- #
+# 11. Jev 结构化决策中心
+# --------------------------------------------------------------------------- #
+
+class JevDecideIn(BaseModel):
+    type: str = Field(..., pattern="^(choice|noul|score)$")
+    question: str = Field("", max_length=10000)
+    condition: str = Field("", max_length=10000)
+    options: list[str] = Field(default_factory=list, max_length=255)
+    levels: list[str] = Field(default_factory=list, max_length=10)
+    state: dict[str, Any] | list[Any] | str | None = Field(default_factory=dict)
+
+
+def _service_url(value: str) -> str:
+    from urllib.parse import urlsplit
+    value = value.strip().rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(status_code=422, detail="请填写有效的 HTTP/HTTPS 服务地址")
+    return value
+
+
+def _integration_call(action):
+    try:
+        return action()
+    except Exception:
+        raise HTTPException(status_code=502, detail="服务调用失败，请检查服务地址、API Key、权限及网络连接") from None
+
+
+def _jev_call(action):
+    from .agent_lab import _ai_failure
+    try:
+        return action()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"决策模型调用失败：{_ai_failure(exc)}") from None
+
+
+@router.get("/jev/status", summary="决策模型是否可用、今天还剩几次")
+def jev_status(user: dict = Depends(get_current_user)):
+    client = platform_ai.decision_client()
+    return {"available": client is not None, "model": client.model.split("/")[-1] if client else None,
+            "usage": platform_ai.usage(user, "review")}
+
+
+@router.post("/jev/decide", summary="Jev 结构化决策（Choice / Noul / Score）")
+def jev_decide(body: JevDecideIn, user: dict = Depends(get_current_user)):
+    body.options = [item.strip() for item in body.options]
+    body.levels = [item.strip() for item in body.levels]
+    client = platform_ai.decision_client()
+    if client is None:
+        raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能使用。")
+    try:
+        with platform_ai.quota_call(user, "review"):
+            if body.type == "choice":
+                if not body.question.strip() or len(body.options) < 2 or any(not x.strip() for x in body.options) or len(set(body.options)) != len(body.options):
+                    raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空选项")
+                req = ChoiceRequest(question=body.question, options=body.options, state=body.state)
+                resp = _jev_call(lambda: client.choice(req))
+            elif body.type == "noul":
+                if not body.condition.strip():
+                    raise HTTPException(status_code=422, detail="Noul 决策需要提供 condition 条件描述")
+                req = NoulRequest(condition=body.condition, state=body.state)
+                resp = _jev_call(lambda: client.noul(req))
+            else:
+                if not body.question.strip() or len(body.levels) < 2 or any(not x.strip() for x in body.levels) or len(set(body.levels)) != len(body.levels):
+                    raise HTTPException(status_code=422, detail="请填写问题和至少两个不同的非空等级")
+                req = ScoreRequest(question=body.question, levels=body.levels, state=body.state)
+                resp = _jev_call(lambda: client.score(req))
+        return resp.__dict__
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=_sanitize_detail(exc))
+
+
+# --------------------------------------------------------------------------- #
+# 12. WeKnora 知识库问答
+# --------------------------------------------------------------------------- #
+
+def _weknora_credentials(user_id: int) -> DataCredentialStore:
+    return DataCredentialStore(_llm_store(user_id).path.parent / "weknora_settings.json")
+
+
+def _weknora_resolve(user_id: int) -> tuple[str, str]:
+    """返回 (base_url, api_key)：本地凭证优先，环境变量兜底。"""
+    store = _weknora_credentials(user_id)
+    base_url = store.resolve("weknora", "base_url", "WEKNORA_BASE_URL")
+    api_key = store.resolve("weknora", "api_key", "WEKNORA_API_KEY")
+    return base_url, api_key
+
+
+def _weknora_client(user_id: int) -> WeKnoraClient:
+    base_url, api_key = _weknora_resolve(user_id)
+    return WeKnoraClient(base_url=base_url or None, api_key=api_key or None)
+
+
+@router.get("/weknora/settings", summary="WeKnora 配置状态")
+def weknora_settings(user: dict = Depends(get_current_user)):
+    base_url, api_key = _weknora_resolve(user["id"])
+    return {
+        "configured": bool(base_url),
+        "base_url": base_url,
+        "api_key_configured": bool(api_key),
+        "message": "WeKnora 服务已配置" if base_url else "尚未配置 WeKnora 服务地址，请在下方保存配置（或设置环境变量 WEKNORA_BASE_URL）",
+    }
+
+
+class WeKnoraSettingsIn(BaseModel):
+    base_url: str = ""
+    api_key: str = ""
+
+
+@router.post("/weknora/settings", summary="保存 WeKnora 配置")
+def weknora_settings_save(body: WeKnoraSettingsIn, user: dict = Depends(get_current_user)):
+    base_url = _service_url(body.base_url)
+    store = _weknora_credentials(user["id"])
+    api_key = body.api_key.strip() or store.get("weknora").get("api_key", "")
+    if not base_url:
+        raise HTTPException(status_code=422, detail="WeKnora 服务地址不能为空")
+    store.save("weknora", base_url=base_url, api_key=api_key)
+    return {"ok": True, "message": "WeKnora 配置已保存"}
+
+
+@router.get("/weknora/knowledge-bases", summary="WeKnora 知识库列表")
+def weknora_list_bases(user: dict = Depends(get_current_user)):
+    client = _weknora_client(user["id"])
+    return {"items": _integration_call(client.list_knowledge_bases), "configured": client.configured, "mock": not client.configured}
+
+
+class WeKnoraChatIn(BaseModel):
+    question: str = Field(..., min_length=1)
+    knowledge_base_id: str | None = None
+
+
+@router.post("/weknora/chat", summary="WeKnora 知识库问答")
+def weknora_chat(body: WeKnoraChatIn, user: dict = Depends(get_current_user)):
+    client = _weknora_client(user["id"])
+    if not body.question.strip() or (client.configured and not body.knowledge_base_id):
+        raise HTTPException(status_code=422, detail="请填写问题并选择知识库")
+    return _integration_call(lambda: client.chat(body.question.strip(), body.knowledge_base_id))
+
+
+class WeKnoraQueryIn(BaseModel):
+    query: str = Field(..., min_length=1)
+    knowledge_base_id: str | None = None
+    top_k: int = Field(5, ge=1, le=20)
+
+
+@router.post("/weknora/query", summary="WeKnora 文档检索")
+def weknora_query(body: WeKnoraQueryIn, user: dict = Depends(get_current_user)):
+    client = _weknora_client(user["id"])
+    if not body.query.strip() or (client.configured and not body.knowledge_base_id):
+        raise HTTPException(status_code=422, detail="请填写检索词并选择知识库")
+    return {"items": _integration_call(lambda: client.query(body.query.strip(), body.knowledge_base_id, body.top_k)), "mock": not client.configured}

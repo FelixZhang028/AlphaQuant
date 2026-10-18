@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 首屏前确定主题，避免闪烁：优先用户选择，其次跟随系统
+      ;(function () {
+        var t = localStorage.getItem('fq-theme')
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        }
+        document.documentElement.dataset.theme = t
+      })()
+    </script>
+    <meta name="description" content="智投引擎 · 社区论坛" />
+    <title>智投引擎 · 社区论坛</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/community.js"></script>
+  </body>
+</html>
