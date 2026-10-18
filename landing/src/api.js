@@ -1,11 +1,12 @@
-// 后端 API 封装（FastAPI，默认 http://127.0.0.1:8000）
-// 可用环境变量 VITE_API_BASE 覆盖
+// 后端 API 封装（FastAPI）
+// 开发时（npm run dev）连 http://127.0.0.1:8000；打包后的网页默认连自己所在的地址（前后端同一个地址，见 scripts/serve.ps1）。
+// 两种情况都可以用环境变量 VITE_API_BASE 指定别的后端地址。
 import { checkSavedSession } from './sessionState.js'
 import { sanitizeError } from './errorMessage.js'
 
 export { sanitizeError }
 
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
+export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
 
 const TOKEN_KEY = 'zt_token'
 const USER_KEY = 'zt_user'
@@ -60,8 +61,11 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
 }
 
 // ---- 认证 ----
-export function register({ name, email, password }) {
-  return request('/api/v1/auth/register', { method: 'POST', body: { name, email, password } })
+export function registrationMode() {
+  return request('/api/v1/auth/registration')
+}
+export function register({ name, email, password, invite_code = '' }) {
+  return request('/api/v1/auth/register', { method: 'POST', body: { name, email, password, invite_code } })
 }
 export async function login({ email, password }) {
   const data = await request('/api/v1/auth/login', { method: 'POST', body: { email, password } })
@@ -86,8 +90,23 @@ export function forgotRequest({ name, email }) {
 export function forgotReset({ name, email, code, new_password }) {
   return request('/api/v1/auth/forgot/reset', { method: 'POST', body: { name, email, code, new_password } })
 }
+// 退出登录：先在本机清掉，再通知后端让这个账户的令牌全部作废（失败也不影响本机退出）。
 export function logout() {
+  const token = getToken()
   clearSession()
+  if (token) {
+    fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {})
+  }
+}
+export async function changePassword({ old_password, new_password }) {
+  const data = await request('/api/v1/auth/password', { method: 'POST', body: { old_password, new_password }, auth: true })
+  if (data?.token) setSession(data.token)
+  return data
+}
+export async function deleteAccount({ password }) {
+  const data = await request('/api/v1/auth/delete', { method: 'POST', body: { password }, auth: true })
+  clearSession()
+  return data
 }
 
 // ---- 策略（通用 CRUD，功能台概览页使用）----
@@ -119,11 +138,6 @@ export function runBacktestReview(id) {
 }
 export function getBacktest(id) {
   return request(`/api/v1/backtests/${id}`, { auth: true })
-}
-
-// ---- 监控数据（公开）----
-export function fetchSnapshot() {
-  return request('/api/v1/stats/snapshot')
 }
 
 // ---- 策略包（策略创作中心 / 自然语言 / 零代码工作台）----

@@ -1,88 +1,20 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import {
-  createStrategy,
-  getBacktestCatalog,
-  deleteStrategy,
-  fetchSnapshot,
-  listStrategies,
-  submitBacktest,
-  updateStrategyStatus,
-} from '../../api.js'
+import { aiStatus, dailyUpdateStatus, getBacktestCatalog, listPackages, listRuns, submitBacktest } from '../../api.js'
 
 const props = defineProps({
   user: { type: Object, default: null },
   notify: { type: Function, default: () => {} },
 })
 
-const snapshot = ref(null)
+// 首页的四个数字都来自这个账户和本地数据，没有示例数字。
+const marketData = ref(null)
+const packageCount = ref(null)
+const runSummary = ref(null)
+const ai = ref(null)
 
-// ---------- 我的策略 ----------
-const strategies = ref([])
-const stratFilter = ref('全部')
-const stratLoading = ref(false)
-const showCreate = ref(false)
-const creating = ref(false)
-const newStrategy = reactive({ name: '', type: '趋势跟随', market: '沪深300' })
-const stratTypes = ['趋势跟随', '套利', '做市', '均值回归', '高频']
-const stratMarkets = ['沪深300', '中证500', '纳指100', 'ETH/USDT', 'BTC/USDT', '黄金期货']
-
-const filteredStrats = computed(() =>
-  stratFilter.value === '全部' ? strategies.value : strategies.value.filter((s) => s.status === stratFilter.value)
-)
-const stratStatusClass = {
-  运行中: 'text-emerald-300 bg-emerald-400/10 border-emerald-400/30',
-  已暂停: 'text-amber-300 bg-amber-400/10 border-amber-400/30',
-  已停止: 'text-rose-300 bg-rose-400/10 border-rose-400/30',
-}
-
-async function loadStrategies() {
-  stratLoading.value = true
-  try {
-    strategies.value = await listStrategies()
-  } catch (e) {
-    props.notify(e.message || '加载策略失败')
-  } finally {
-    stratLoading.value = false
-  }
-}
-
-async function onToggleStatus(s) {
-  const next = s.status === '运行中' ? '已暂停' : '运行中'
-  try {
-    await updateStrategyStatus(s.id, next)
-    s.status = next
-    props.notify(`已${next === '运行中' ? '启动' : '暂停'} ${s.name}`)
-  } catch (e) {
-    props.notify(e.message || '操作失败')
-  }
-}
-
-async function onDelete(s) {
-  if (!confirm(`确定删除策略「${s.name}」？`)) return
-  try {
-    await deleteStrategy(s.id)
-    strategies.value = strategies.value.filter((x) => x.id !== s.id)
-    props.notify('已删除')
-  } catch (e) {
-    props.notify(e.message || '删除失败')
-  }
-}
-
-async function onSubmitStrategy() {
-  if (!newStrategy.name.trim()) return props.notify('请输入策略名称')
-  creating.value = true
-  try {
-    const created = await createStrategy({ ...newStrategy })
-    strategies.value.unshift(created)
-    showCreate.value = false
-    newStrategy.name = ''
-    props.notify('策略已创建')
-  } catch (e) {
-    props.notify(e.message || '创建失败')
-  } finally {
-    creating.value = false
-  }
+function navigate(key) {
+  window.dispatchEvent(new CustomEvent('fq-navigate', { detail: key }))
 }
 
 // ---------- 回测 ----------
@@ -120,26 +52,38 @@ async function runBacktest() {
   }
 }
 
-// ---------- KPI ----------
+// ---------- 概况 ----------
+const count = (value) => (value == null ? '—' : Number(value).toLocaleString())
 const kpis = computed(() => {
-  const s = snapshot.value
+  const data = marketData.value
+  const brief = ai.value?.usage?.brief
   return [
-    { label: '账户资产', value: '¥1,000,000', sub: '初始资金', up: null },
-    { label: '今日盈亏', value: '+¥24,690', sub: '较昨日', up: true },
-    { label: '运行策略', value: s ? s.overview.running_instances : '—', sub: '实例', up: true },
-    { label: '今日成交', value: s ? s.overview.today_trades.toLocaleString() : '—', sub: '笔', up: true },
+    {
+      label: '行情数据', view: 'data-management',
+      value: data ? data.latest_date || '还没有数据' : '—',
+      sub: data?.latest_date ? `${count(data.stocks_on_latest)} 只股票已更新到这一天` : '本地最新的交易日',
+    },
+    { label: '我的策略', view: 'strategy-hub', value: count(packageCount.value), sub: '保存的规则策略' },
+    {
+      label: '研究记录', view: 'run-library', value: count(runSummary.value?.total),
+      sub: runSummary.value ? `成功 ${count(runSummary.value.stats?.success ?? 0)} 次` : '回测与验证的记录',
+    },
+    {
+      label: '今天的 AI 解读', view: 'agent-lab',
+      value: !ai.value ? '—' : !ai.value.ai?.available && !ai.value.decision?.available ? '暂不可用' : props.user?.is_admin ? '不限' : `${brief?.remaining ?? 0} / ${brief?.limit ?? 0}`,
+      sub: ai.value && !ai.value.ai?.available && !ai.value.decision?.available ? '平台还没有配置 AI 模型' : '剩余次数，每天更新',
+    },
   ]
 })
 
 onMounted(async () => {
   try { const c = await getBacktestCatalog(); btStrategies.value = c.items; bt.strategy = c.default }
   catch (e) { props.notify(e.message || '加载策略目录失败') }
-  loadStrategies()
-  try {
-    snapshot.value = await fetchSnapshot()
-  } catch {
-    /* 降级静态 */
-  }
+  // 概况数字各自加载，某一项失败只显示 —，不影响其他。
+  dailyUpdateStatus().then((d) => { marketData.value = d.data || {} }).catch(() => {})
+  listPackages().then((d) => { packageCount.value = d.total ?? (d.items || []).length }).catch(() => {})
+  listRuns({ limit: 1 }).then((d) => { runSummary.value = d }).catch(() => {})
+  aiStatus().then((d) => { ai.value = d }).catch(() => {})
 })
 </script>
 
@@ -149,20 +93,17 @@ onMounted(async () => {
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <p class="text-sm text-slate-400">欢迎回来</p>
-      <p class="mt-1 text-2xl font-bold text-white">{{ user?.name }} <span class="font-serif italic text-indigo-300">，数据驱动决策</span></p>
-      <p class="mt-2 max-w-xl text-sm text-slate-400">这是你的量化工作台。从这里启动策略、运行回测、监控实盘，让每一个交易思想落地为收益。</p>
+      <p class="mt-1 text-2xl font-bold text-white">{{ user?.name }} <span class="font-serif italic text-indigo-300">，用数据检验每一个想法</span></p>
+      <p class="mt-2 max-w-xl text-sm text-slate-400">这是你的量化研究工作台：更新行情数据、写策略规则、做历史回测和因子研究。所有结果仅供研究参考。</p>
     </div>
 
     <!-- KPI -->
     <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-      <div v-for="k in kpis" :key="k.label" class="glass glass-sheen rounded-2xl p-5">
+      <button v-for="k in kpis" :key="k.label" type="button" class="glass glass-sheen rounded-2xl p-5 text-left transition hover:-translate-y-0.5" @click="navigate(k.view)">
         <p class="text-xs text-slate-400">{{ k.label }}</p>
         <p class="mt-2 text-2xl font-bold text-white">{{ k.value }}</p>
-        <p class="mt-2 flex items-center gap-1.5 text-xs">
-          <span v-if="k.up !== null" :class="k.up ? 'text-emerald-300' : 'text-rose-300'">{{ k.up ? '↑' : '↓' }}</span>
-          <span class="text-slate-500">{{ k.sub }}</span>
-        </p>
-      </div>
+        <p class="mt-2 text-xs text-slate-500">{{ k.sub }}</p>
+      </button>
     </section>
 
     <!-- 回测 -->
@@ -233,95 +174,5 @@ onMounted(async () => {
         </div>
       </div>
     </section>
-
-    <!-- 我的策略 -->
-    <section class="glass rounded-2xl p-5">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-sm font-semibold text-white">我的策略</h2>
-        <div class="flex items-center gap-3">
-          <div class="flex rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
-            <button v-for="s in ['全部', '运行中', '已暂停', '已停止']" :key="s" @click="stratFilter = s" class="rounded-full px-3 py-1 transition" :class="stratFilter === s ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white' : 'text-slate-400 hover:text-slate-200'">{{ s }}</button>
-          </div>
-          <button @click="showCreate = true" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:-translate-y-0.5">+ 新建策略</button>
-        </div>
-      </div>
-
-      <div v-if="stratLoading" class="mt-6 text-sm text-slate-400">加载中…</div>
-      <div v-else-if="!filteredStrats.length" class="mt-6 rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
-        暂无策略，点击「新建策略」开始。
-      </div>
-
-      <div v-else class="mt-5 overflow-x-auto">
-        <table class="w-full min-w-[680px] text-left text-sm">
-          <thead>
-            <tr class="text-xs text-slate-500">
-              <th class="pb-3 font-medium">编号</th>
-              <th class="pb-3 font-medium">名称</th>
-              <th class="pb-3 font-medium">类型</th>
-              <th class="pb-3 font-medium">市场</th>
-              <th class="pb-3 font-medium">状态</th>
-              <th class="pb-3 text-right font-medium">累计盈亏</th>
-              <th class="pb-3 text-right font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            <tr v-for="s in filteredStrats" :key="s.id" class="text-slate-300 transition hover:bg-white/5">
-              <td class="py-3 font-mono text-xs text-indigo-300">ST-{{ String(s.id).padStart(3, '0') }}</td>
-              <td class="py-3 font-medium text-white">{{ s.name }}</td>
-              <td class="py-3 text-slate-400">{{ s.type }}</td>
-              <td class="py-3 text-slate-400">{{ s.market }}</td>
-              <td class="py-3"><span class="rounded-full border px-2.5 py-0.5 text-xs" :class="stratStatusClass[s.status]">{{ s.status }}</span></td>
-              <td class="py-3 text-right font-medium" :class="s.pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'">{{ s.pnl >= 0 ? '+' : '' }}{{ s.pnl }}</td>
-              <td class="py-3">
-                <div class="flex items-center justify-end gap-2">
-                  <button @click="onToggleStatus(s)" class="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white">
-                    {{ s.status === '运行中' ? '暂停' : '启动' }}
-                  </button>
-                  <button @click="onDelete(s)" class="rounded-lg border border-rose-400/20 px-2.5 py-1 text-xs text-rose-300 transition hover:bg-rose-400/10">删除</button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- 新建策略弹窗 -->
-    <transition
-      enter-active-class="transition duration-200"
-      enter-from-class="opacity-0"
-      leave-active-class="transition duration-200"
-      leave-to-class="opacity-0"
-    >
-      <div v-if="showCreate" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="showCreate = false">
-        <div class="glass-strong w-full max-w-md rounded-2xl p-6">
-          <h3 class="text-lg font-semibold text-white">新建策略</h3>
-          <div class="mt-5 space-y-4">
-            <div>
-              <label class="mb-1.5 block text-xs text-slate-400">策略名称</label>
-              <input v-model="newStrategy.name" placeholder="如 AlphaSeeker" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
-            </div>
-            <div>
-              <label class="mb-1.5 block text-xs text-slate-400">策略类型</label>
-              <select v-model="newStrategy.type" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
-                <option v-for="t in stratTypes" :key="t">{{ t }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="mb-1.5 block text-xs text-slate-400">交易市场</label>
-              <select v-model="newStrategy.market" class="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40">
-                <option v-for="m in stratMarkets" :key="m">{{ m }}</option>
-              </select>
-            </div>
-          </div>
-          <div class="mt-6 flex gap-3">
-            <button @click="showCreate = false" class="flex-1 rounded-full border border-white/10 py-2.5 text-sm text-slate-300 transition hover:bg-white/5">取消</button>
-            <button @click="onSubmitStrategy" :disabled="creating" class="flex-1 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-70">
-              {{ creating ? '创建中…' : '创建' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
