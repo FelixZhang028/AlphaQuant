@@ -5,19 +5,28 @@ FastAPI 应用入口。
     pip install -r requirements.txt
     uvicorn app.main:app --reload
 
-REST 文档：http://localhost:8000/docs
-WebSocket：ws://localhost:8000/ws/dashboard
+REST 文档：FELLOWQUANT_API_DOCS=on 时在 http://localhost:8000/docs（正式部署默认关闭）
+监控大屏的模拟数据：FELLOWQUANT_DEMO_MONITOR=on 时提供 /api/v1/stats 和 /ws/dashboard
+
+部署时的设置（都写在 .env 里）：
+- FELLOWQUANT_CORS_ORIGINS：允许跨域访问的网页地址，逗号分开；前后端同一个地址时不需要
+- FELLOWQUANT_STATIC_DIR：打包好的前端目录（landing/dist），后端直接提供网页，整个网站只有一个地址
+- FELLOWQUANT_MAX_BODY_MB：一次请求最大多少 MB（默认 5）
 """
 import logging
+import os
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .database import init_db
+from .quant.backup import BackupScheduler
 from .quant.daily_schedule import DailyScheduler
 from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
@@ -32,23 +41,78 @@ from .ws import router as ws_router
 logger = logging.getLogger("uvicorn.error")
 
 
+def _flag(name: str, default: bool) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    return default if not value else value not in ("0", "off", "false", "no")
+
+
+API_DOCS = _flag("FELLOWQUANT_API_DOCS", False)
+DEMO_MONITOR = _flag("FELLOWQUANT_DEMO_MONITOR", False)
+STATIC_DIR = os.getenv("FELLOWQUANT_STATIC_DIR", "").strip()
+DEV_ORIGINS = [
+    #   官网/功能台   http://127.0.0.1:5273（Vite 开发服务器也用 5173）
+    #   监控大屏前端  http://127.0.0.1:5174
+    #   独立管理后台  http://127.0.0.1:5175
+    f"http://{host}:{port}" for port in (5273, 5173, 5174, 5175) for host in ("localhost", "127.0.0.1")
+]
+CORS_ORIGINS = [origin.strip().rstrip("/") for origin in os.getenv("FELLOWQUANT_CORS_ORIGINS", "").split(",") if origin.strip()] or DEV_ORIGINS
+try:
+    MAX_BODY_BYTES = int(float(os.getenv("FELLOWQUANT_MAX_BODY_MB", "") or 5) * 1024 * 1024)
+except ValueError:
+    MAX_BODY_BYTES = 5 * 1024 * 1024
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）。
+    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）；每天备份一次用户数据。
     scheduler = DailyScheduler(_data_jobs())
+    backups = BackupScheduler()
     scheduler.start()
+    backups.start()
     try:
         yield
     finally:
         scheduler.stop()
+        backups.stop()
 
 
 app = FastAPI(
     title="FellowQuant · 后端",
-    description="为官网/功能台/管理后台提供认证与实时监控数据（当前业务指标为模拟数据，可替换为真实数据源）",
+    description="FellowQuant 的认证、研究与数据接口",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if API_DOCS else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if API_DOCS else None,
 )
+
+
+# 浏览器的安全设置：不让别的网站把页面嵌进去、不猜测文件类型、跳转时不带完整地址。
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+# 后端直接提供网页时的内容安全策略：只运行本站的脚本，只连接本站的接口。
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+)
+
+
+@app.middleware("http")
+async def guard_requests(request: Request, call_next):
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+        return JSONResponse(status_code=413, content={"detail": "请求内容太大"})
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if STATIC_DIR and response.headers.get("content-type", "").startswith("text/html"):
+        response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    return response
 
 
 def _sanitize_error(exc: Exception) -> str:
@@ -97,22 +161,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 启动时建表（users 等）
 init_db()
 
-# 允许前端开发服务器跨域访问：
-#   官网/功能台   http://127.0.0.1:5273
-#   监控大屏前端  http://127.0.0.1:5174
-#   独立管理后台  http://127.0.0.1:5175
+# 允许跨域访问的网页地址：默认是本机的开发服务器；部署时用 FELLOWQUANT_CORS_ORIGINS 设置。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5273",
-        "http://127.0.0.1:5273",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -122,12 +174,23 @@ app.include_router(auth_router)
 app.include_router(strategies_router)
 app.include_router(backtests_router)
 app.include_router(admin_router)
-app.include_router(stats_router)
 app.include_router(workspace_router)
 app.include_router(agent_lab_router)
-app.include_router(ws_router)
+if DEMO_MONITOR:
+    # 监控大屏的数据是模拟的，而且不需要登录：只在演示时打开。
+    app.include_router(stats_router)
+    app.include_router(ws_router)
 
 
-@app.get("/", summary="健康检查")
-def root():
-    return {"status": "ok", "service": "FellowQuant 后端", "docs": "/docs"}
+@app.get("/api/health", summary="健康检查")
+def health():
+    return {"status": "ok", "service": "FellowQuant 后端"}
+
+
+if STATIC_DIR:
+    # 后端直接提供打包好的网页：/、/app.html、/auth.html……接口仍在 /api 下（前面已经注册）。
+    app.mount("/", StaticFiles(directory=Path(STATIC_DIR), html=True), name="site")
+else:
+    @app.get("/", summary="健康检查")
+    def root():
+        return {"status": "ok", "service": "FellowQuant 后端"}

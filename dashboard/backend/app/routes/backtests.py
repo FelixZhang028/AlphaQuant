@@ -55,7 +55,12 @@ class BacktestIn(BaseModel):
     strategy_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-def _resolve_plugin(service, strategy_name: str) -> str:
+# 只给管理员的策略：LLM 多智能体会按用户填的地址调用模型（可能带上平台的模型密钥），
+# 每个调仓日对每只候选股票调用一次，不受每日 AI 次数限制。
+ADMIN_ONLY_STRATEGIES = frozenset({"llm_multi_agent"})
+
+
+def _resolve_plugin(service, strategy_name: str, user: dict | None = None) -> str:
     """Unknown strategies must never silently execute another strategy."""
 
     if strategy_name.startswith("user:"):
@@ -63,6 +68,8 @@ def _resolve_plugin(service, strategy_name: str) -> str:
         raise HTTPException(status_code=422, detail="Python 策略已经停用，请改用规则策略或因子组合策略。")
     for metadata in service.available_strategies():
         if strategy_name in (metadata.display_name, metadata.plugin_name):
+            if metadata.plugin_name in ADMIN_ONLY_STRATEGIES and not (user or {}).get("is_admin"):
+                raise HTTPException(status_code=403, detail="这个策略只对管理员开放。")
             return metadata.plugin_name
     raise HTTPException(status_code=422, detail="策略不存在或加载失败，请选择已注册策略。")
 
@@ -120,7 +127,7 @@ def submit_backtest(body: BacktestIn, user: dict = Depends(get_current_user)):
     service = build_backtest_service(user)
     use_market(service, body.market)
     reference = body.strategy.strip()
-    plugin = _resolve_plugin(service, reference)
+    plugin = _resolve_plugin(service, reference, user)
     defaults = service.default_request()
     metadata = next(m for m in service.available_strategies() if m.plugin_name == plugin)
     parameters = defaults.strategy_parameters if plugin == defaults.strategy_plugin else metadata.defaults()
@@ -184,7 +191,8 @@ def backtest_catalog(user: dict = Depends(get_current_user)):
                 "defaults": service.default_request().strategy_parameters
                     if m.plugin_name == service.default_request().strategy_plugin else m.defaults()}
     items = [item(m, m.plugin_name, m.display_name)
-             for m in metadata.values() if m.plugin_name != "rule_builder"]
+             for m in metadata.values() if m.plugin_name != "rule_builder"
+             and (user.get("is_admin") or m.plugin_name not in ADMIN_ONLY_STRATEGIES)]
     return {"items": items,
             "default": service.default_request().strategy_plugin,
             "market": CURRENT_POOL,

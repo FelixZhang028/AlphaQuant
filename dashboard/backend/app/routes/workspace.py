@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 from dataclasses import replace as dc_replace
@@ -71,7 +72,6 @@ from ..quant.rules import (
     definition_to_quant,
 )
 from ..quant.symbols import to_bare, to_canonical
-from ..routes.agent_lab import _llm_store
 from ..routes.admin import require_admin
 from ..routes.auth import get_current_user
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
@@ -2196,78 +2196,87 @@ def jev_decide(body: JevDecideIn, user: dict = Depends(get_current_user)):
 # 12. WeKnora 知识库问答
 # --------------------------------------------------------------------------- #
 
-def _weknora_credentials(user_id: int) -> DataCredentialStore:
-    return DataCredentialStore(_llm_store(user_id).path.parent / "weknora_settings.json")
+# 知识库服务由平台统一配置（管理员）：用户不能填自己的地址。以前允许每个用户填地址，又会在用户没填
+# 密钥时用 .env 里平台的密钥，等于把平台的密钥发到用户指定的服务器，服务器还会去访问任意地址。
+def _weknora_store() -> DataCredentialStore:
+    return DataCredentialStore(RUNTIME_ROOT / "weknora_settings.json")
 
 
-def _weknora_resolve(user_id: int) -> tuple[str, str]:
-    """返回 (base_url, api_key)：本地凭证优先，环境变量兜底。"""
-    store = _weknora_credentials(user_id)
-    base_url = store.resolve("weknora", "base_url", "WEKNORA_BASE_URL")
-    api_key = store.resolve("weknora", "api_key", "WEKNORA_API_KEY")
-    return base_url, api_key
+def _weknora_resolve() -> tuple[str, str]:
+    """``(base_url, api_key)``：管理员保存的配置；没有保存时用环境变量。两者不混用。"""
+    saved = _weknora_store().get("weknora")
+    if saved.get("base_url"):
+        return saved["base_url"], saved.get("api_key", "")
+    return os.getenv("WEKNORA_BASE_URL", "").strip(), os.getenv("WEKNORA_API_KEY", "").strip()
 
 
-def _weknora_client(user_id: int) -> WeKnoraClient:
-    base_url, api_key = _weknora_resolve(user_id)
-    return WeKnoraClient(base_url=base_url or None, api_key=api_key or None)
+def _weknora_client() -> WeKnoraClient:
+    """配置好的客户端；没有配置时直接说明，不给演示回答。"""
+    base_url, api_key = _weknora_resolve()
+    if not base_url:
+        raise HTTPException(status_code=409, detail="知识库服务还没有配置，暂时不能使用。")
+    return WeKnoraClient(base_url=base_url, api_key=api_key or None)
 
 
 @router.get("/weknora/settings", summary="WeKnora 配置状态")
 def weknora_settings(user: dict = Depends(get_current_user)):
-    base_url, api_key = _weknora_resolve(user["id"])
+    base_url, api_key = _weknora_resolve()
+    status_text = "WeKnora 服务已配置" if base_url else "知识库服务还没有配置"
+    if not user.get("is_admin"):
+        return {"configured": bool(base_url), "can_configure": False, "base_url": "", "api_key_configured": False, "message": status_text}
     return {
         "configured": bool(base_url),
+        "can_configure": True,
         "base_url": base_url,
         "api_key_configured": bool(api_key),
-        "message": "WeKnora 服务已配置" if base_url else "尚未配置 WeKnora 服务地址，请在下方保存配置（或设置环境变量 WEKNORA_BASE_URL）",
+        "message": status_text,
     }
 
 
 class WeKnoraSettingsIn(BaseModel):
-    base_url: str = ""
-    api_key: str = ""
+    base_url: str = Field("", max_length=500)
+    api_key: str = Field("", max_length=500)
 
 
-@router.post("/weknora/settings", summary="保存 WeKnora 配置")
-def weknora_settings_save(body: WeKnoraSettingsIn, user: dict = Depends(get_current_user)):
+@router.post("/weknora/settings", summary="保存 WeKnora 配置（管理员）")
+def weknora_settings_save(body: WeKnoraSettingsIn, user: dict = Depends(require_admin)):
     base_url = _service_url(body.base_url)
-    store = _weknora_credentials(user["id"])
+    store = _weknora_store()
     api_key = body.api_key.strip() or store.get("weknora").get("api_key", "")
     if not base_url:
         raise HTTPException(status_code=422, detail="WeKnora 服务地址不能为空")
     store.save("weknora", base_url=base_url, api_key=api_key)
-    return {"ok": True, "message": "WeKnora 配置已保存"}
+    return {"ok": True, "message": "WeKnora 配置已保存，对整个平台生效"}
 
 
 @router.get("/weknora/knowledge-bases", summary="WeKnora 知识库列表")
 def weknora_list_bases(user: dict = Depends(get_current_user)):
-    client = _weknora_client(user["id"])
-    return {"items": _integration_call(client.list_knowledge_bases), "configured": client.configured, "mock": not client.configured}
+    client = _weknora_client()
+    return {"items": _integration_call(client.list_knowledge_bases), "configured": True, "mock": False}
 
 
 class WeKnoraChatIn(BaseModel):
-    question: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=4000)
     knowledge_base_id: str | None = None
 
 
 @router.post("/weknora/chat", summary="WeKnora 知识库问答")
 def weknora_chat(body: WeKnoraChatIn, user: dict = Depends(get_current_user)):
-    client = _weknora_client(user["id"])
-    if not body.question.strip() or (client.configured and not body.knowledge_base_id):
+    client = _weknora_client()
+    if not body.question.strip() or not body.knowledge_base_id:
         raise HTTPException(status_code=422, detail="请填写问题并选择知识库")
     return _integration_call(lambda: client.chat(body.question.strip(), body.knowledge_base_id))
 
 
 class WeKnoraQueryIn(BaseModel):
-    query: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1, max_length=4000)
     knowledge_base_id: str | None = None
     top_k: int = Field(5, ge=1, le=20)
 
 
 @router.post("/weknora/query", summary="WeKnora 文档检索")
 def weknora_query(body: WeKnoraQueryIn, user: dict = Depends(get_current_user)):
-    client = _weknora_client(user["id"])
-    if not body.query.strip() or (client.configured and not body.knowledge_base_id):
+    client = _weknora_client()
+    if not body.query.strip() or not body.knowledge_base_id:
         raise HTTPException(status_code=422, detail="请填写检索词并选择知识库")
-    return {"items": _integration_call(lambda: client.query(body.query.strip(), body.knowledge_base_id, body.top_k)), "mock": not client.configured}
+    return {"items": _integration_call(lambda: client.query(body.query.strip(), body.knowledge_base_id, body.top_k)), "mock": False}

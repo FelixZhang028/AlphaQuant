@@ -41,15 +41,25 @@ def _load_secret() -> str:
 
 
 SECRET_KEY = _load_secret()
-ITERATIONS = 100_000
+# PBKDF2-SHA256 的迭代次数（OWASP 建议 60 万次）。新哈希写成 pbkdf2_sha256$<次数>$<十六进制>；
+# 以前的哈希是 10 万次、没有前缀，登录成功时自动换成新的（needs_rehash）。
+ITERATIONS = int(os.getenv("FELLOWQUANT_PASSWORD_ITERATIONS", "600000"))
+LEGACY_ITERATIONS = 100_000
+_PREFIX = "pbkdf2_sha256$"
 TOKEN_TTL = 7 * 24 * 3600  # 7 天
 
 
+def _pbkdf2(password: str, salt: str, iterations: int) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
+
+
 def hash_password(password: str, salt: str) -> str:
-    """返回 PBKDF2 十六进制哈希。"""
-    return hashlib.pbkdf2_hmac(
-        "sha256", password.encode("utf-8"), salt.encode("utf-8"), ITERATIONS
-    ).hex()
+    """返回 ``pbkdf2_sha256$<次数>$<哈希>``。"""
+    return f"{_PREFIX}{ITERATIONS}${_pbkdf2(password, salt, ITERATIONS)}"
+
+
+def needs_rehash(stored: str) -> bool:
+    return not stored.startswith(f"{_PREFIX}{ITERATIONS}$")
 
 
 def gen_salt() -> str:
@@ -58,8 +68,14 @@ def gen_salt() -> str:
 
 def verify_password(password: str, salt: str, expected_hash: str) -> bool:
     """恒定时间比较，避免计时攻击。"""
-    actual = hash_password(password, salt)
-    return hmac.compare_digest(actual, expected_hash)
+    if expected_hash.startswith(_PREFIX):
+        try:
+            iterations, digest = expected_hash[len(_PREFIX):].split("$", 1)
+            actual = _pbkdf2(password, salt, int(iterations))
+        except ValueError:
+            return False
+        return hmac.compare_digest(actual, digest)
+    return hmac.compare_digest(_pbkdf2(password, salt, LEGACY_ITERATIONS), expected_hash)
 
 
 def _b64(data: bytes) -> str:

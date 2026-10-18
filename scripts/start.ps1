@@ -55,6 +55,8 @@ try {
             throw "端口 $port 已被其他程序占用（非本平台进程），请先停止该程序再启动。"
         }
     }
+    # 本机开发：打开接口文档（/docs）。正式部署用 scripts/serve.ps1，默认关闭。
+    $env:FELLOWQUANT_API_DOCS = 'on'
     $pythonPath = (Get-Command python -ErrorAction Stop).Source
     $nodePath = (Get-Command node -ErrorAction Stop).Source
     $processGroup = New-Object FellowQuant.Launcher.ProcessGroup

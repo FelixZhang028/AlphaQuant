@@ -190,6 +190,16 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, backtest_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+            -- 邀请码用过几次（FELLOWQUANT_INVITE_CODES）
+            CREATE TABLE IF NOT EXISTS invite_uses (
+                code TEXT PRIMARY KEY,
+                used INTEGER NOT NULL DEFAULT 0
+            );
+            -- 全站每天用掉的 AI 次数（FELLOWQUANT_AI_DAILY_TOTAL）；不跟着用户删除，注销重注册不能重置
+            CREATE TABLE IF NOT EXISTS ai_usage_total (
+                day   TEXT PRIMARY KEY,
+                count INTEGER NOT NULL DEFAULT 0
+            );
             """
         )
         # 旧库迁移：补 is_admin 列（已存在则忽略）

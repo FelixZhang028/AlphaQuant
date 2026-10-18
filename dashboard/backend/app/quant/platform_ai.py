@@ -85,6 +85,18 @@ def _today() -> str:
     return datetime.now(CHINA).date().isoformat()
 
 
+# 全站每天最多调用 AI 的次数（所有用户、所有种类加起来；管理员的调用计入但不受限制）。
+# 每个账户都有自己的次数，批量注册的账户加起来也不能超过这个总数。0 表示不限。
+TOTAL_VARIABLE, TOTAL_DEFAULT = "FELLOWQUANT_AI_DAILY_TOTAL", 500
+
+
+def daily_total_limit() -> int:
+    try:
+        return max(0, int(os.getenv(TOTAL_VARIABLE, "") or TOTAL_DEFAULT))
+    except ValueError:
+        return TOTAL_DEFAULT
+
+
 def daily_limit(kind: str) -> int:
     variable, default, _ = LIMITS[kind]
     try:
@@ -137,15 +149,20 @@ def quota_call(user: dict, kind: str):
         if not user.get("is_admin") and (int(row["count"]) if row else 0) >= daily_limit(kind):
             word = LIMITS[kind][2]
             raise QuotaExceeded(f"今天的{' ' if word[0].isascii() else ''}{word}次数已经用完（每天 {daily_limit(kind)} 次），明天再来。")
+        total = conn.execute("SELECT count FROM ai_usage_total WHERE day = ?", (day,)).fetchone()
+        if not user.get("is_admin") and daily_total_limit() and (int(total["count"]) if total else 0) >= daily_total_limit():
+            raise QuotaExceeded("平台今天的 AI 次数已经用完，明天再来。")
         conn.execute(
             "INSERT INTO ai_usage (user_id, day, kind, count) VALUES (?, ?, ?, 1) "
             "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
             (user["id"], day, kind),
         )
+        conn.execute("INSERT INTO ai_usage_total (day, count) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET count = count + 1", (day,))
     try:
         yield
     except BaseException:
         with get_conn() as conn:
             conn.execute("UPDATE ai_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ? AND kind = ?",
                          (user["id"], day, kind))
+            conn.execute("UPDATE ai_usage_total SET count = MAX(0, count - 1) WHERE day = ?", (day,))
         raise
