@@ -41,6 +41,12 @@ REBALANCE_NAMES = {"daily": "每日", "weekly": "每周", "monthly": "每月"}
 VALIDITY_NAMES = {"OK": "通过", "PASS": "通过", "WARNING": "有警告", "ERROR": "有错误"}
 
 
+def model_name(client: Any) -> str:
+    """The version that answered (``jev-1.13.0``), else the requested name, without the provider prefix."""
+
+    return str(getattr(client, "served_model", None) or client.model).split("/")[-1]
+
+
 def stock_state(stock: StockFacts) -> dict[str, Any]:
     return {
         "股票": f"{stock.name}（{stock.symbol}）",
@@ -55,7 +61,7 @@ def tilt_odds(client: Any, stock: StockFacts) -> dict[str, Any]:
 
     answer = client.ask(stock_state(stock), {"tilt": TILT_QUESTION})["tilt"]
     return {"choice": answer["choice"], "probabilities": answer["probabilities"], "confidence": answer["confidence"],
-            "model": client.model.split("/")[-1]}
+            "model": model_name(client)}
 
 
 def _pct(value: Any) -> str:
@@ -127,5 +133,5 @@ def review_backtest(client: Any, rows: list[Fact]) -> dict[str, Any]:
         "risk": {"level": RISK_LEVELS[min(len(RISK_LEVELS) - 1, max(0, round(risk["score"])))], "score": risk["score"],
                  "probabilities": risk["probabilities"], "confidence": risk["confidence"]},
         "overfit": {"probability": answers["overfit"]["probability"]},
-        "model": client.model.split("/")[-1],
+        "model": model_name(client),
     }

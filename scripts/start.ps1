@@ -26,7 +26,8 @@ try {
     Write-Host ''
     Write-Host "[启动] 后端服务  http://127.0.0.1:$BackendPort  （API 文档 /docs）"
     Write-Host "[启动] 前端页面  http://localhost:$FrontendPort"
-    Write-Host '服务在后台运行，回到此启动窗口按任意键停止全部服务。'
+    Write-Host '服务在后台运行，回到此启动窗口按任意键停止前后端。'
+    Write-Host '后台数据任务（每天自动更新、补历史数据）不随窗口关闭，会继续运行；需要时在数据更新页停止。'
     Write-Host ''
 
     # 清理上次会话遗留的本平台进程（直接关闭启动窗口时子进程会存活并占住端口）。
@@ -92,7 +93,7 @@ try {
     # Stop the whole job even if a root already exited. Closing the console also
     # closes the job's last handle, so descendants cannot outlive the launcher.
     if ($null -ne $processGroup) {
-        Write-Host '[停止] 正在关闭前后端及其子进程…'
+        Write-Host '[停止] 正在关闭前后端…（正在运行的后台数据任务会继续，完成后自动结束）'
         try { $processGroup.Stop() }
         catch {
             $startupExitCode = 1

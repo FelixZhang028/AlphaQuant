@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .decisions import RISK_LEVELS, TILT_QUESTION, stock_state
+from .decisions import RISK_LEVELS, TILT_QUESTION, model_name, stock_state
 from .facts import StockFacts
 from quant_platform.jev import choice_question, score_question
 
@@ -118,7 +118,7 @@ def stock_report(client: Any, stock: StockFacts) -> dict[str, Any]:
     followups.append({"title": "跟踪后续变化", "text": "后续行情更新后再新建分析，并在历史记录中对照实际走势。"})
     return {
         "choice": tilt["choice"], "probabilities": tilt["probabilities"], "confidence": tilt["confidence"],
-        "model": client.model.split("/")[-1], "report_version": REPORT_VERSION,
+        "model": model_name(client), "report_version": REPORT_VERSION,
         "as_of": stock.trade_date.isoformat(), "summary": headline, "dimensions": dimensions,
         "supports": supports, "concerns": concerns, "followups": followups,
         "coverage": {"evaluated": sum(item["status"] == "evaluated" for item in dimensions),
