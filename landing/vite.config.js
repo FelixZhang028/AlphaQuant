@@ -15,6 +15,7 @@ export default defineConfig({
         auth: fileURLToPath(new URL('./auth.html', import.meta.url)),
         app: fileURLToPath(new URL('./app.html', import.meta.url)),
         community: fileURLToPath(new URL('./community.html', import.meta.url)),
+        legal: fileURLToPath(new URL('./legal.html', import.meta.url)),
       },
     },
   },

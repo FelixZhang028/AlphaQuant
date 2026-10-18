@@ -12,6 +12,9 @@ const props = defineProps({
 
 const bases = ref([])
 const configured = ref(false)
+// 知识库服务是整个平台共用的，只有管理员能配置。
+const canConfigure = ref(false)
+const statusMessage = ref('')
 const selectedBaseId = ref(null)
 const loadingBases = ref(false)
 const showConfig = ref(false)
@@ -30,7 +33,6 @@ const loading = ref(false)
 
 const chatResult = ref(null)
 const queryResult = ref([])
-const queryMock = ref(false)
 const connectionError = ref('')
 
 async function loadBases() {
@@ -57,6 +59,8 @@ async function loadSettings() {
     const data = await weknoraSettings()
     config.base_url = data.base_url || ''
     configured.value = data.configured
+    canConfigure.value = Boolean(data.can_configure)
+    statusMessage.value = data.message || ''
   } catch (e) {
     props.notify(e.message)
   }
@@ -66,10 +70,11 @@ async function saveSettings() {
   savingConfig.value = true
   try {
     await weknoraSaveSettings({ base_url: config.base_url, api_key: config.api_key })
-    props.notify('WeKnora 配置已保存')
+    props.notify('WeKnora 配置已保存，对整个平台生效')
     showConfig.value = false
     config.api_key = ''
-    await loadBases()
+    await loadSettings()
+    if (configured.value && !props.settingsOnly) await loadBases()
   } catch (e) {
     props.notify(e.message || '保存配置失败')
   } finally {
@@ -79,7 +84,7 @@ async function saveSettings() {
 
 onActivated(async () => {
   await loadSettings()
-  if (!props.settingsOnly) await loadBases()
+  if (configured.value && !props.settingsOnly) await loadBases()
 })
 
 async function doChat() {
@@ -115,7 +120,6 @@ async function doQuery() {
       top_k: topK.value,
     })
     queryResult.value = data.items || []
-    queryMock.value = data.mock
   } catch (e) {
     props.notify(e.message || '检索请求失败')
   } finally {
@@ -146,9 +150,10 @@ async function doQuery() {
     >
       <div class="flex items-center gap-2">
         <span class="inline-block h-2 w-2 rounded-full" :class="configured ? 'bg-emerald-400' : 'bg-amber-400'" />
-        {{ connectionError ? '服务连接失败，请检查配置' : configured ? '文档服务已配置' : '演示模式：尚未连接文档服务，显示示例资料与回答' }}
+        {{ connectionError ? '服务连接失败，请检查配置' : configured ? '文档服务已配置' : canConfigure ? '尚未连接文档服务，请在“服务配置”里填写地址' : '知识库服务还没有配置，暂时不能使用' }}
       </div>
       <button
+        v-if="canConfigure && !settingsOnly"
         @click="showConfig = !showConfig"
         class="rounded-md border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/5"
       >
@@ -157,7 +162,7 @@ async function doQuery() {
     </div>
 
     <!-- Config panel -->
-    <SectionCard v-if="showConfig || settingsOnly" title="WeKnora 服务配置">
+    <SectionCard v-if="canConfigure && (showConfig || settingsOnly)" title="WeKnora 服务配置">
       <div class="space-y-4">
         <div>
           <label class="mb-1.5 block text-xs font-medium text-slate-400">服务地址 (Base URL)</label>
@@ -184,13 +189,13 @@ async function doQuery() {
           >
             {{ savingConfig ? '保存中…' : '保存配置' }}
           </button>
-          <span class="text-xs text-slate-500">配置保存在当前账户的本机后端目录，调用服务时使用</span>
+          <span class="text-xs text-slate-500">配置保存在服务器上，对整个平台生效；API Key 只在服务器上使用，不会发给用户</span>
         </div>
       </div>
     </SectionCard>
 
     <p v-if="connectionError" role="alert" class="text-sm text-rose-300">{{ connectionError }}</p>
-    <template v-if="!settingsOnly">
+    <template v-if="!settingsOnly && configured">
     <!-- Knowledge base list -->
     <SectionCard title="知识库" subtitle="选择要检索的知识库">
       <div v-if="loadingBases" class="py-4 text-center text-sm text-slate-400">加载中…</div>
@@ -258,14 +263,7 @@ async function doQuery() {
 
         <div v-if="chatResult" class="space-y-4 rounded-lg border border-white/10 bg-white/5 p-4">
           <div class="flex items-center gap-2">
-            <span
-              :class="[
-                'rounded-full px-2 py-0.5 text-xs font-medium',
-                chatResult.mock ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300',
-              ]"
-            >
-              {{ chatResult.mock ? '演示回答' : '知识库回答' }}
-            </span>
+            <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">知识库回答</span>
           </div>
           <p class="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{{ chatResult.answer }}</p>
           <div v-if="chatResult.references && chatResult.references.length" class="border-t border-white/10 pt-3">
@@ -313,7 +311,6 @@ async function doQuery() {
           {{ loading ? '检索中…' : '检索' }}
         </button>
 
-        <p v-if="queryResult.length && queryMock" class="text-xs text-amber-300">演示检索结果</p>
         <div v-if="queryResult.length" class="space-y-3">
           <div
             v-for="(item, i) in queryResult"

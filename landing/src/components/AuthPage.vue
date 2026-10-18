@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import ThemeToggle from './ThemeToggle.vue'
-import { getToken, login, register, setSession, forgotRequest, forgotReset, restoreSession } from '../api.js'
+import { getToken, login, register, registrationMode, setSession, forgotRequest, forgotReset, restoreSession } from '../api.js'
 
 const checkingSession = ref(Boolean(getToken()))
 const sessionIssue = ref('')
@@ -22,7 +22,10 @@ async function resumeSession() {
 function checkRestoredPage() {
   if (!checkingSession.value && !submitting.value && getToken()) resumeSession()
 }
+// 注册方式：open 开放、invite 需要邀请码、closed 暂不开放（后端的 .env 决定）。
+const registration = ref('open')
 onMounted(() => {
+  registrationMode().then((data) => { registration.value = data.mode || 'open' }).catch(() => {})
   if (checkingSession.value) resumeSession()
   window.addEventListener('pageshow', checkRestoredPage)
   window.addEventListener('storage', checkRestoredPage)
@@ -39,6 +42,7 @@ const form = reactive({
   email: '',
   password: '',
   confirm: '',
+  invite: '',
   remember: true,
   agree: false,
 })
@@ -114,6 +118,8 @@ function enterForgot() {
 
 function validate() {
   Object.keys(errors).forEach((k) => delete errors[k])
+  if (!isLogin.value && registration.value === 'closed') errors.form = '暂时不开放注册'
+  if (!isLogin.value && registration.value === 'invite' && !form.invite.trim()) errors.invite = '请输入邀请码'
   if (!isLogin.value && !form.name.trim()) errors.name = '请输入用户名'
   if (!form.email.trim()) {
     errors.email = '请输入邮箱'
@@ -144,7 +150,7 @@ async function onSubmit() {
       // 登录成功，跳转功能台
       setTimeout(() => (window.location.href = '/app.html'), 500)
     } else {
-      await register({ name: form.name, email: form.email, password: form.password })
+      await register({ name: form.name, email: form.email, password: form.password, invite_code: form.invite.trim() })
       // 注册成功，自动登录并跳转功能台
       const data = await login({ email: form.email, password: form.password })
       setSession(data.token, data.user)
@@ -154,7 +160,8 @@ async function onSubmit() {
   } catch (e) {
     // 后端字段级错误（如 409 邮箱已注册 / 401 凭据错误）映射到表单
     const msg = e && e.message ? e.message : '请求失败，请稍后重试'
-    if (/邮箱/.test(msg)) errors.email = msg
+    if (/邀请码/.test(msg)) errors.invite = msg
+    else if (/邮箱/.test(msg)) errors.email = msg
     else if (/密码|凭据/.test(msg)) errors.password = msg
     else errors.form = msg
   } finally {
@@ -454,6 +461,27 @@ const features = [
               <p v-if="errors.confirm" class="mt-1 text-xs text-rose-300">{{ errors.confirm }}</p>
             </div>
 
+            <!-- 邀请码（试用阶段需要） -->
+            <div v-if="!isLogin && registration === 'invite'">
+              <label class="mb-1.5 block text-xs font-medium text-slate-400">邀请码</label>
+              <div class="relative">
+                <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+                <input
+                  v-model="form.invite"
+                  type="text"
+                  autocomplete="off"
+                  maxlength="64"
+                  placeholder="目前凭邀请码注册"
+                  class="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-indigo-400/50 focus:bg-white/10 focus:ring-2 focus:ring-indigo-500/30"
+                  :class="{ 'border-rose-400/50 focus:ring-rose-500/20': errors.invite }"
+                />
+              </div>
+              <p v-if="errors.invite" class="mt-1 text-xs text-rose-300">{{ errors.invite }}</p>
+            </div>
+            <p v-if="!isLogin && registration === 'closed'" class="rounded-xl border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">暂时不开放注册，已有账户可以直接登录。</p>
+
             <!-- 记住我 / 忘记密码 -->
             <div v-if="isLogin" class="flex items-center justify-between text-xs">
               <label class="flex cursor-pointer items-center gap-2 text-slate-400">
@@ -483,9 +511,10 @@ const features = [
               />
               <span>
                 我已阅读并同意
-                <a href="#" class="text-indigo-300 hover:text-indigo-200">《服务条款》</a>
+                <a href="/legal.html#terms" target="_blank" class="text-indigo-300 hover:text-indigo-200">《服务条款》</a>、
+                <a href="/legal.html#privacy" target="_blank" class="text-indigo-300 hover:text-indigo-200">《隐私政策》</a>
                 与
-                <a href="#" class="text-indigo-300 hover:text-indigo-200">《隐私政策》</a>
+                <a href="/legal.html#risk" target="_blank" class="text-indigo-300 hover:text-indigo-200">《风险提示》</a>
               </span>
             </label>
             <p v-if="errors.agree" class="-mt-2 text-xs text-rose-300">{{ errors.agree }}</p>
@@ -680,7 +709,7 @@ const features = [
           </p>
 
           <p class="mt-6 text-center text-[11px] leading-relaxed text-slate-600">
-            登录即代表您接受我们的服务条款与隐私政策。<br />
+            登录即代表您接受我们的<a href="/legal.html#terms" target="_blank" class="hover:text-slate-400">服务条款</a>与<a href="/legal.html#privacy" target="_blank" class="hover:text-slate-400">隐私政策</a>。<br />
             平台的所有分析结果仅供研究参考，投资决策请独立判断。
           </p>
         </div>

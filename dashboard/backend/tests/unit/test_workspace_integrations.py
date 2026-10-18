@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.routes import workspace
 from app.routes.auth import get_current_user
-from quant_platform.agents_bridge.llm_settings import LLMSettingsStore
+from quant_platform.agents_bridge.data_credentials import DataCredentialStore
 from app import database
 from quant_platform.jev import JevClient, ChoiceRequest, NoulRequest, ScoreRequest, noul_question
 from quant_platform.weknora import WeKnoraClient
@@ -97,23 +97,38 @@ def test_weknora_stream_and_references():
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
-    monkeypatch.setattr(workspace, '_llm_store', lambda uid: LLMSettingsStore(tmp_path / str(uid) / 'llm.json'))
+    monkeypatch.setattr(workspace, '_weknora_store', lambda: DataCredentialStore(tmp_path / 'weknora.json'))
     for name in ['OPENROUTER_API_KEY', 'WEKNORA_API_KEY', 'WEKNORA_BASE_URL']:
         monkeypatch.delenv(name, raising=False)
     app = FastAPI()
     app.include_router(workspace.router)
-    app.dependency_overrides[get_current_user] = lambda: {'id': 1}
+    app.state.user = {'id': 1, 'is_admin': True}
+    app.dependency_overrides[get_current_user] = lambda: app.state.user
     return TestClient(app), app
 
 
-def test_api_settings_preserve_secrets_and_isolate_users(api):
+def test_only_an_admin_configures_the_platform_knowledge_service(api):
     client, app = api
     assert client.post('/api/v1/weknora/settings', json={'base_url': 'http://localhost:8080', 'api_key': 'secret'}).status_code == 200
     assert client.post('/api/v1/weknora/settings', json={'base_url': 'http://localhost:8081', 'api_key': ''}).status_code == 200
-    assert workspace._weknora_resolve(1) == ('http://localhost:8081', 'secret')
+    assert workspace._weknora_resolve() == ('http://localhost:8081', 'secret')
     assert 'secret' not in client.get('/api/v1/weknora/settings').text
-    app.dependency_overrides[get_current_user] = lambda: {'id': 2}
-    assert not client.get('/api/v1/weknora/settings').json()['configured']
+    # 普通用户：只知道能不能用，看不到地址，也不能改。
+    app.state.user = {'id': 2, 'is_admin': False}
+    seen = client.get('/api/v1/weknora/settings').json()
+    assert seen['configured'] and not seen['can_configure'] and seen['base_url'] == ''
+    assert client.post('/api/v1/weknora/settings', json={'base_url': 'http://attacker.example', 'api_key': ''}).status_code == 403
+    assert workspace._weknora_resolve() == ('http://localhost:8081', 'secret')
+
+
+def test_a_saved_address_is_never_paired_with_the_platform_key(api, monkeypatch):
+    # 以前：用户只填地址、不填密钥，会用 .env 里平台的密钥去访问他填的地址。
+    client, _ = api
+    monkeypatch.setenv('WEKNORA_BASE_URL', 'http://kb.internal')
+    monkeypatch.setenv('WEKNORA_API_KEY', 'platform-secret')
+    assert workspace._weknora_resolve() == ('http://kb.internal', 'platform-secret')
+    assert client.post('/api/v1/weknora/settings', json={'base_url': 'http://other.example', 'api_key': ''}).status_code == 200
+    assert workspace._weknora_resolve() == ('http://other.example', '')
 
 
 def test_api_validation_demo_and_upstream_failure(api):
@@ -121,7 +136,11 @@ def test_api_validation_demo_and_upstream_failure(api):
     no_model = client.post('/api/v1/jev/decide', json={'type': 'choice', 'question': 'Q', 'options': ['A', 'B']})
     assert no_model.status_code == 422 and '还没有配置' in no_model.json()['detail']
     assert client.post('/api/v1/weknora/settings', json={'base_url': 'file:///tmp'}).status_code == 422
-    assert client.get('/api/v1/weknora/knowledge-bases').json()['mock']
+    # 没有配置时直接说明，不给演示资料。
+    missing = client.get('/api/v1/weknora/knowledge-bases')
+    assert missing.status_code == 409 and '还没有配置' in missing.json()['detail']
+    assert client.post('/api/v1/weknora/chat', json={'question': 'q', 'knowledge_base_id': 'kb'}).status_code == 409
+    assert client.post('/api/v1/weknora/settings', json={'base_url': 'http://localhost:8080'}).status_code == 200
     with patch.object(WeKnoraClient, 'list_knowledge_bases', side_effect=RuntimeError('private detail')):
         result = client.get('/api/v1/weknora/knowledge-bases')
         assert result.status_code == 502 and 'private detail' not in result.text
@@ -131,6 +150,7 @@ def test_api_validation_demo_and_upstream_failure(api):
 
 def test_decisions_use_the_platform_key_and_count_uses(api, tmp_path, monkeypatch):
     client, app = api
+    app.state.user = {'id': 1, 'is_admin': False}
     monkeypatch.setattr(database, 'DB_PATH', str(tmp_path / 'app.db'))
     database.init_db()
     with database.get_conn() as conn:

@@ -21,9 +21,9 @@ const columns = [
   {
     title: '公司',
     links: [
-      { label: '关于我们', href: '#hero' },
-      { label: '联系方式', href: '#belief' },
-      { label: '服务协议', href: '#belief' },
+      { label: '关于我们', href: '/index.html#about' },
+      { label: '服务条款', href: '/legal.html#terms' },
+      { label: '隐私政策', href: '/legal.html#privacy' },
     ],
   },
 ]
@@ -79,9 +79,9 @@ const year = new Date().getFullYear()
           © {{ year }} FellowQuant. 保留所有权利。平台提供的数据、回测与分析结果仅供研究参考，不构成任何投资建议。
         </p>
         <div class="ds-text-caption flex gap-6 text-ds-description">
-          <a href="#belief" class="no-underline hover:text-ds-primary">隐私政策</a>
-          <a href="#belief" class="no-underline hover:text-ds-primary">服务条款</a>
-          <a href="#belief" class="no-underline hover:text-ds-primary">风险披露</a>
+          <a href="/legal.html#privacy" class="no-underline hover:text-ds-primary">隐私政策</a>
+          <a href="/legal.html#terms" class="no-underline hover:text-ds-primary">服务条款</a>
+          <a href="/legal.html#risk" class="no-underline hover:text-ds-primary">风险提示</a>
         </div>
       </div>
     </div>
