@@ -31,6 +31,8 @@ LIMITS = {
     "question": ("FELLOWQUANT_AI_DAILY_QUESTIONS", 20, "追问"),
     "strategy": ("FELLOWQUANT_AI_DAILY_STRATEGIES", 10, "用一句话生成规则"),
     "review": ("FELLOWQUANT_AI_DAILY_REVIEWS", 10, "AI 评估"),
+    # AI 研究员里用 Jev 判断一只股票：单独计数，不占回测 AI 评估的次数。
+    "decision": ("FELLOWQUANT_AI_DAILY_DECISIONS", 10, "个股判断"),
 }
 CHINA = timezone(timedelta(hours=8))
 

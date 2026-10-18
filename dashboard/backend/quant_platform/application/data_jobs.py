@@ -65,6 +65,22 @@ def serialized_update(method):
     return wrapped
 
 
+def launch_detached(command, **options):
+    """Start a job process that outlives whatever started it.
+
+    On Windows the backend may run inside a job object (the launcher's, which closes all its
+    processes when the launcher stops). A data download must not die with it, so the process
+    breaks away from that job; if the job does not allow it, it starts inside the job as before.
+    """
+
+    if os.name != "nt":
+        return subprocess.Popen(command, start_new_session=True, **options)
+    try:
+        return subprocess.Popen(command, creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_BREAKAWAY_FROM_JOB, **options)
+    except PermissionError:
+        return subprocess.Popen(command, creationflags=subprocess.CREATE_NO_WINDOW, **options)
+
+
 def write_json(path, value):
     temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
@@ -165,21 +181,15 @@ class DataJobs:
                 trigger=trigger,
             )
             write_json(folder / "job.json", job)
-            options = (
-                {"creationflags": subprocess.CREATE_NO_WINDOW}
-                if os.name == "nt"
-                else {"start_new_session": True}
-            )
             try:
                 with (folder / "output.log").open("ab") as log:
-                    process = subprocess.Popen(
+                    process = launch_detached(
                         [sys.executable, "-u", "-m", MODULE, str(folder)],
                         stdin=subprocess.DEVNULL,
                         stdout=log,
                         stderr=subprocess.STDOUT,
                         cwd=job["cwd"],
                         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                        **options,
                     )
                 job["pid"] = process.pid
                 write_json(folder / "job.json", job)

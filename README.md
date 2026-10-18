@@ -93,7 +93,7 @@ npm run dev -- --host 127.0.0.1
 | `OPENROUTER_API_KEY` | 平台统一提供的 AI 模型（AI研究员、用一句话生成规则），也用于 Jev 决策服务；用户不需要自己填写密钥 |
 | `TYPESAFE_API_KEY` / `JEV_API_KEY` | TypeSafe 官方 Jev 密钥（前者优先）；配置后 Jev 独立于聊天模型，默认调用官方 `/v1/systemone`，未配置时使用 OpenRouter |
 | `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
-| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估次数（默认 5 / 20 / 10 / 10），管理员不限 |
+| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）次数（默认 5 / 20 / 10 / 10 / 10），管理员不限 |
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_COMPUTE_SLOTS` / `_PER_USER` / `_TIMEOUT` / `_CACHE` | 耗时计算（回测、参数验证、因子评估与组合研究）的限制：全站同时最多几件（默认 CPU 核数的一半，2 到 4）、每人同时几件（默认 1）、一件最多多少秒（默认 600）、记住多少份因子研究结果（默认 64） |
@@ -101,7 +101,7 @@ npm run dev -- --host 127.0.0.1
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_FROM` | 密码重置邮件服务，采用 STARTTLS；默认端口 587 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP 登录凭据（邮件服务需要时填写） |
 
-行情数据所有用户共用一份。后端运行时，每个交易日收盘后自动更新全市场：行情（含估值与换手率）、新上市股票的全部历史、分红送转记录、指数行情、指数成分股、行业分类和历史股票池。当天行情还没发布或更新没完成时，30 分钟后再试，最晚到 23:30。下载数据、补历史数据、查看后台任务和配置 XTick 只有管理员可以操作；普通用户在数据更新页看到更新状态。
+行情数据所有用户共用一份。后端运行时，每个交易日收盘后自动更新全市场：行情（含估值与换手率）、新上市股票的全部历史、分红送转记录、指数行情、指数成分股、行业分类和历史股票池。当天行情还没发布或更新没完成时，30 分钟后再试，最晚到 23:30。下载数据、补历史数据、查看后台任务和配置 XTick 只有管理员可以操作；普通用户在数据更新页看到更新状态。数据文件先完整写好再整份替换，写到一半被中断（关闭程序、停电）也不会损坏原来的文件；后台数据任务不随启动窗口关闭，会继续运行到完成。
 
 所有用户共用一台服务器，耗时的计算有三条限制：每人同一时间只算一件，全站同时算的数量有上限（满了提示稍后再试），一件计算超过时间限制就停下。同样的因子评估或组合研究在同一份数据上算过就直接返回，数据每天更新以后重新计算。
 

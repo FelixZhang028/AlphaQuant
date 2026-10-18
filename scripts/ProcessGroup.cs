@@ -71,7 +71,9 @@ namespace FellowQuant.Launcher
             job = CreateJobObject(IntPtr.Zero, null); // Not inheritable by child processes.
             if (job == IntPtr.Zero) throw new Win32Exception();
             var limits = new ExtendedLimits();
-            limits.Basic.Flags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK: the servers stop with the
+            // launcher, but a data download the backend starts with CREATE_BREAKAWAY_FROM_JOB keeps running.
+            limits.Basic.Flags = 0x2000 | 0x800;
             if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))))
             {
                 int error = Marshal.GetLastWin32Error();

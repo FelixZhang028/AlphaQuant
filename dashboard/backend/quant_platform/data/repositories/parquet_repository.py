@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import time
+import uuid
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -43,6 +46,42 @@ _TABLE_KEYS: dict[str, list[str]] = {
 # they are partitioned by calendar year. Every other canonical table stays in one file.
 _PARTITIONED_TABLES = frozenset({"daily_bars", INDICATOR_TABLE})
 _PARTITION_COLUMN = "year"
+# Windows 上旧文件正被别的进程读着时不能替换：等它读完，最多等这么久。
+_REPLACE_WAIT_SECONDS = 10.0
+# 上次写到一半被结束留下的临时文件，过了这么久就清掉。
+_STALE_TEMPORARY_SECONDS = 3600
+
+
+def write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """Write ``frame`` to ``path`` so that no reader, crash or killed process ever sees half a file.
+
+    The new file is written beside the old one under a name starting with ``.`` (Parquet
+    datasets skip such files and ``*.parquet`` globs do not match them), then swapped in with
+    one rename. A process stopped in the middle leaves the old file intact and a stray
+    temporary that a later write removes.
+    """
+
+    path = Path(path)
+    for stale in path.parent.glob(f".{path.name}.*.tmp"):
+        try:
+            if time.time() - stale.stat().st_mtime > _STALE_TEMPORARY_SECONDS:
+                stale.unlink()
+        except OSError:
+            pass
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        frame.to_parquet(temporary, index=False)
+        deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
+        while True:
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.05)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class ParquetMarketDataRepository(MarketDataRepository):
@@ -204,7 +243,7 @@ class ParquetMarketDataRepository(MarketDataRepository):
             else frame.copy()
         )
         combined = self._dedupe(combined, _TABLE_KEYS.get(name))
-        combined.to_parquet(path, index=False)
+        write_parquet_atomic(combined, path)
 
     def _save_partitioned(self, name: str, frame: pd.DataFrame) -> None:
         directory = self._partition_path(name)
@@ -231,7 +270,7 @@ class ParquetMarketDataRepository(MarketDataRepository):
                 group = self._drop_partition_column(group)
                 group = self._dedupe(group, keys)
             partition.mkdir(parents=True, exist_ok=True)
-            group.to_parquet(partition / "data.parquet", index=False)
+            write_parquet_atomic(group, partition / "data.parquet")
 
         if legacy.exists() and self._has_partitions(directory):
             legacy.unlink()

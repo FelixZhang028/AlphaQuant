@@ -38,16 +38,19 @@ def literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def orphan_launcher(tmp_path, port):
+ORPHAN_PARENT = (
+    "import subprocess,sys,time\n"
+    "subprocess.Popen([sys.executable, '-m', 'http.server', sys.argv[1], '--bind', '127.0.0.1'], "
+    "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)\n"
+    "time.sleep(.5)\n")
+
+
+def orphan_launcher(tmp_path, port, parent_code=ORPHAN_PARENT):
     # A space/non-ASCII path also verifies argv/path handling under Windows PowerShell 5.1.
     folder = tmp_path / 'process logs 测试'
     folder.mkdir()
     parent = folder / 'temporary parent.py'
-    parent.write_text(
-        "import subprocess,sys,time\n"
-        "subprocess.Popen([sys.executable, '-m', 'http.server', sys.argv[1], '--bind', '127.0.0.1'], "
-        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)\n"
-        "time.sleep(.5)\n", encoding='utf-8')
+    parent.write_text(parent_code, encoding='utf-8')
     ready = folder / 'ready.txt'
     script = folder / 'launcher.ps1'
     script.write_text(
@@ -101,3 +104,31 @@ def test_abrupt_launcher_exit_kills_its_descendants_but_not_unrelated_server(tmp
         cleanup(proc)
         unrelated.terminate()
         unrelated.wait(timeout=10)
+
+
+def test_a_data_job_started_by_the_backend_outlives_the_launcher(tmp_path):
+    # 服务器进程跟着启动窗口一起结束；后端启动的数据下载（补财务数据可能要十几个小时）继续运行。
+    server_port, job_port = free_port(), free_port()
+    pid_file = tmp_path / 'job.pid'
+    parent = (
+        "import subprocess,sys,time\n"
+        f"sys.path.insert(0, {str(ROOT / 'dashboard/backend')!r})\n"
+        "from quant_platform.application.data_jobs import launch_detached\n"
+        "subprocess.Popen([sys.executable, '-m', 'http.server', sys.argv[1], '--bind', '127.0.0.1'], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)\n"
+        f"job = launch_detached([sys.executable, '-m', 'http.server', '{job_port}', '--bind', '127.0.0.1'], "
+        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"open({str(pid_file)!r}, 'w').write(str(job.pid))\n"
+        "time.sleep(.5)\n")
+    proc, ready = orphan_launcher(tmp_path, server_port, parent)
+    try:
+        wait_for(lambda: ready.exists() and listening(server_port) and listening(job_port), 'Test servers did not start')
+        _, errors = proc.communicate(input='stop\n', timeout=15)
+        assert proc.returncode == 0, errors
+        wait_for(lambda: not listening(server_port), 'Server survived the launcher')
+        time.sleep(.5)
+        assert listening(job_port), 'The data job was stopped with the launcher'
+    finally:
+        cleanup(proc)
+        if pid_file.exists():
+            subprocess.run(['taskkill', '/PID', pid_file.read_text(), '/T', '/F'], capture_output=True)

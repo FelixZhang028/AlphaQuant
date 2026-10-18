@@ -124,7 +124,7 @@ def agent_status(user: dict = Depends(get_current_user)):
     return {
         "ai": {"available": model is not None, "model": model.label if model else None},
         "decision": {"available": decision is not None, "model": decision.model if decision else None},
-        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "review")},
+        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "decision")},
         "experience_count": len(_prior_store(user["id"]).list()),
         "latest_date": bounds[1].isoformat() if bounds else None,
     }
@@ -334,7 +334,7 @@ def brief_decision(brief_id: str, upgrade: bool = Query(False), user: dict = Dep
 
 
 def _save_stock_report(brief_id: str, user: dict, record: dict, client):
-    with platform_ai.quota_call(user, "review"):
+    with platform_ai.quota_call(user, "decision"):
         odds = stock_report(client, StockFacts.from_dict(record["facts"]))
         with get_conn() as conn:
             conn.execute("BEGIN IMMEDIATE")

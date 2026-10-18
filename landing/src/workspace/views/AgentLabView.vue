@@ -230,7 +230,7 @@ function moveTone(value) {
         参考我的研究经验（{{ status?.experience_count ?? 0 }} 条）
       </label>
       <p class="mt-3 text-sm" :class="status && !status.ai?.available ? 'text-amber-200' : 'text-slate-400'">{{ modelText(status) }}</p>
-      <p v-if="status?.decision?.available" class="mt-2 text-xs text-slate-400">Jev 决策模型已连接，可独立判断本地数据。{{ remainingText(status.usage?.review, '决策评估') }}</p>
+      <p v-if="status?.decision?.available" class="mt-2 text-xs text-slate-400">Jev 决策模型已连接，可独立判断本地数据。{{ remainingText(status.usage?.decision, '个股判断') }}</p>
       <ol v-if="busy" class="mt-3 space-y-1 text-sm" aria-label="分析进度">
         <li :class="step === 'data' ? 'text-indigo-200' : 'text-slate-400'">{{ step === 'data' ? '…' : '✓' }} 整理本地数据（几秒）</li>
         <li v-if="status?.decision?.available" :class="step === 'decision' ? 'text-indigo-200' : 'text-slate-500'">{{ step === 'decision' ? '…' : '○' }} Jev 判断数据中的倾向</li>
@@ -253,7 +253,7 @@ function moveTone(value) {
 
       <JevStockReport v-if="odds" :report="odds" :trade-date="record.trade_date" :text-tilt="brief?.tilt || ''"
         :upgrading="upgradingReport" :can-upgrade="Boolean(status?.decision?.available)"
-        :remaining="status?.usage?.review?.remaining ?? null" @upgrade="upgradeReport" />
+        :remaining="status?.usage?.decision?.remaining ?? null" @upgrade="upgradeReport" />
 
       <SectionCard v-if="brief" title="AI 解读" :hint="`只根据下面的数据写成，每条后面是它引用的数据 · 模型 ${record.model}`">
         <div class="flex flex-wrap items-center gap-3">

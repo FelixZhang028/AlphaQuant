@@ -395,7 +395,9 @@ def test_jev_alone_can_analyse_saved_data_and_reuse_it_privately(api, monkeypatc
     result = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision")
     assert result.status_code == 200, result.text
     assert result.json()['brief'] is None and result.json()['odds']['choice'] == '中性'
-    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 1
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 1
+    # 个股判断单独计数：回测的 AI 评估次数一次也没用。
+    assert platform_ai.usage(current['user'], 'review')['used'] == 0
     again = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").json()
     assert again['odds'] == result.json()['odds'] and len(jev.calls) == 1
     # A failed/missing text model must not erase the independently saved decision.
@@ -410,7 +412,7 @@ def test_independent_jev_failure_does_not_charge_or_store_a_result(api, monkeypa
     monkeypatch.setattr(platform_ai, 'decision_client', lambda: FakeJev(fail=True))
     created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
     assert client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").status_code == 502
-    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 0
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 0
     assert client.get(f"/api/v1/agent-lab/briefs/{created['id']}").json()['odds'] is None
 
 
@@ -430,7 +432,7 @@ def test_legacy_report_requires_explicit_upgrade_and_upgrades_only_once(api, mon
     assert len(upgraded.json()['odds']['dimensions']) == 5 and len(jev.calls) == 1
     assert client.post(path + '?upgrade=true').json()['odds'] == upgraded.json()['odds']
     assert len(jev.calls) == 1
-    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 1
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 1
 
 
 def test_failed_upgrade_preserves_old_report_and_refunds_quota(api, monkeypatch):
@@ -443,7 +445,7 @@ def test_failed_upgrade_preserves_old_report_and_refunds_quota(api, monkeypatch)
     path = f"/api/v1/agent-lab/briefs/{created['id']}"
     assert client.post(path + '/decision?upgrade=true').status_code == 502
     assert client.get(path).json()['odds'] == legacy
-    assert client.get('/api/v1/agent-lab/status').json()['usage']['review']['used'] == 0
+    assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 0
 
 
 RESULT = {

@@ -83,6 +83,8 @@ class JevClient:
         if not api_key:
             raise ValueError("Jev 需要 API Key")
         self.api_key, self.base_url, self.timeout, self.model = api_key, base_url, timeout, model
+        # 实际回答的模型版本（例如请求 jev-latest，回答的是 jev-1.13.0）；还没有回答时为 None。
+        self.served_model: str | None = None
 
     def ask(self, state: Any, questions: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Answer all ``questions`` about ``state`` in one request, keyed like ``questions``."""
@@ -91,6 +93,8 @@ class JevClient:
         answers = data.get("answers") if isinstance(data, dict) else None
         if not isinstance(answers, dict):
             raise ValueError("Invalid Decisions response")
+        if isinstance(data.get("model"), str) and data["model"].strip():
+            self.served_model = data["model"].strip()
         try:
             return {name: parse_answer(question, answers.get(name)) for name, question in questions.items()}
         except (KeyError, TypeError, ValueError, OverflowError):
