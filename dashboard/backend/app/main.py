@@ -106,8 +106,14 @@ async def guard_requests(request: Request, call_next):
     response = await call_next(request)
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
-    if (STATIC_DIR or ADMIN_DIR) and response.headers.get("content-type", "").startswith("text/html"):
-        response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    if STATIC_DIR or ADMIN_DIR:
+        if response.headers.get("content-type", "").startswith("text/html"):
+            response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            # 网页每次都向服务器确认是否更新：发布新版本以后，浏览器不会继续用引用旧文件的页面。
+            response.headers.setdefault("Cache-Control", "no-cache")
+        elif "/assets/" in request.url.path and response.status_code == 200:
+            # 打包出的文件名带内容指纹，内容变了名字就变，可以放心长期缓存。
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
     return response
 
 

@@ -28,6 +28,13 @@ def isolate_native_jev_credentials(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_local_account_settings(monkeypatch):
+    # The local .env may create an administrator or choose how people sign up; tests set these themselves.
+    for name in ("FELLOWQUANT_ADMIN_EMAIL", "FELLOWQUANT_ADMIN_PASSWORD", "FELLOWQUANT_INVITE_CODES", "FELLOWQUANT_REGISTRATION"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def fresh_rate_limits(monkeypatch):
     monkeypatch.setenv("FELLOWQUANT_RATE_LIMITS", "off")
     rate_limit.reset()

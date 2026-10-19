@@ -1,14 +1,39 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { adminStats, adminUsers, dailyUpdateStatus } from '../api.js'
+import { SITE_BASE, adminStats, adminUsers, dailyUpdateStatus } from '../api.js'
+import DataPanel from './DataPanel.vue'
+import InvitesPanel from './InvitesPanel.vue'
+import UsersPanel from './UsersPanel.vue'
 
-// 管理后台只显示平台的真实数字：用户、研究、AI 用量、注册方式、行情数据和备份。
+// 管理后台只显示平台的真实数字，并提供几项管理操作：停用账户、注册方式和邀请码、数据更新。
 const emit = defineEmits(['logout'])
+const tabs = [
+  { key: 'overview', label: '概览' },
+  { key: 'users', label: '用户' },
+  { key: 'invites', label: '注册与邀请码' },
+  { key: 'data', label: '数据更新' },
+]
+const initial = window.location.hash.slice(1)
+const tab = ref(tabs.some((t) => t.key === initial) ? initial : 'overview')
+function openTab(key) {
+  tab.value = key
+  history.replaceState(null, '', `#${key}`)
+  if (key === 'overview' || key === 'users') load()   // 切过来时拿最新的数字
+}
+
 const stats = ref(null)
 const users = ref([])
 const market = ref(null)
 const error = ref('')
 const loading = ref(false)
+const toast = ref('')
+let toastTimer = null
+
+function notify(message) {
+  toast.value = message
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = '' }, 3500)
+}
 
 async function load() {
   loading.value = true
@@ -23,13 +48,12 @@ async function load() {
 onMounted(load)
 
 const number = (value) => (value == null ? '—' : Number(value).toLocaleString())
-const time = (value) => (value ? new Date(value).toLocaleString() : '—')
 
 const cards = computed(() => {
   const s = stats.value
   if (!s) return []
   return [
-    { label: '注册用户', value: number(s.users.total), sub: `今天新注册 ${number(s.users.new_today)} 人` },
+    { label: '注册用户', value: number(s.users.total), sub: `今天新注册 ${number(s.users.new_today)} 人${s.users.disabled ? ` · 已停用 ${number(s.users.disabled)} 人` : ''}` },
     { label: '今天活跃', value: number(s.users.active_today), sub: '今天打开过功能台的用户' },
     { label: '回测记录', value: number(s.research.backtests), sub: `今天 ${number(s.research.backtests_today)} 次 · 保存的策略 ${number(s.research.strategies)} 个` },
     { label: 'AI 研究员分析', value: number(s.research.briefs), sub: `今天 ${number(s.research.briefs_today)} 次` },
@@ -41,6 +65,7 @@ const aiShare = computed(() => {
   if (!ai?.limit) return null
   return Math.min(100, Math.round((ai.used / ai.limit) * 100))
 })
+const topUsers = computed(() => [...users.value].filter((u) => u.ai_today).sort((a, b) => b.ai_today - a.ai_today).slice(0, 5))
 
 const modeText = { open: '开放注册', invite: '凭邀请码注册', closed: '暂停注册' }
 const backupText = computed(() => {
@@ -66,14 +91,20 @@ const marketText = computed(() => {
       </div>
       <div class="ml-auto flex items-center gap-2">
         <button type="button" :disabled="loading" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 hover:text-white disabled:opacity-50" @click="load">{{ loading ? '刷新中…' : '刷新' }}</button>
-        <a href="/app.html" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 no-underline hover:text-white">打开功能台</a>
+        <a :href="`${SITE_BASE}/app.html`" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 no-underline hover:text-white">打开功能台</a>
         <button type="button" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 hover:text-white" @click="emit('logout')">退出</button>
       </div>
     </header>
 
-    <main class="space-y-6">
-      <p v-if="error" role="alert" class="rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">{{ error }}</p>
+    <nav class="mb-6 flex flex-wrap gap-2" aria-label="管理后台">
+      <button v-for="t in tabs" :key="t.key" type="button" class="rounded-full border px-4 py-1.5 text-sm transition"
+        :class="tab === t.key ? 'border-indigo-400/50 bg-indigo-500/15 text-white' : 'border-white/10 text-slate-400 hover:text-slate-200'"
+        :aria-current="tab === t.key ? 'page' : undefined" @click="openTab(t.key)">{{ t.label }}</button>
+    </nav>
 
+    <p v-if="error" role="alert" class="mb-6 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">{{ error }}</p>
+
+    <main v-if="tab === 'overview'" class="space-y-6">
       <section class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4" aria-label="概况">
         <div v-for="c in cards" :key="c.label" class="glass glass-sheen rounded-2xl p-5">
           <p class="text-xs text-slate-400">{{ c.label }}</p>
@@ -94,21 +125,29 @@ const marketText = computed(() => {
             <li v-for="k in stats.ai.by_kind" :key="k.kind" class="flex justify-between text-slate-300"><span>{{ k.label }}</span><span class="text-white">{{ number(k.count) }}</span></li>
           </ul>
           <p v-else class="mt-4 text-sm text-slate-500">今天还没有人用过 AI。</p>
+          <div v-if="topUsers.length" class="mt-4 border-t border-white/10 pt-3">
+            <p class="text-xs text-slate-400">今天用得最多的人</p>
+            <ul class="mt-2 space-y-1.5 text-sm">
+              <li v-for="u in topUsers" :key="u.id" class="flex justify-between text-slate-300"><span>{{ u.name }} <span class="text-xs text-slate-500">{{ u.email }}</span></span><span class="text-white">{{ u.ai_today }}</span></li>
+            </ul>
+            <button type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openTab('users')">在“用户”里查看和停用 →</button>
+          </div>
         </div>
 
         <div class="glass rounded-2xl p-5">
           <h2 class="text-sm font-semibold text-white">注册方式</h2>
           <p class="mt-3 text-lg font-semibold text-white">{{ modeText[stats.registration.mode] || stats.registration.mode }}</p>
-          <p class="mt-1 text-xs text-slate-500">在服务器的 .env 里设置（FELLOWQUANT_INVITE_CODES、FELLOWQUANT_REGISTRATION），改完重启后端。</p>
+          <p class="mt-1 text-xs text-slate-500">还能用的邀请码 {{ stats.registration.invites.filter((i) => i.limit == null || i.used < i.limit).length }} 个</p>
           <table v-if="stats.registration.invites.length" class="mt-4 w-full text-left text-sm">
             <thead><tr class="text-xs text-slate-500"><th class="pb-2 font-medium">邀请码</th><th class="pb-2 text-right font-medium">已用 / 可用</th></tr></thead>
             <tbody class="divide-y divide-white/5">
-              <tr v-for="i in stats.registration.invites" :key="i.code" class="text-slate-300">
+              <tr v-for="i in stats.registration.invites.slice(0, 6)" :key="i.code" class="text-slate-300">
                 <td class="py-2 font-mono text-xs text-indigo-300">{{ i.code }}</td>
                 <td class="py-2 text-right" :class="i.limit != null && i.used >= i.limit ? 'text-amber-300' : 'text-white'">{{ i.used }} / {{ i.limit ?? '不限' }}</td>
               </tr>
             </tbody>
           </table>
+          <button type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openTab('invites')">修改注册方式、生成邀请码 →</button>
         </div>
       </section>
 
@@ -119,40 +158,16 @@ const marketText = computed(() => {
           <div><dt class="text-xs text-slate-400">每天自动更新</dt><dd class="mt-1 text-slate-200">{{ market?.text || '—' }}</dd></div>
           <div><dt class="text-xs text-slate-400">账户数据备份</dt><dd class="mt-1 text-slate-200">{{ backupText }}</dd></div>
         </dl>
-      </section>
-
-      <section class="glass rounded-2xl p-5" aria-label="注册用户">
-        <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-white">注册用户</h2>
-          <span class="text-xs text-slate-500">共 {{ users.length }} 人</span>
-        </div>
-        <div class="mt-4 overflow-x-auto">
-          <table class="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr class="text-xs text-slate-500">
-                <th class="pb-3 font-medium">ID</th>
-                <th class="pb-3 font-medium">用户名</th>
-                <th class="pb-3 font-medium">邮箱</th>
-                <th class="pb-3 font-medium">角色</th>
-                <th class="pb-3 font-medium">注册时间</th>
-                <th class="pb-3 font-medium">最后访问</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-white/5">
-              <tr v-for="u in users" :key="u.id" class="text-slate-300 transition hover:bg-white/5">
-                <td class="py-3 font-mono text-xs text-indigo-300">{{ u.id }}</td>
-                <td class="py-3 font-medium text-white">{{ u.name }}</td>
-                <td class="py-3 text-slate-400">{{ u.email }}</td>
-                <td class="py-3">
-                  <span class="rounded-full border px-2.5 py-0.5 text-xs" :class="u.is_admin ? 'border-violet-400/30 bg-violet-400/10 text-violet-300' : 'border-slate-400/20 bg-slate-400/10 text-slate-300'">{{ u.is_admin ? '管理员' : '用户' }}</span>
-                </td>
-                <td class="py-3 text-slate-400">{{ time(u.created_at) }}</td>
-                <td class="py-3 text-slate-400">{{ time(u.last_seen_at) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <button type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openTab('data')">查看进度、现在运行更新 →</button>
       </section>
     </main>
+
+    <UsersPanel v-else-if="tab === 'users'" :users="users" @changed="load" @notify="notify" />
+    <InvitesPanel v-else-if="tab === 'invites'" @changed="load" @notify="notify" />
+    <DataPanel v-else-if="tab === 'data'" :site-base="SITE_BASE" @notify="notify" />
+
+    <transition enter-active-class="transition duration-200" enter-from-class="opacity-0 translate-y-2" leave-active-class="transition duration-200" leave-to-class="opacity-0">
+      <p v-if="toast" role="status" class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/15 bg-ink/90 px-5 py-2.5 text-sm text-white shadow-lg">{{ toast }}</p>
+    </transition>
   </div>
 </template>

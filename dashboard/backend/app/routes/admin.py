@@ -1,12 +1,18 @@
 """
 管理员接口，挂载在 /api/v1/admin 下（仅 is_admin=1 可访问）。
 
-- GET /users   全部用户（含最后访问时间）
-- GET /stats   平台的真实数字：用户、研究、AI 用量、邀请码、注册方式、备份
+- GET  /users                 全部用户：最后访问、今天和累计的 AI 次数、回测数、是否停用
+- POST /users/{id}/active     停用或恢复一个账户（管理员账户不能停用）
+- GET  /stats                 平台的真实数字：用户、研究、AI 用量、邀请码、注册方式、备份
+- GET  /registration          注册方式和全部邀请码
+- PUT  /registration          改注册方式：open 开放 / invite 凭邀请码 / closed 暂停
+- POST /invites               生成邀请码（可以指定码、次数和备注）
+- POST /invites/{code}/active 停用或恢复页面生成的邀请码
 """
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from ..database import get_conn
 from ..quant import backup, platform_ai, registration
@@ -21,11 +27,32 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+class ActiveIn(BaseModel):
+    active: bool
+
+
+class ModeIn(BaseModel):
+    mode: str
+
+
+class InviteIn(BaseModel):
+    code: str = Field("", max_length=32, description="留空自动生成")
+    max_uses: int | None = Field(None, ge=1, le=100000, description="最多注册几个人，留空不限")
+    note: str = Field("", max_length=60, description="备注，例如发给谁")
+
+
 @router.get("/users", dependencies=[Depends(require_admin)])
 def list_users():
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, name, email, created_at, is_admin, last_seen_at FROM users ORDER BY id DESC"
+            """
+            SELECT u.id, u.name, u.email, u.created_at, u.is_admin, u.is_active, u.last_seen_at,
+                   (SELECT COALESCE(SUM(a.count), 0) FROM ai_usage a WHERE a.user_id = u.id AND a.day = ?) AS ai_today,
+                   (SELECT COALESCE(SUM(a.count), 0) FROM ai_usage a WHERE a.user_id = u.id) AS ai_total,
+                   (SELECT COUNT(*) FROM backtests b WHERE b.user_id = u.id) AS backtests
+            FROM users u ORDER BY u.id DESC
+            """,
+            (platform_ai._today(),),
         ).fetchall()
     return [
         {
@@ -35,9 +62,51 @@ def list_users():
             "created_at": r["created_at"],
             "last_seen_at": r["last_seen_at"],
             "is_admin": bool(r["is_admin"]),
+            "is_active": bool(r["is_active"]),
+            "ai_today": int(r["ai_today"]),
+            "ai_total": int(r["ai_total"]),
+            "backtests": int(r["backtests"]),
         }
         for r in rows
     ]
+
+
+@router.post("/users/{uid}/active", dependencies=[Depends(require_admin)])
+def set_user_active(uid: int, body: ActiveIn):
+    """停用：不能再登录，已经登录的设备立即失效；恢复：可以重新登录。账户里的数据都不动。"""
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="没有这个用户")
+        if row["is_admin"]:
+            raise HTTPException(status_code=403, detail="管理员账户不能停用")
+        conn.execute("UPDATE users SET is_active = ?, token_version = token_version + ? WHERE id = ?",
+                     (1 if body.active else 0, 0 if body.active else 1, uid))
+    return {"id": uid, "is_active": body.active}
+
+
+@router.get("/registration", dependencies=[Depends(require_admin)])
+def registration_settings():
+    return {"mode": registration.mode(), "locked": registration.env_locked(), "invites": registration.all_codes()}
+
+
+@router.put("/registration", dependencies=[Depends(require_admin)])
+def change_registration(body: ModeIn):
+    registration.set_mode(body.mode)
+    return registration_settings()
+
+
+@router.post("/invites", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+def create_invite(body: InviteIn):
+    code = registration.create_code(body.code, body.max_uses, body.note)
+    return {"code": code, **registration_settings()}
+
+
+@router.post("/invites/{code}/active", dependencies=[Depends(require_admin)])
+def set_invite_active(code: str, body: ActiveIn):
+    registration.set_code_active(code, body.active)
+    return registration_settings()
 
 
 def _china_day_start() -> str:
@@ -76,7 +145,7 @@ def admin_stats():
         by_kind = {r["kind"]: int(r["total"]) for r in conn.execute(
             "SELECT kind, SUM(count) AS total FROM ai_usage WHERE day = ? GROUP BY kind", (today,))}
         total_row = conn.execute("SELECT count FROM ai_usage_total WHERE day = ?", (today,)).fetchone()
-        used = {r["code"]: int(r["used"]) for r in conn.execute("SELECT code, used FROM invite_uses")}
+        disabled = _count(conn, "SELECT COUNT(*) FROM users WHERE is_active = 0")
     words = {kind: word for kind, (_variable, _default, word) in platform_ai.LIMITS.items()}
     ai = {
         "day": today,
@@ -84,7 +153,8 @@ def admin_stats():
         "limit": platform_ai.daily_total_limit(),
         "by_kind": [{"kind": kind, "label": words.get(kind, kind), "count": count} for kind, count in sorted(by_kind.items())],
     }
-    invites = [{"code": code, "limit": limit, "used": used.get(code, 0)} for code, limit in registration.invite_codes().items()]
+    invites = [item for item in registration.all_codes() if item["active"]]
+    users["disabled"] = disabled
     return {
         "users": users,
         "research": research,
