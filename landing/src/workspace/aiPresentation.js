@@ -1,7 +1,7 @@
 // AI 研究员页面的展示规则：数据按组排列、倾向的颜色、模型与次数的说明。
 
 export const pointSections = [
-  { key: 'bull_points', label: '看多的理由' },
+  { key: 'bull_points', label: '支持的因素' },
   { key: 'risk_points', label: '风险' },
   { key: 'watch_points', label: '接下来留意' },
 ]
@@ -17,11 +17,15 @@ export function factGroups(facts = []) {
   return groups
 }
 
-// A 股习惯红涨绿跌；文字本身写明了倾向，颜色只是辅助。
+// 倾向只是对数据的归纳：利好因素多、差不多、还是风险因素多。保存的数据里仍是 偏多/中性/偏空，
+// 页面上换成这三个说法；也不用红绿色，免得看起来像买卖信号。
+const TILT_LABELS = { 偏多: '利好多', 中性: '中性', 偏空: '风险多' }
+export const TILT_NOTE = '对当前数据的归纳，不是买卖建议'
+export function tiltLabel(tilt) {
+  return TILT_LABELS[tilt] || tilt || ''
+}
 export function tiltTone(tilt) {
-  if (tilt === '偏多') return 'border-rose-400/30 bg-rose-500/10 text-rose-200'
-  if (tilt === '偏空') return 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
-  return 'border-white/15 bg-white/5 text-slate-200'
+  return TILT_LABELS[tilt] ? 'border-indigo-300/30 bg-indigo-500/10 text-indigo-100' : 'border-white/15 bg-white/5 text-slate-200'
 }
 
 export function remainingText(usage, word) {
@@ -71,7 +75,7 @@ export function percent(value) {
 // 决策模型对同一张数据表的估计；和 AI 解读的倾向不同时说明信号不一致。
 export function oddsText(odds) {
   if (!odds) return ''
-  const parts = ['偏多', '中性', '偏空'].map((tilt) => `${tilt} ${percent(odds.probabilities?.[tilt] ?? 0)}`)
+  const parts = ['偏多', '中性', '偏空'].map((tilt) => `${tiltLabel(tilt)} ${percent(odds.probabilities?.[tilt] ?? 0)}`)
   return `决策模型 ${odds.model} 的估计：${parts.join(' · ')}`
 }
 export function oddsDisagree(odds, tilt) {

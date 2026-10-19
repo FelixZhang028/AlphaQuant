@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { openResearch } from '../researchNavigation.js'
-import { evidenceText, oddsDisagree, tiltTone } from '../aiPresentation.js'
+import { evidenceText, oddsDisagree, TILT_NOTE, tiltLabel, tiltTone } from '../aiPresentation.js'
 import { assessmentTone, confidenceLabel, distributionRows, isDetailedReport, probabilityLabel, reportSummary } from '../jevReportPresentation.js'
 
 const props = defineProps({
@@ -17,7 +17,6 @@ const detailed = computed(() => isDetailedReport(props.report))
 const rows = computed(() => distributionRows(Object.fromEntries(['偏多', '中性', '偏空'].map(label => [label, props.report.probabilities?.[label]]))))
 const date = computed(() => props.report.as_of || props.tradeDate)
 const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
-const probabilityColors = { 偏多: 'bg-rose-400', 中性: 'bg-indigo-400', 偏空: 'bg-emerald-400' }
 </script>
 
 <template>
@@ -35,12 +34,13 @@ const probabilityColors = { 偏多: 'bg-rose-400', 中性: 'bg-indigo-400', 偏�
         <div class="min-w-0">
           <p class="text-xs font-medium text-slate-400">综合判断</p>
           <div class="mt-3 flex flex-wrap items-center gap-3">
-            <span class="rounded-xl border px-4 py-2 text-xl font-semibold" :class="tiltTone(report.choice)">{{ report.choice }}</span>
+            <span class="rounded-xl border px-4 py-2 text-xl font-semibold" :class="tiltTone(report.choice)">{{ tiltLabel(report.choice) }}</span>
             <div class="text-sm text-slate-300">
               <p>模型置信度 <span class="font-semibold text-white">{{ confidenceLabel(report.confidence) }}</span> · {{ probabilityLabel(report.confidence) }}</p>
               <p class="mt-0.5 text-xs text-slate-500">反映模型对分类的把握程度</p>
             </div>
           </div>
+          <p class="mt-2 text-xs text-slate-500">{{ TILT_NOTE }}</p>
           <p class="mt-4 text-base leading-relaxed text-slate-200">{{ reportSummary(report) }}</p>
           <p v-if="disagree" class="mt-2 text-sm text-amber-200">Jev 与文字解读的倾向不同，说明对同一份数据的判断存在分歧。</p>
           <p class="mt-3 text-xs leading-relaxed text-slate-500">概率表示对三类倾向的判断，不是未来涨跌幅或获利概率。说明文字由结构化结果整理，不是模型生成的推理过程。</p>
@@ -50,8 +50,8 @@ const probabilityColors = { 偏多: 'bg-rose-400', 中性: 'bg-indigo-400', 偏�
           <h4 class="text-sm font-medium text-slate-300">三种倾向的概率</h4>
           <ul class="mt-4 space-y-4">
             <li v-for="row in rows" :key="row.label">
-              <div class="mb-1.5 flex justify-between text-sm"><span class="text-slate-300">{{ row.label }}<span v-if="row.label === report.choice" class="ml-2 text-xs text-slate-500">本次判断</span></span><span class="font-medium text-white">{{ row.text }}</span></div>
-              <div class="h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true"><div class="h-full rounded-full" :class="probabilityColors[row.label]" :style="{ width: row.width }" /></div>
+              <div class="mb-1.5 flex justify-between text-sm"><span class="text-slate-300">{{ tiltLabel(row.label) }}<span v-if="row.label === report.choice" class="ml-2 text-xs text-slate-500">本次判断</span></span><span class="font-medium text-white">{{ row.text }}</span></div>
+              <div class="h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true"><div class="h-full rounded-full bg-indigo-400" :style="{ width: row.width }" /></div>
             </li>
           </ul>
         </div>

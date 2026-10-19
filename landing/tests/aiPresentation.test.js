@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltTone,
+  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltLabel, tiltTone,
 } from '../src/workspace/aiPresentation.js'
 import { researchContext, researchUrl } from '../src/workspace/researchNavigation.js'
 
@@ -21,11 +21,13 @@ test('没有模型、次数和管理员的说明', () => {
   assert.equal(remainingText({ remaining: 0 }, '追问'), '今天的追问次数已用完')
 })
 
-test('依据只在日期不同时写日期，倾向有各自的颜色', () => {
+test('依据只在日期不同时写日期，倾向换成对数据的说法，不用红绿色', () => {
   assert.equal(evidenceText({ label: '市盈率', text: '19.6', as_of: '2026-10-13' }, '2026-10-13'), '市盈率：19.6')
   assert.equal(evidenceText({ label: '最新财报', text: '半年报', as_of: '2026-08-20' }, '2026-10-13'), '最新财报：半年报（2026-08-20）')
-  assert.notEqual(tiltTone('偏多'), tiltTone('偏空'))
-  assert.equal(tiltTone('中性'), tiltTone('其他'))
+  assert.deepEqual(['偏多', '中性', '偏空'].map(tiltLabel), ['利好多', '中性', '风险多'])
+  assert.equal(tiltLabel(''), '')
+  assert.equal(tiltTone('偏多'), tiltTone('偏空'))
+  assert.notEqual(tiltTone('中性'), tiltTone('其他'))
 })
 
 test('分析编号写进链接，刷新后能打开同一次分析', () => {
@@ -53,7 +55,7 @@ test('开始分析时用选过的股票、完整代码或列表里的第一只',
 
 test('决策模型的概率：三种倾向都写出来，看法不同时能看出来', () => {
   const odds = { choice: '中性', probabilities: { 偏多: 0.25, 中性: 0.55, 偏空: 0.2 }, model: 'jev-1.13' }
-  assert.equal(oddsText(odds), '决策模型 jev-1.13 的估计：偏多 25% · 中性 55% · 偏空 20%')
+  assert.equal(oddsText(odds), '决策模型 jev-1.13 的估计：利好多 25% · 中性 55% · 风险多 20%')
   assert.equal(oddsDisagree(odds, '偏多'), true)
   assert.equal(oddsDisagree(odds, '中性'), false)
   assert.equal(oddsText(null), '')
