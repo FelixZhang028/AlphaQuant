@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from .database import init_db
 from .quant.backup import BackupScheduler
 from .quant.daily_schedule import DailyScheduler
+from .quant.fundamentals_schedule import FundamentalsScheduler
 from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
 from .routes.auth import router as auth_router
@@ -61,15 +62,19 @@ except ValueError:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）；每天备份一次用户数据。
+    # 每个交易日收盘后自动更新全市场数据（FELLOWQUANT_DAILY_UPDATE=off 关闭）；财报季每周六更新财务数据
+    # （FELLOWQUANT_FUNDAMENTALS_UPDATE=off 关闭）；每天备份一次用户数据。
     scheduler = DailyScheduler(_data_jobs())
+    fundamentals = FundamentalsScheduler(_data_jobs())
     backups = BackupScheduler()
     scheduler.start()
+    fundamentals.start()
     backups.start()
     try:
         yield
     finally:
         scheduler.stop()
+        fundamentals.stop()
         backups.stop()
 
 
