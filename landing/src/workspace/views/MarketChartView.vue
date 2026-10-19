@@ -20,7 +20,7 @@ const props = defineProps({
 const runReference = (value) => (value ? `run-${String(value).replace(/^run-/, '')}` : '')
 
 // ---------- 股票列表 ----------
-const SCOPES = [{ key: 'all', label: '全部已下载' }, { key: 'universe', label: '股票池' }]
+const SCOPES = [{ key: 'all', label: '全部股票' }, { key: 'universe', label: '股票池' }]
 const searchText = ref('')
 const query = ref('')
 const scope = ref('all')
@@ -275,8 +275,8 @@ onActivated(() => {
         </div>
       </template>
       <template v-else-if="run ? traded || tradedError : !listLoading && !listError">
-        <EmptyState :text="run ? '这次回测没有可以显示的股票。' : '本地还没有可以查看的行情，请先下载数据。'" />
-        <button v-if="!run" type="button" class="mt-4 text-sm text-indigo-300 hover:underline" @click="navigate('data-update')">去数据更新</button>
+        <EmptyState :text="run ? '这次回测没有可以显示的股票。' : '平台还没有可以查看的行情，管理员更新后就能看。'" />
+        <button v-if="!run" type="button" class="mt-4 text-sm text-indigo-300 hover:underline" @click="navigate('data-guide')">看数据说明</button>
       </template>
     </section>
 

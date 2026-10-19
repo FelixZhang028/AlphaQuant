@@ -5,7 +5,7 @@ export const CONTENT = {
     hero: {
       eyebrow: 'A-Share Quant Research Workbench',
       sub: '用数据检验每一个想法',
-      tagLine1: '数据更新 → 策略规则 → 历史回测 → 参数验证 → 风险与成本分析',
+      tagLine1: '数据准备 → 策略规则 → 历史回测 → 参数验证 → 风险与成本分析',
       tagLine2: '让研究有据可查，判断始终由你作出',
       ctaPrimary: '开始研究',
       ctaSecondary: '一句话写规则',
@@ -33,14 +33,14 @@ export const CONTENT = {
       desc: '三种方式，开始一次研究。',
       items: [
         { num: '01', title: '可视化回测', sub: '20+ 项收益与风险指标 · 资金曲线与成交明细 · 与沪深300 等指数对比', href: '/app.html?view=backtest-review' },
-        { num: '02', title: '本地数据中心', sub: 'BaoStock 免费行情 · 全市场含退市股 · 指数历史成分股、财务与行业数据', href: '/app.html?view=data-management' },
+        { num: '02', title: '平台数据', sub: 'BaoStock 免费行情 · 全市场含退市股 · 指数历史成分股、财务与行业数据', href: '/app.html?view=data-guide' },
         { num: '03', title: '零代码策略', sub: '一句话生成规则 · 六种模板 · 用表单填写条件', href: '/app.html?view=strategy-studio' },
       ],
     },
     about: {
       title: 'About · 关于',
       headline: '让数据说话，<br />把判断留给你。',
-      p1: 'FellowQuant 是一个 A 股量化研究工具，从数据更新、编写规则、历史回测，到参数验证和因子研究，帮你系统地检验自己的想法。',
+      p1: 'FellowQuant 是一个 A 股量化研究工具，从数据准备、编写规则、历史回测，到参数验证和因子研究，帮你系统地检验自己的想法。',
       p2: '每次回测都会做六个维度的可信度审计，并说明结论的适用范围。平台的所有分析结果仅供研究参考。',
       links: [
         { label: '开始研究', href: '/auth.html' },
@@ -50,7 +50,7 @@ export const CONTENT = {
     footer: {
       links: [
         { label: '可视化回测', href: '/app.html?view=backtest-review' },
-        { label: '本地数据中心', href: '/app.html?view=data-management' },
+        { label: '数据说明', href: '/app.html?view=data-guide' },
         { label: '零代码策略', href: '/app.html?view=strategy-studio' },
         { label: '因子实验室', href: '/app.html?view=factor-lab' },
         { label: 'AI 研究员', href: '/app.html?view=agent-lab' },
@@ -96,7 +96,7 @@ export const CONTENT = {
       desc: 'Three ways to start a piece of research.',
       items: [
         { num: '01', title: 'Visual Backtesting', sub: '20+ return and risk metrics · equity curve and fills · compared with CSI 300 and other indices', href: '/app.html?view=backtest-review' },
-        { num: '02', title: 'Local Data Center', sub: 'Free BaoStock market data · whole market incl. delisted stocks · historical index members, financials and industries', href: '/app.html?view=data-management' },
+        { num: '02', title: 'Platform Data', sub: 'Free BaoStock market data · whole market incl. delisted stocks · historical index members, financials and industries', href: '/app.html?view=data-guide' },
         { num: '03', title: 'No-code Strategies', sub: 'Rules from one sentence · six templates · conditions filled in a form', href: '/app.html?view=strategy-studio' },
       ],
     },
@@ -113,7 +113,7 @@ export const CONTENT = {
     footer: {
       links: [
         { label: 'Visual Backtesting', href: '/app.html?view=backtest-review' },
-        { label: 'Local Data Center', href: '/app.html?view=data-management' },
+        { label: 'Data Guide', href: '/app.html?view=data-guide' },
         { label: 'No-code Strategies', href: '/app.html?view=strategy-studio' },
         { label: 'Factor Lab', href: '/app.html?view=factor-lab' },
         { label: 'AI Researcher', href: '/app.html?view=agent-lab' },

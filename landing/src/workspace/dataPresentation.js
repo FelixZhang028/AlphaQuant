@@ -83,7 +83,7 @@ export function indexConstituentsSummary(status) {
 // 因子评估时可以选的中性化方式。
 export const NEUTRALIZATION_OPTIONS = [
   { value: 'none', label: '不做', hint: '' },
-  { value: 'industry', label: '行业', hint: '去掉行业之间的差别，只比较同行业里的股票。需要先下载行业分类。' },
-  { value: 'size', label: '市值', hint: '去掉大小盘的影响。需要先下载财务数据（用到总股本）。' },
-  { value: 'both', label: '行业和市值', hint: '同时去掉行业和大小盘的影响。需要先下载行业分类和财务数据。' },
+  { value: 'industry', label: '行业', hint: '去掉行业之间的差别，只比较同行业里的股票。要用到平台的行业分类。' },
+  { value: 'size', label: '市值', hint: '去掉大小盘的影响。要用到平台的财务数据（总股本）。' },
+  { value: 'both', label: '行业和市值', hint: '同时去掉行业和大小盘的影响。要用到平台的行业分类和财务数据。' },
 ]

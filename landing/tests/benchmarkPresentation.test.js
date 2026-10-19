@@ -42,8 +42,8 @@ test('可以选的指数来自本地行情；正在显示的基准不在其中�
 test('基准行情没有覆盖整个区间时不比较，只说明原因；没有基准时什么都不显示', () => {
   const late = { symbol: '000300.SH', name: '沪深 300', comparable: false, benchmark_start: '2022-01-04' }
   assert.deepEqual([benchmarkCards(late), benchmarkSeries(late)], [[], []])
-  assert.equal(benchmarkNote(late), '沪深 300 的本地行情从 2022-01-04 开始，没有覆盖整个回测区间，所以不做比较。可以在「数据更新」里补充基准指数的行情。')
+  assert.equal(benchmarkNote(late), '沪深 300 的本地行情从 2022-01-04 开始，没有覆盖整个回测区间，所以不做比较。平台补齐基准指数的行情后就能比较。')
   const stopped = { symbol: '000905.SH', name: '中证 500', comparable: false, benchmark_end: '2025-06-30' }
-  assert.equal(benchmarkNote(stopped), '中证 500 的本地行情只到 2025-06-30，没有覆盖整个回测区间，所以不做比较。可以在「数据更新」里补充基准指数的行情。')
+  assert.equal(benchmarkNote(stopped), '中证 500 的本地行情只到 2025-06-30，没有覆盖整个回测区间，所以不做比较。平台补齐基准指数的行情后就能比较。')
   assert.deepEqual([benchmarkCards(null), benchmarkSeries(null), benchmarkNote(null)], [[], [], ''])
 })

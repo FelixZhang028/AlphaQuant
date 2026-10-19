@@ -141,7 +141,7 @@ class BacktestEngine:
                 names = "、".join(sorted(absent)[:10]) + ("等" if len(absent) > 10 else "")
                 raise BacktestValidityError(
                     f"这段时间的成分股里有 {len(absent)} 只在本地完全没有行情：{names}。"
-                    "去掉它们再回测会让结果偏高，所以没有运行。请先下载这些股票的行情，或者换一个不包含它们的回测区间。"
+                    "去掉它们再回测会让结果偏高，所以没有运行。可以换一个不包含它们的回测区间，或等平台补齐这些股票的行情。"
                 )
         members_missing_bars = (
             self.universe.members_missing_bars(bars, start_date, end_date)

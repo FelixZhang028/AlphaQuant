@@ -200,7 +200,7 @@ const pill = (active) => active ? 'border-indigo-400/50 bg-indigo-500/15 text-wh
 
     <template v-if="user?.is_admin">
       <SectionCard title="平台设置（管理员）" hint="这里的设置对整个平台生效">
-        <a href="/admin/" class="text-sm text-indigo-300 hover:text-indigo-200">打开管理后台：用户、注册与邀请码、数据更新 →</a>
+        <a href="/admin/" class="text-sm text-indigo-300 hover:text-indigo-200">打开管理后台：用户、注册与邀请码、数据运维 →</a>
       </SectionCard>
       <KnowledgeBaseView :user="user" :notify="notify" settings-only />
     </template>

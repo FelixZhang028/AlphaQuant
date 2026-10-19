@@ -46,7 +46,7 @@ export function benchmarkNote(benchmark) {
   if (!benchmark) return ''
   if (!benchmark.comparable) {
     const span = benchmark.benchmark_end ? `只到 ${benchmark.benchmark_end}` : `从 ${benchmark.benchmark_start} 开始`
-    return `${benchmark.name} 的本地行情${span}，没有覆盖整个回测区间，所以不做比较。可以在「数据更新」里补充基准指数的行情。`
+    return `${benchmark.name} 的本地行情${span}，没有覆盖整个回测区间，所以不做比较。平台补齐基准指数的行情后就能比较。`
   }
   const parts = []
   if (finite(benchmark.information_ratio)) parts.push(`信息比率 ${Number(benchmark.information_ratio).toFixed(2)}`)

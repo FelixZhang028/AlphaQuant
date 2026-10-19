@@ -113,11 +113,11 @@ onActivated(loadOverview)
     <!-- 标题 -->
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-      <h1 class="text-xl font-bold text-white">数据概览</h1>
-      <p class="mt-1 text-sm text-slate-400">选好股票，更新行情，然后开始研究。</p>
+      <h1 class="text-xl font-bold text-white">数据检查</h1>
+      <p class="mt-1 text-sm text-slate-400">管理员核对本地数据：证券主表、股票池行情的覆盖和数据源状态。所有人看的介绍在「数据说明」。</p>
       <ol class="mt-4 flex flex-wrap gap-3 text-sm text-slate-300" aria-label="数据准备步骤">
         <li><button type="button" class="glass glass-sheen preparation-step" @click="navigate('universe')">1. 选择股票</button></li>
-        <li><button type="button" class="glass glass-sheen preparation-step" @click="navigate('data-update')">2. 更新数据</button></li>
+        <li><button type="button" class="glass glass-sheen preparation-step" @click="navigate('data-update')">2. 数据运维</button></li>
         <li><button type="button" class="glass glass-sheen preparation-step" @click="navigate('backtest-review')">3. 开始研究</button></li>
       </ol>
     </div>

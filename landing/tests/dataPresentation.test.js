@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { summarizeDataOverview } from '../src/workspace/dataPresentation.js'
-import { allItems, groups, navigationItem, resolveView } from '../src/workspace/modules.js'
+import { adminViews, allItems, groups, navigationItem, resolveView, viewFor, visibleGroups } from '../src/workspace/modules.js'
 
 const complete = () => ({
   configured_symbol_count: 2, coverage_ratio: 1, unknown_status_rows: 0,
@@ -48,11 +48,20 @@ test('空股票池和无本地行情显示不同下一步', () => {
   assert.equal(summarizeDataOverview({ ...complete(), per_symbol: [], coverage_ratio: 0 }).state, 'missing')
 })
 
-test('菜单收敛后，XTick的原直达链接仍能定位到正确分组，风险管理的旧链接落到回测页', () => {
-  const data = groups.find((group) => group.label === '数据管理')
-  assert.deepEqual(data.items.map((item) => item.key), ['data-management', 'data-update', 'universe'])
+test('数据菜单：所有人看数据说明、股票查询和股票池；数据运维、数据检查和 XTick 只有管理员能打开', () => {
+  const data = groups.find((group) => group.label === '数据')
+  assert.deepEqual(data.items.map((item) => item.key), ['data-guide', 'market-lookup', 'universe', 'data-update'])
+  assert.deepEqual(visibleGroups(false).find((group) => group.label === '数据').items.map((item) => item.key), ['data-guide', 'market-lookup', 'universe'])
+  assert.deepEqual(visibleGroups(true).find((group) => group.label === '数据').items.map((item) => item.key), ['data-guide', 'market-lookup', 'universe', 'data-update'])
+  assert.deepEqual([...adminViews].sort(), ['data-management', 'data-update', 'xtick-data'])
+  for (const old of ['data-update', 'data-management', 'xtick-data']) {
+    assert.equal(viewFor(old, false), 'data-guide')      // 普通用户的旧链接落到数据说明
+    assert.equal(viewFor(old, true), old)
+  }
+  assert.equal(viewFor('market-lookup', false), 'market-lookup')
   assert.ok(allItems.some((item) => item.key === 'xtick-data'))
-  assert.equal(navigationItem('xtick-data').key, 'data-management')
+  assert.equal(navigationItem('xtick-data').key, 'data-update')
+  assert.equal(navigationItem('data-management').key, 'data-update')
   // 风控设置只保留在回测表单里；独立页面已删除。
   assert.ok(!allItems.some((item) => item.key === 'risk-management'))
   assert.equal(resolveView('risk-management'), 'backtest-review')

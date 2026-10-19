@@ -237,7 +237,7 @@ def test_status_and_the_background_job(tmp_path, monkeypatch):
 
 def test_a_backtest_is_refused_when_the_lists_do_not_cover_its_dates(tmp_path):
     repo = ParquetMarketDataRepository(tmp_path / "market")
-    with pytest.raises(ValueError, match="还没有沪深300的历史成分股.*数据更新"):
+    with pytest.raises(ValueError, match="平台还没有沪深300的历史成分股，管理员更新后就能用"):
         require_coverage(repo.read_table(CHECKS_TABLE), HS300, date(2024, 1, 2), date(2025, 6, 30))
     run(repo, Vendor(), indexes=[HS300])
     checks = repo.read_table(CHECKS_TABLE)

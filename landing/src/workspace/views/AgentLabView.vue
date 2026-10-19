@@ -298,7 +298,7 @@ function moveTone(value) {
           <ul class="mt-2 space-y-1 text-sm text-slate-400">
             <li v-for="item in facts.missing" :key="item.group"><span class="text-slate-300">{{ item.group }}</span>：{{ item.reason }}</li>
           </ul>
-          <button type="button" class="mt-3 text-sm text-indigo-300 hover:text-indigo-200" @click="openResearch('data-update')">去数据更新 →</button>
+          <button type="button" class="mt-3 text-sm text-indigo-300 hover:text-indigo-200" @click="openResearch('data-guide')">看平台有哪些数据 →</button>
         </div>
       </SectionCard>
 

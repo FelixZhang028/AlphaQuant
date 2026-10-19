@@ -447,7 +447,7 @@ onBeforeUnmount(clearPoll)
     <!-- 标题 -->
     <div class="glass relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
-      <h1 class="text-xl font-bold text-white">数据更新</h1>
+      <h1 class="text-xl font-bold text-white">数据运维</h1>
       <p class="mt-1 text-sm text-slate-400">{{ isAdmin ? '平台每个交易日自动更新全市场数据；下面的工具用来补历史数据、单独更新和查看后台任务。' : '数据由平台每个交易日自动更新，不需要你操作；这里可以看到每类数据的情况。' }}</p>
     </div>
 

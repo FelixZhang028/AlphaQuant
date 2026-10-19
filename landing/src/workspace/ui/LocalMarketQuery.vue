@@ -137,10 +137,10 @@ onActivated(() => load())
 </script>
 
 <template>
-  <SectionCard title="本地行情查询" hint="查询本地已下载的股票，确认行情范围后再开始研究">
+  <SectionCard title="行情查询" hint="查看平台上每只股票的行情范围，确认后再开始研究">
     <template #actions><button type="button" class="text-sm text-indigo-300 hover:underline disabled:opacity-50" :disabled="loading" @click="load()">刷新列表</button></template>
     <div class="flex flex-wrap gap-2" role="group" aria-label="行情查询范围">
-      <button v-for="item in [{ key: 'all', label: '全部已下载', count: catalog.downloaded_count }, { key: 'universe', label: '当前股票池', count: catalog.universe_count }]" :key="item.key"
+      <button v-for="item in [{ key: 'all', label: '全部股票', count: catalog.downloaded_count }, { key: 'universe', label: '当前股票池', count: catalog.universe_count }]" :key="item.key"
         type="button" :aria-pressed="scope === item.key" class="rounded-full border px-4 py-2 text-sm transition"
         :class="scope === item.key ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'"
         @click="changeScope(item.key)">{{ item.label }}{{ loaded ? `（${item.count}）` : '' }}</button>
@@ -149,12 +149,12 @@ onActivated(() => load())
       <input v-model="searchText" aria-label="搜索本地行情" placeholder="输入股票名称或代码" maxlength="80" class="w-full max-w-sm rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-400/40" />
       <button type="submit" class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/10">搜索</button>
     </form>
-    <p class="mt-3 text-xs text-slate-400">“已保存区间完整”只表示区间内的交易日记录齐全；请结合截至日期判断是否需要更新。</p>
+    <p class="mt-3 text-xs text-slate-400">“已保存区间完整”只表示区间内的交易日记录齐全；截至日期早于最近交易日的，多半是停牌或已经退市。</p>
     <p v-if="scope === 'universe' && loaded" class="mt-2 text-xs text-slate-400">股票池 {{ catalog.universe_count }} 只，已有行情 {{ catalog.universe_downloaded_count }} 只，未下载 {{ catalog.universe_count - catalog.universe_downloaded_count }} 只。</p>
     <p v-if="loading" class="mt-4 text-sm text-slate-400" role="status">正在读取本地行情…</p>
     <p v-else-if="error" class="mt-4 text-sm text-rose-300" role="alert">{{ error }} <button type="button" class="underline" @click="load()">重试</button></p>
     <div v-else class="mt-4">
-      <DataTable :columns="columns" :rows="rows" :empty="query ? '没有找到匹配的股票，请调整名称或代码' : scope === 'all' ? '本地暂无已下载行情，请先到数据更新下载股票池行情' : '当前股票池为空，请先到股票池管理添加股票'">
+      <DataTable :columns="columns" :rows="rows" :empty="query ? '没有找到匹配的股票，请调整名称或代码' : scope === 'all' ? '平台还没有行情数据，管理员更新后就能查询' : '当前股票池为空，请先到股票池管理添加股票'">
         <template #cell-name="{ row }"><span class="whitespace-nowrap">{{ row.name }}</span></template>
         <template #cell-symbol="{ row }"><span class="whitespace-nowrap">{{ row.symbol }}</span></template>
         <template #cell-start_date="{ row }"><span class="whitespace-nowrap">{{ row.start_date }}</span></template>

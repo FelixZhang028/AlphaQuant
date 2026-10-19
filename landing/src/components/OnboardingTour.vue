@@ -10,10 +10,10 @@ const emit = defineEmits(['close'])
 const steps = [
   {
     icon: '📊',
-    title: '第 1 步 · 下载数据',
-    text: '进入「数据更新」页面，点击「开始更新」下载 A 股日线行情与交易日历。回测和因子研究都依赖本地数据。',
-    view: 'data-update',
-    viewLabel: '去数据更新',
+    title: '第 1 步 · 了解平台的数据',
+    text: '平台每个交易日自动更新沪深 A 股的行情、估值、财报等数据，你不需要自己下载。在「数据说明」里可以看到有哪些数据、更新到哪天，以及回测怎么用它们。',
+    view: 'data-guide',
+    viewLabel: '看数据说明',
   },
   {
     icon: '🗂️',

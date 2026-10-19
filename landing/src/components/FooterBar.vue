@@ -4,7 +4,7 @@ const columns = [
     title: '产品',
     links: [
       { label: '可视化回测', href: '/app.html?view=backtest-review' },
-      { label: '本地数据中心', href: '/app.html?view=data-management' },
+      { label: '数据说明', href: '/app.html?view=data-guide' },
       { label: '零代码策略', href: '/app.html?view=strategy-studio' },
       { label: '因子实验室', href: '/app.html?view=factor-lab' },
       { label: 'AI研究员', href: '/app.html?view=agent-lab' },

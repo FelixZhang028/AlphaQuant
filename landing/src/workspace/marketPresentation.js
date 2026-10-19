@@ -22,7 +22,7 @@ export function marketLabel(value, markets) {
 export function marketNote(value, markets) {
   const item = (markets || []).find((entry) => entry.value === value)
   if (!item || item.value === CURRENT_POOL) return ''
-  if (!item.available) return `还没有下载${item.label}，请先到「数据更新」下载指数成分股。`
+  if (!item.available) return `平台还没有${item.label}的名单，管理员更新后就能用。`
   return `每个调仓日只在当时的成分股里选股，不使用今天的名单。成分股历史从 ${item.start_date} 开始，核对到 ${item.end_date}；开始日期不能早于 ${item.start_date}。`
 }
 
@@ -31,7 +31,7 @@ export function factorUniverseNote(value, markets) {
   const item = (markets || []).find((entry) => entry.value === value)
   if (!item) return ''
   if (item.value === CURRENT_POOL) return '只用股票池里的股票。股票很少时，每天的排名和分组都很粗，IC 说明不了多少问题，建议选择指数。'
-  if (!item.available) return `还没有下载${item.label}，请先到「数据更新」下载指数成分股。`
+  if (!item.available) return `平台还没有${item.label}的名单，管理员更新后就能用。`
   return `每天只用那天在指数里的股票，不用今天的名单；Alpha101 的截面排名也只在当天的成分股之间进行。成分股历史从 ${item.start_date} 开始，开始日期不能早于这一天。`
 }
 
