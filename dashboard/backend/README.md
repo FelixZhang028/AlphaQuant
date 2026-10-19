@@ -1,52 +1,32 @@
 # FellowQuant · 后端（FastAPI）
 
-为前端实时监控大屏提供数据的 FastAPI 服务，当前使用内置模拟器生成拟真数据，
-可平滑替换为真实数据源（见 `app/models.py` 与 `app/simulator.py` 中的注释）。
+官网、功能台和管理后台共用的后端：账户与登录、行情数据、策略与回测、因子研究、AI 研究员和管理后台的统计。
 
 ## 运行
 
 ```bash
-cd backend
+cd dashboard/backend
 python -m venv .venv
-# Windows (Git Bash): source .venv/Scripts/activate
-# Linux/macOS:        source .venv/bin/activate
-pip install -r requirements.txt
+# Windows (PowerShell): .\.venv\Scripts\Activate.ps1
+# Linux/macOS:          source .venv/bin/activate
+pip install -r requirements.txt -c requirements.lock
 uvicorn app.main:app --reload
 ```
 
-- REST 接口文档：http://localhost:8000/docs
-- 健康检查：http://localhost:8000/
-- WebSocket：`ws://localhost:8000/ws/dashboard`（每 1s 推送一次完整快照）
-
-## 接口一览（均在 `/api/v1/stats` 前缀下）
-
-| 路径 | 含义 |
-| --- | --- |
-| `/snapshot` | 完整仪表盘快照（推荐，前端轮询模式使用） |
-| `/active_strategies` | 当前活跃策略总数 |
-| `/running_instances` | 正在执行的策略实例数 |
-| `/data_links` | 当前数据源连接数 |
-| `/pending_orders` | 消息队列中待处理指令数 |
-| `/today_trades` | 今日累计成交订单数 |
-| `/process_rate` | 系统处理速率（笔/秒） |
-| `/throughput` | 当前吞吐量（笔/秒） |
-| `/avg_latency` | 订单平均处理延迟（ms） |
-| `/pending_orders_count` | 当前挂起订单数 |
-| `/module_load` | 六个模块的负载百分比 |
+- 健康检查：http://localhost:8000/api/health
+- 接口文档：设置 `FELLOWQUANT_API_DOCS=on` 后在 http://localhost:8000/docs（`scripts/start.ps1` 本机开发时自动打开）
+- 配置写在同目录的 `.env` 里，参考 `.env.example`；全部配置的说明见项目根目录的 README
 
 ## 目录结构
 
 ```
 app/
-├── main.py          # FastAPI 入口，注册 CORS 与路由
-├── models.py        # Pydantic 模型（含字段中文注释与真实数据源替换说明）
-├── simulator.py     # 随机游走数据模拟器（替换真实数据只改这里）
-├── routes/stats.py  # REST 端点
-└── ws.py            # WebSocket /ws/dashboard
+├── main.py        # 入口：安全设置、跨域、路由，正式部署时也提供打包好的网页
+├── database.py    # SQLite 账户数据库（data/app.db）
+├── security.py    # 密码加密与登录令牌
+├── routes/        # 接口：auth 登录注册、workspace 数据与研究、backtests 回测、agent_lab AI 研究员、admin 管理后台
+└── quant/         # 限速、邀请码、AI 次数、每日更新、备份等
+quant_platform/    # 量化研究：数据、回测、因子、WeKnora 与 Jev 适配器
+trading_agents/    # 多智能体 AI 投研流程
+tests/             # 回归测试：python -m pytest -q
 ```
-
-## 替换为真实数据
-
-只需修改 `app/simulator.py` 的 `DataSimulator.tick()`：从数据库 / Redis /
-消息队列 / Prometheus 等读取真实指标并填充 `DashboardSnapshot` 即可，
-模型与接口层无需任何改动。

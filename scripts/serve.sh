@@ -9,13 +9,18 @@ port="${1:-8000}"
 host="${LISTEN_HOST:-127.0.0.1}"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "[打包] 官网和功能台 ..."
-  (cd "$root/landing" && { [ -d node_modules ] || npm ci; } && npm run build)
+  for part in landing admin; do
+    echo "[打包] $part ..."
+    (cd "$root/$part" && { [ -d node_modules ] || npm ci; } && npm run build)
+  done
 fi
-[ -f "$root/landing/dist/index.html" ] || { echo "没有找到打包好的网页：$root/landing/dist" >&2; exit 1; }
+for part in landing admin; do
+  [ -f "$root/$part/dist/index.html" ] || { echo "没有找到打包好的网页：$root/$part/dist" >&2; exit 1; }
+done
 
 export FELLOWQUANT_STATIC_DIR="$root/landing/dist"
+export FELLOWQUANT_ADMIN_DIR="$root/admin/dist"
 unset FELLOWQUANT_API_DOCS
-echo "[启动] FellowQuant  http://$host:$port  （按 Ctrl+C 停止）"
+echo "[启动] FellowQuant  http://$host:$port  管理后台 /admin/  （按 Ctrl+C 停止）"
 # 只开一个进程：次数限制和后台任务都记在这个进程里。
 exec python3 -m uvicorn app.main:app --app-dir "$root/dashboard/backend" --host "$host" --port "$port" --no-server-header
