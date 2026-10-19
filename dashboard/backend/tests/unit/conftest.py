@@ -35,6 +35,19 @@ def isolate_local_account_settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_factor_profiles(tmp_path, monkeypatch):
+    # AI 研究员的因子画像：算在临时目录里，不开后台线程，也不沿用别的测试算过的结果。
+    from quant_platform.ai_research import report
+
+    monkeypatch.setattr(report, "COMPUTE_IN_BACKGROUND", False)
+    monkeypatch.setattr(report, "_STORE", tmp_path / "factor_profiles")
+    report._FACTOR_CACHE.clear()
+    report._PENDING.clear()
+    yield
+    report._FACTOR_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
 def fresh_rate_limits(monkeypatch):
     monkeypatch.setenv("FELLOWQUANT_RATE_LIMITS", "off")
     rate_limit.reset()
