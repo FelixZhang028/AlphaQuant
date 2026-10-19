@@ -1,4 +1,4 @@
-// 因子库的筛选：按来源（内置、Alpha101、自定义……）和类型（动量与趋势、波动与风险……）。
+// 因子库的筛选：按来源（内置、Alpha101、自定义……）、类型（动量与趋势、波动与风险……）和名字搜索。
 // 筛选项直接来自因子自己的字段，以后增加新的来源或类型时，筛选项会自动出现。
 export const ALL = ''
 
@@ -14,8 +14,17 @@ function ordered(values, preferred) {
   return [...new Set(values)].map((value, index) => ({ value, index })).sort((a, b) => rank(a.value) - rank(b.value) || a.index - b.index).map((item) => item.value)
 }
 
+// 搜索中文名或代码，不区分大小写；空格分开的几个词都要出现。
+function matchesKeyword(factor, keyword) {
+  const words = String(keyword || '').toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return true
+  const text = `${factor.display_name || ''} ${factor.name || ''}`.toLowerCase()
+  return words.every((word) => text.includes(word))
+}
+
 const matches = (factor, filter) =>
   (!filter.source || sourceOf(factor) === filter.source) && (!filter.type || typeOf(factor) === filter.type)
+  && matchesKeyword(factor, filter.keyword)
 
 // 符合筛选条件的因子。keepNames 里的因子（已经选中的）即使不符合条件也保留，避免“选了却看不见”。
 export function filterFactors(factors, filter, keepNames = []) {
@@ -33,8 +42,8 @@ export function filterOptions(factors, filter) {
     ]
   }
   return {
-    source: row(sourceOf, SOURCE_ORDER, { source: ALL, type: filter.type }),
-    type: row(typeOf, TYPE_ORDER, { source: filter.source, type: ALL }),
+    source: row(sourceOf, SOURCE_ORDER, { source: ALL, type: filter.type, keyword: filter.keyword }),
+    type: row(typeOf, TYPE_ORDER, { source: filter.source, type: ALL, keyword: filter.keyword }),
   }
 }
 

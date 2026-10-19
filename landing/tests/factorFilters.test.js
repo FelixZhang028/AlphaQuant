@@ -46,3 +46,18 @@ test('下拉框按来源分组，内置在前', () => {
     ['内置', ['momentum_20', 'volatility_20']], ['Alpha101', ['alpha101_006', 'alpha101_009']], ['自定义', ['my_factor']],
   ])
 })
+
+test('搜索中文名或代码，几个词都要出现；数量跟着搜索变', () => {
+  const factors = [
+    { name: 'alpha101_006', display_name: '开盘价与成交量相关性', source: 'Alpha101', logical_category: 'K线与量价关系' },
+    { name: 'mom_20', display_name: '20 日动量', source: '内置', logical_category: '动量与趋势' },
+    { name: 'mom_60', display_name: '60 日动量', source: '内置', logical_category: '动量与趋势' },
+  ]
+  assert.deepEqual(filterFactors(factors, { source: '', type: '', keyword: '动量' }).map((f) => f.name), ['mom_20', 'mom_60'])
+  assert.deepEqual(filterFactors(factors, { source: '', type: '', keyword: 'ALPHA101_006' }).map((f) => f.name), ['alpha101_006'])
+  assert.deepEqual(filterFactors(factors, { source: '', type: '', keyword: '60 动量' }).map((f) => f.name), ['mom_60'])
+  assert.deepEqual(filterFactors(factors, { source: '', type: '', keyword: '' }).length, 3)
+  const options = filterOptions(factors, { source: '', type: '', keyword: '动量' })
+  assert.equal(options.source.find((o) => o.value === '内置').count, 2)
+  assert.equal(options.source.find((o) => o.value === 'Alpha101').count, 0)
+})
