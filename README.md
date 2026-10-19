@@ -96,6 +96,7 @@ npm run dev -- --host 127.0.0.1
 | `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）次数（默认 5 / 20 / 10 / 10 / 10），管理员不限 |
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
+| `FELLOWQUANT_FUNDAMENTALS_UPDATE` | 财报季自动更新财务数据（默认开启）：1～4 月、7～8 月、10 月以及 5、9、11 月第一周的每个周六 10:00 以后，下载最近 5 个报告期里还没有的财报；填 `off` 关闭，管理员仍可以在管理后台手动更新 |
 | `FELLOWQUANT_COMPUTE_SLOTS` / `_PER_USER` / `_TIMEOUT` / `_CACHE` | 耗时计算（回测、参数验证、因子评估与组合研究）的限制：全站同时最多几件（默认 CPU 核数的一半，2 到 4）、每人同时几件（默认 1）、一件最多多少秒（默认 600）、记住多少份因子研究结果（默认 64） |
 | `FELLOWQUANT_AI_DAILY_TOTAL` | 全站每天最多调用多少次 AI（默认 500，管理员不计），防止费用失控；用完以后当天所有用户暂停 AI 功能 |
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可由管理员在页面配置；没有配置时知识库问答不可用 |
@@ -135,7 +136,7 @@ scripts/serve.sh            # Windows：powershell -File scripts\serve.ps1
 
 脚本先打包 `landing/` 和 `admin/`，再在 `127.0.0.1:8000` 启动后端，只开一个进程（次数限制和后台任务记在这个进程里，不要开多个 worker）。前面用 Cloudflare Tunnel 或 Nginx 提供 https，不直接暴露端口。上线前在 `.env` 里至少确认：`APP_SECRET`、管理员账户、`OPENROUTER_API_KEY`、`FELLOWQUANT_AI_DAILY_TOTAL`、注册方式（试用阶段建议用邀请码）、`FELLOWQUANT_CLIENT_IP_HEADER`、SMTP 和备份目录。`requirements.lock` 是测试通过的固定版本。
 
-服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录：概览（注册人数、今天活跃、回测和 AI 用量、行情数据和备份）、用户（每个人今天和累计的 AI 次数、回测数，可以停用或恢复账户；停用后不能登录，已经登录的设备立即退出，数据不删除）、注册与邀请码（选择开放 / 邀请码 / 暂停，生成和停用邀请码）、数据更新（每天自动更新的情况、后台任务进度，可以马上运行今天的更新或停止任务）。网页每次打开都会检查有没有新版本，发布更新以后不会用到旧页面。
+服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录：概览（注册人数、今天活跃、回测和 AI 用量、行情数据和备份）、用户（每个人今天和累计的 AI 次数、回测数，可以停用或恢复账户；停用后不能登录，已经登录的设备立即退出，数据不删除）、注册与邀请码（选择开放 / 邀请码 / 暂停，生成和停用邀请码）、数据更新（服务器磁盘空间和数据占用，剩余不到 5 GB 或 10% 时提醒；每日更新每一步的结果，可以只重新运行没完成的部分；财务数据的自动更新和手动更新；选数据集和日期下载历史数据；后台任务的进度和日志；手动备份）。网页每次打开都会检查有没有新版本，发布更新以后不会用到旧页面。
 
 ## 🧩 项目结构
 
