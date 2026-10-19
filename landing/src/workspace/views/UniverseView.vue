@@ -53,7 +53,7 @@ const metrics = computed(() => {
   return [
     { label: '股票数量', value: loading.value || loadError.value ? '—' : (universe.value.symbols || []).length, sub: '当前股票池', tone: 'text-indigo-300' },
     { label: '已有本地行情', value: loading.value || loadError.value ? '—' : withLocal, sub: '至少保存一条行情，区间见明细', tone: 'text-emerald-300' },
-    { label: '尚未下载行情', value: loading.value || loadError.value ? '—' : withoutLocal, sub: '待数据更新', tone: 'text-amber-300' },
+    { label: '平台还没有行情', value: loading.value || loadError.value ? '—' : withoutLocal, sub: '管理员更新后就能用', tone: 'text-amber-300' },
   ]
 })
 
@@ -213,7 +213,7 @@ onMounted(load)
     <div class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
       <div class="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-indigo-500/20 blur-3xl" />
       <h1 class="text-xl font-bold text-white">股票池管理</h1>
-      <p class="mt-1 text-sm text-slate-400">添加、搜索或移除股票，数据更新和回测自动使用当前股票池</p>
+      <p class="mt-1 text-sm text-slate-400">添加、搜索或移除股票；回测和因子研究选“当前股票池”时用这些股票</p>
     </div>
 
     <!-- 指标 -->
@@ -310,7 +310,7 @@ onMounted(load)
     </details>
 
     <!-- 当前股票池 -->
-    <SectionCard title="当前股票池" hint="回测与数据更新将使用以下股票">
+    <SectionCard title="当前股票池" hint="回测选“当前股票池”时使用以下股票">
       <template #actions>
         <button type="button" class="text-sm text-indigo-300 hover:underline" :aria-pressed="showDataDetails" @click="showDataDetails = !showDataDetails">{{ showDataDetails ? '收起行情明细' : '查看行情明细' }}</button>
       </template>

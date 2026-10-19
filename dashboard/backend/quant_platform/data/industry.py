@@ -16,7 +16,7 @@ from quant_platform.data.normalizers import canonical_symbol
 
 EXPOSURES_TABLE = "security_exposures"
 SNAPSHOTS_TABLE = "industry_snapshots"
-MISSING_INDUSTRY_MESSAGE = "本地还没有行业分类，请先在「数据更新」里下载后再使用。"
+MISSING_INDUSTRY_MESSAGE = "平台还没有行业分类，管理员更新后就能用。"
 # 证监会行业分类的门类（第一位字母）。
 SECTOR_NAMES = {
     "A": "农、林、牧、渔业", "B": "采矿业", "C": "制造业", "D": "电力、热力、燃气及水生产和供应业", "E": "建筑业",

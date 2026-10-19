@@ -110,7 +110,7 @@ def stock_report(client: Any, stock: StockFacts) -> dict[str, Any]:
     }[tilt["choice"]]
     followups = []
     if unavailable:
-        followups.append({"title": "补全判断依据", "text": "、".join(unavailable) + "暂无法判断，补齐对应历史、对照或财报后再分析。", "action": "data-update"})
+        followups.append({"title": "补全判断依据", "text": "、".join(unavailable) + "暂无法判断，平台补齐对应的历史、对照或财报后再分析。", "action": "data-update"})
     if supports and concerns:
         followups.append({"title": "核查信号分歧", "text": "有利线索与需留意事项并存，不宜只看综合倾向忽略分项结果。"})
     if tilt["confidence"] < .5:

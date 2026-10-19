@@ -56,7 +56,7 @@ STORED_COLUMNS = ["symbol", "stat_date", "pub_date", *FUNDAMENTAL_COLUMNS, "sour
 PERCENT_SCALE_SUSPECTS = ["roe_avg", "gross_margin", "yoy_equity", "yoy_asset", "yoy_net_profit", "yoy_eps", "yoy_parent_net_profit"]
 # 一份财报最多用这么多天：公司不再披露（长期停牌、退市）时，不拿一年多以前的数字当现在的。
 MAX_REPORT_AGE_DAYS = 370
-MISSING_FUNDAMENTALS_MESSAGE = "本地还没有财务数据，请先在「数据更新」里下载后再使用。"
+MISSING_FUNDAMENTALS_MESSAGE = "平台还没有财务数据，管理员更新后就能用。"
 
 
 def quarter_end(year: int, quarter: int) -> date:

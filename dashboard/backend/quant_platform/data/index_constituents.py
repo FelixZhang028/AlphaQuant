@@ -117,14 +117,14 @@ def require_coverage(checks: pd.DataFrame, index_symbol: str, start_date: date, 
     name = index_name(index_symbol)
     covered = checked_range(checks, index_symbol)
     if covered is None:
-        raise ValueError(f"本地还没有{name}的历史成分股，请先在「数据更新」里下载。")
+        raise ValueError(f"平台还没有{name}的历史成分股，管理员更新后就能用。")
     first, last = covered
     if start_date < first:
         raise ValueError(
             f"{name}的历史成分股从 {first} 开始，早于这一天不知道当时有哪些成分股。请把开始日期改到 {first} 或之后。"
         )
     if end_date > last + timedelta(days=MAX_DAYS_SINCE_CHECK):
-        raise ValueError(f"{name}的成分股只核对到 {last}，请先在「数据更新」里更新指数成分股。")
+        raise ValueError(f"{name}的成分股只核对到 {last}，可以把回测区间缩短到这一天以前，或等平台更新指数成分股。")
 
 
 # --------------------------------------------------------------------------- #

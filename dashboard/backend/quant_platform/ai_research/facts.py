@@ -129,14 +129,14 @@ def stock_facts(repository: Any, symbol: str, day: date | None = None, *, name: 
 
     bounds = repository.daily_bar_bounds()
     if bounds is None:
-        raise ValueError("本地还没有行情数据，请先在「数据更新」里下载。")
+        raise ValueError("平台还没有行情数据，管理员更新后就能分析。")
     newest = bounds[1]
     asked = day or newest
     end = min(asked, newest)
     window = repository.get_daily_bars(start_date=end - timedelta(days=HISTORY_CALENDAR_DAYS), end_date=end)
     own = window[window["symbol"] == symbol].sort_values("trade_date")
     if own.empty:
-        raise ValueError(f"本地没有 {symbol} 在 {end} 以前一年内的行情，请先下载这只股票的行情。")
+        raise ValueError(f"本地没有 {symbol} 在 {end} 以前一年内的行情，平台更新这只股票的行情后就能分析。")
     last = own.iloc[-1]
     trade_ts = pd.Timestamp(last["trade_date"]).normalize()
     builder = _Builder(symbol, name or symbol, trade_ts.date())
@@ -169,7 +169,7 @@ def stock_facts(repository: Any, symbol: str, day: date | None = None, *, name: 
         _compare(builder, prices, amounts.reindex(columns=prices.columns), symbol, peers)
     else:
         builder.lack("全市场比较", f"{trade_ts.date()} 本地只有 {len(active)} 只股票的行情（平时约 {usual:.0f} 只），"
-                     "无法和全市场比较。在「数据更新」更新全市场行情，或选择更早的日期。")
+                     "无法和全市场比较。可以选择更早的日期，或等平台更新完全市场的行情。")
     _valuation(builder, repository, symbol, trade_ts, peers)
     _financials(builder, repository, symbol, trade_ts)
     _events(builder, repository, symbol, trade_ts)
@@ -203,7 +203,7 @@ def _basic(builder: _Builder, repository: Any, last: pd.Series, trade_ts: pd.Tim
         if builder.result.symbol in members:
             inside.append(label)
     if not found:
-        builder.lack("指数成分股", "本地没有指数成分股名单（在「数据更新」→ 指数成分股 下载）。")
+        builder.lack("指数成分股", "平台还没有指数成分股名单。")
     else:
         labels = "、".join(label for label, _ in INDEX_UNIVERSES.values())
         text = "、".join(inside) if inside else f"不在 {labels} 中"
@@ -265,7 +265,7 @@ def _trading(builder: _Builder, amounts: pd.Series, last: pd.Series) -> None:
 def _industry(builder: _Builder, repository: Any, symbol: str, symbols: list[str], trade_ts: pd.Timestamp) -> list[str]:
     exposures = repository.read_table(EXPOSURES_TABLE)
     if exposures.empty:
-        builder.lack("行业", "本地没有行业分类（在「数据更新」→ 行业分类 下载）。")
+        builder.lack("行业", "平台还没有行业分类。")
         return []
     days = pd.DataFrame({"symbol": symbols, "date": trade_ts})
     codes = industry_on(days, exposures).set_axis(symbols)
@@ -308,7 +308,7 @@ def _valuation(builder: _Builder, repository: Any, symbol: str, trade_ts: pd.Tim
     history = repository.get_daily_indicators([symbol], start, trade_ts.date())
     today = history[history["trade_date"] == trade_ts]
     if today.empty or today.drop(columns=["symbol", "trade_date"]).isna().all(axis=None):
-        builder.lack("估值", "本地没有这只股票的估值与换手率（在「数据更新」→ 估值与换手率 补全）。")
+        builder.lack("估值", "平台还没有这只股票的估值与换手率。")
         return
     row = today.iloc[-1]
     pe = row.get("pe_ttm")
@@ -357,7 +357,7 @@ def report_in_force(reports: pd.DataFrame, trade_ts: pd.Timestamp) -> pd.Series 
 def _financials(builder: _Builder, repository: Any, symbol: str, trade_ts: pd.Timestamp) -> None:
     report = report_in_force(repository.get_fundamentals([symbol]), trade_ts)
     if report is None:
-        builder.lack("财务", "本地没有这只股票当时已公告的财报（在「数据更新」→ 财务数据 下载）。")
+        builder.lack("财务", "平台还没有这只股票当时已公告的财报。")
         return
     stat, pub = report["stat_date"].date(), report["pub_date"].date()
     period = f"{stat.year} 年{REPORT_NAMES.get(stat.month, stat.isoformat())}"

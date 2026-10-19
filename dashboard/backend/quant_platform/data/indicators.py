@@ -40,7 +40,7 @@ BAOSTOCK_INDICATOR_FIELDS = {
     "pcfNcfTTM": "pcf_ttm",
     "turn": "turnover_rate",
 }
-MISSING_INDICATORS_MESSAGE = "本地还没有估值与换手率数据，请先在「数据更新」里补全后再使用。"
+MISSING_INDICATORS_MESSAGE = "平台还没有估值与换手率数据，管理员更新后就能用。"
 
 
 def indicator_columns(fields: Iterable[str]) -> list[str]:

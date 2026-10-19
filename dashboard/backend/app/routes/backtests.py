@@ -238,7 +238,7 @@ def backtest_benchmark(bid: int, symbol: str = Query(..., max_length=12), user: 
     directory = run_directory(json.loads(row["result"]) if row["result"] else {})
     comparison = benchmark_comparison(directory, symbol, market_repository().read_table("benchmark_bars"))
     if comparison is None:
-        raise HTTPException(status_code=404, detail=f"本地没有{BENCHMARK_NAMES[symbol]}在这段时间的行情，请先在「数据更新」里更新基准指数。")
+        raise HTTPException(status_code=404, detail=f"本地没有{BENCHMARK_NAMES[symbol]}在这段时间的行情，平台补齐基准指数的行情后就能比较。")
     return comparison
 
 

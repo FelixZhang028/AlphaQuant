@@ -115,7 +115,7 @@ const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
           </div>
           <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <h4 class="text-sm font-semibold text-white">接下来核查什么</h4>
-            <ol class="mt-3 space-y-3"><li v-for="(item, index) in report.followups" :key="item.title" class="flex gap-3"><span class="mt-0.5 text-xs text-indigo-300">{{ index + 1 }}.</span><div><p class="text-sm text-slate-200">{{ item.title }}</p><p class="mt-1 text-xs leading-relaxed text-slate-400">{{ item.text }}</p><button v-if="item.action === 'data-update'" type="button" class="mt-1 text-xs text-indigo-300 hover:text-indigo-200" @click="openResearch('data-update')">查看数据更新 →</button></div></li></ol>
+            <ol class="mt-3 space-y-3"><li v-for="(item, index) in report.followups" :key="item.title" class="flex gap-3"><span class="mt-0.5 text-xs text-indigo-300">{{ index + 1 }}.</span><div><p class="text-sm text-slate-200">{{ item.title }}</p><p class="mt-1 text-xs leading-relaxed text-slate-400">{{ item.text }}</p><button v-if="item.action === 'data-update'" type="button" class="mt-1 text-xs text-indigo-300 hover:text-indigo-200" @click="openResearch('data-guide')">看平台有哪些数据 →</button></div></li></ol>
           </div>
         </div>
 
