@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onActivated, reactive, ref, watch } from 'vue'
-import { getBacktestBenchmark, getBacktestCatalog, getBacktest, getRunAudit, listPackages, submitBacktest } from '../../api.js'
+import { getBacktestBenchmark, getBacktestCatalog, getBacktest, getPreferences, getRunAudit, listPackages, submitBacktest } from '../../api.js'
+import { REBALANCE_OPTIONS, backtestDefaults } from '../preferences.js'
 import { openResearch } from '../researchNavigation.js'
 import { backtestId, runTime, strategyName, validityLabel } from '../runRecords.js'
 import BacktestAiReview from '../ui/BacktestAiReview.vue'
@@ -41,11 +42,7 @@ function chooseStrategy() {
   if (strategy?.top_n) form.max_positions = strategy.top_n
   if (strategy?.rebalance) form.rebalance = strategy.rebalance
 }
-const rebalances = [
-  { value: 'daily', label: '每日' },
-  { value: 'weekly', label: '每周' },
-  { value: 'monthly', label: '每月' },
-]
+const rebalances = REBALANCE_OPTIONS
 
 const form = reactive({
   strategy: '',
@@ -295,7 +292,17 @@ watch(() => props.routeContext.strategy, (value) => {
   chooseStrategy()
 })
 watch(() => props.routeContext.run, loadRouteRun)
+// 第一次打开时，表单用设置页里的研究默认值；之后保留这次修改过的值。所选策略自带持仓数和调仓频率时以策略为准。
+let preferencesApplied = false
+async function applyPreferences() {
+  if (preferencesApplied) return
+  preferencesApplied = true
+  try {
+    Object.assign(form, backtestDefaults((await getPreferences()).preferences))
+  } catch { /* 读不到就用页面自带的默认值 */ }
+}
 onActivated(async () => {
+  await applyPreferences()
   await loadCatalog()
   await loadRouteRun()
 })

@@ -16,7 +16,9 @@ import SectionCard from '../ui/SectionCard.vue'
 import DataTable from '../ui/DataTable.vue'
 import LineChart from '../ui/LineChart.vue'
 import FactorFilter from '../ui/FactorFilter.vue'
+import FactorLibraryTable from '../ui/FactorLibraryTable.vue'
 import { factorsBySource, filterFactors } from '../factorFilters.js'
+import { directionText, factorNote } from '../factorPresentation.js'
 import { NEUTRALIZATION_OPTIONS } from '../dataPresentation.js'
 
 const props = defineProps({
@@ -67,9 +69,6 @@ function signTone(v) {
   if (typeof v !== 'number' || !isFinite(v)) return { up: null, tone: '' }
   return v >= 0 ? { up: true, tone: 'text-emerald-300' } : { up: false, tone: 'text-rose-300' }
 }
-function directionLabel(d) {
-  return d === 1 ? '正向' : d === -1 ? '反向' : '—'
-}
 function dateStr(d) {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
@@ -96,24 +95,13 @@ async function loadFactors() {
 }
 
 // 因子库的筛选条件（来源、类型），因子库和组合研究里选因子的列表共用。
-const factorFilter = ref({ source: '', type: '' })
+const factorFilter = ref({ source: '', type: '', keyword: '' })
 const shownFactors = computed(() => filterFactors(factors.value, factorFilter.value))
 // 选因子的列表：已经选中的因子即使不符合筛选条件也留在列表里。
 const compListed = computed(() => filterFactors(factors.value, factorFilter.value, compForm.factor_names))
 const researchListed = computed(() => filterFactors(factors.value, factorFilter.value, researchForm.factor_names))
 const sourceGroups = computed(() => factorsBySource(factors.value))
 
-const factorCols = [
-  { key: 'name', label: '因子名' },
-  { key: 'display_name', label: '中文名' },
-  { key: 'logical_category', label: '类型' },
-  { key: 'source', label: '来源' },
-  { key: 'description', label: '说明' },
-  { key: 'formula', label: '计算公式' },
-  { key: 'direction', label: '方向' },
-  { key: 'min_history', label: '最小历史', align: 'right' },
-  { key: 'actions', label: '操作', align: 'right' },
-]
 
 // ---------- 因子详情便签（右侧滑出） ----------
 const detailFactor = ref(null)
@@ -200,17 +188,23 @@ const FACTOR_NOTES = {
 const detailNote = computed(() => {
   const f = detailFactor.value
   if (!f) return null
-  return (
-    FACTOR_NOTES[f.name] || {
-      meaning: f.description || '自定义因子：由基础字段与算子组合计算而成。',
-      usage: '在「自定义因子」页配置生成，可在因子评估、因子组合与组合研究中与其他因子一样参与合成与验证。',
-    }
-  )
+  return factorNote(f, FACTOR_NOTES)
 })
 
 function showFactorDetail(f) {
   detailFactor.value = f
   detailOpen.value = true
+  formulaCopied.value = false
+}
+
+const formulaCopied = ref(false)
+async function copyFormula() {
+  try {
+    await navigator.clipboard.writeText(detailFactor.value?.formula || '')
+    formulaCopied.value = true
+  } catch {
+    props.notify('复制失败，请手动选中公式复制')
+  }
 }
 
 function closeDetail() {
@@ -663,24 +657,10 @@ onBeforeUnmount(() => {
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
-      <SectionCard title="因子库" hint="可以按来源和类型筛选；方向 1 表示正向、-1 表示反向">
+      <SectionCard title="因子库" hint="可以搜索，也可以按来源和类型筛选；方向表示因子值越大还是越小，预期收益越高">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
         <FactorFilter v-if="!factorsLoading && factors.length" v-model="factorFilter" :factors="factors" class="mb-4" />
-        <DataTable v-if="!factorsLoading" :columns="factorCols" :rows="shownFactors" :empty="factors.length ? '没有符合筛选条件的因子' : '暂无因子'">
-          <template #cell-direction="{ value }">
-            <span :class="value === 1 ? 'text-emerald-300' : value === -1 ? 'text-rose-300' : 'text-slate-400'">
-              {{ directionLabel(value) }}
-            </span>
-          </template>
-          <template #cell-actions="{ row }">
-            <button
-              @click="showFactorDetail(row)"
-              class="rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300 transition hover:bg-indigo-400/20"
-            >
-              详情
-            </button>
-          </template>
-        </DataTable>
+        <FactorLibraryTable v-if="!factorsLoading" :factors="shownFactors" :empty="factors.length ? '没有符合条件的因子' : '暂无因子'" @detail="showFactorDetail" />
       </SectionCard>
     </template>
 
@@ -1102,7 +1082,7 @@ onBeforeUnmount(() => {
       <SectionCard title="已定义自定义因子" hint="自行创建的因子，可用于单因子评估和组合研究">
         <DataTable :columns="customCols" :rows="customFactors" empty="暂无自定义因子">
           <template #cell-direction="{ value }">
-            <span :class="value === 1 ? 'text-emerald-300' : 'text-rose-300'">{{ directionLabel(value) }}</span>
+            <span class="whitespace-nowrap text-slate-300">{{ directionText(value) }}</span>
           </template>
           <template #cell-actions="{ row }">
             <div class="flex justify-end gap-2">
@@ -1149,12 +1129,7 @@ onBeforeUnmount(() => {
             <span class="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2.5 py-0.5 text-xs text-indigo-300">{{ detailFactor.category }}</span>
             <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-400">{{ detailFactor.logical_category }}</span>
             <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-400">{{ detailFactor.source }}</span>
-            <span
-              class="rounded-full border px-2.5 py-0.5 text-xs"
-              :class="detailFactor.direction === 1 ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-rose-400/30 bg-rose-400/10 text-rose-300'"
-            >
-              {{ directionLabel(detailFactor.direction) }}
-            </span>
+            <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-300">{{ directionText(detailFactor.direction) }}</span>
           </div>
 
           <!-- 是什么 -->
@@ -1165,8 +1140,11 @@ onBeforeUnmount(() => {
 
           <!-- 计算公式 -->
           <section>
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">计算公式</h3>
-            <code class="mt-2 block overflow-x-auto rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 font-mono text-xs text-emerald-300">{{ detailFactor.formula || '—' }}</code>
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">计算公式</h3>
+              <button v-if="detailFactor.formula" type="button" class="rounded-md px-2 py-0.5 text-xs text-slate-400 transition hover:bg-white/10 hover:text-white" @click="copyFormula">{{ formulaCopied ? '已复制' : '复制公式' }}</button>
+            </div>
+            <code class="mt-2 block whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 font-mono text-xs leading-relaxed text-emerald-300">{{ detailFactor.formula || '—' }}</code>
           </section>
 
           <!-- 有什么作用 -->
@@ -1191,7 +1169,7 @@ onBeforeUnmount(() => {
 
           <!-- 元信息 -->
           <section class="space-y-1.5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-500">
-            <p>最小历史窗口：{{ detailFactor.min_history }} 个交易日</p>
+            <p>最少需要 {{ detailFactor.min_history }} 个交易日的历史数据</p>
             <p>
               版本：{{ detailFactor.version }}
               <template v-if="detailFactor.source_url">

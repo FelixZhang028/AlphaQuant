@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
-import { aiStatus, askBrief, createBrief, decideBrief, deleteBrief, getBrief, listBriefs, readBrief, universeSearch } from '../../api.js'
+import { aiStatus, askBrief, createBrief, decideBrief, deleteBrief, getBrief, getPreferences, listBriefs, readBrief, universeSearch } from '../../api.js'
 import SectionCard from '../ui/SectionCard.vue'
 import PriorKnowledgeView from './PriorKnowledgeView.vue'
 import JevStockReport from '../ui/JevStockReport.vue'
@@ -97,6 +97,8 @@ async function openRecord(id) {
 }
 
 onMounted(() => {
+  // “参考我的研究经验”默认按设置页的选择，这一次仍可以临时改。
+  getPreferences().then((data) => { useExperience.value = data.preferences.use_experience }).catch(() => {})
   loadStatus()
   loadHistory()
   openRecord(props.routeContext.brief)
