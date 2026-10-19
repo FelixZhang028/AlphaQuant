@@ -97,6 +97,7 @@ npm run dev -- --host 127.0.0.1
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_FUNDAMENTALS_UPDATE` | 财报季自动更新财务数据（默认开启）：1～4 月、7～8 月、10 月以及 5、9、11 月第一周的每个周六 10:00 以后，下载最近 5 个报告期里还没有的财报；填 `off` 关闭，管理员仍可以在管理后台手动更新 |
+| `FELLOWQUANT_FACTOR_PROFILE` | AI 研究员的因子画像：后端每 10 分钟检查一次，把最新交易日的全市场因子值预先算好（约半分钟，存在 `data/runtime/factor_profiles`）；填 `off` 关闭预先计算，分析时仍会在后台现算 |
 | `FELLOWQUANT_COMPUTE_SLOTS` / `_PER_USER` / `_TIMEOUT` / `_CACHE` | 耗时计算（回测、参数验证、因子评估与组合研究）的限制：全站同时最多几件（默认 CPU 核数的一半，2 到 4）、每人同时几件（默认 1）、一件最多多少秒（默认 600）、记住多少份因子研究结果（默认 64） |
 | `FELLOWQUANT_AI_DAILY_TOTAL` | 全站每天最多调用多少次 AI（默认 500，管理员不计），防止费用失控；用完以后当天所有用户暂停 AI 功能 |
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可由管理员在页面配置；没有配置时知识库问答不可用 |
