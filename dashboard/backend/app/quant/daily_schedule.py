@@ -145,6 +145,36 @@ class DailyScheduler:
         self._stop.set()
 
 
+def _step_text(name: str, outcome: Any) -> str:
+    if not isinstance(outcome, dict):
+        return "完成"
+    if name == "security_master" and "rows" in outcome:
+        return f"{outcome['rows']:,} 只证券"
+    if name == "daily_bars" and "symbols" in outcome:
+        new = f"，其中新上市 {outcome['new_listings']} 只" if outcome.get("new_listings") else ""
+        return f"{outcome['symbols']:,} 只股票{new}"
+    if name == "benchmarks" and "symbols" in outcome:
+        return f"{outcome['symbols']} 个指数"
+    if name == "derived" and "universe_rows" in outcome:
+        return f"历史股票池 {outcome['universe_rows']:,} 条"
+    return "完成"
+
+
+def step_results(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """每一步的结果：完成 / 没完成（原因）/ 没有运行（例如当天不是交易日）。"""
+
+    steps, errors = result.get("steps") or {}, result.get("errors") or {}
+    items = []
+    for name, label in STEP_NAMES.items():
+        if name in errors:
+            items.append({"key": name, "label": label, "state": "failed", "text": str(errors[name])[:300]})
+        elif name in steps:
+            items.append({"key": name, "label": label, "state": "done", "text": _step_text(name, steps[name])})
+        else:
+            items.append({"key": name, "label": label, "state": "skipped", "text": "没有运行"})
+    return items
+
+
 def _summary(result: dict[str, Any]) -> str:
     steps = result.get("steps") or {}
     bars = steps.get("daily_bars") or {}
@@ -176,6 +206,7 @@ def status(records: list[dict[str, Any]], now: datetime | None = None) -> dict[s
             "finished_at": finished.get("updated_at") or finished.get("created_at"),
             "summary": _summary(result),
             "errors": [f"{STEP_NAMES.get(name, name)}：{message}" for name, message in (result.get("errors") or {}).items()][:5],
+            "steps": step_results(result),
             "trigger": finished.get("trigger", "admin"),
         }
     running = next((r for r in daily if r.get("status") in ACTIVE), None)

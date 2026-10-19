@@ -8,14 +8,19 @@
 - PUT  /registration          改注册方式：open 开放 / invite 凭邀请码 / closed 暂停
 - POST /invites               生成邀请码（可以指定码、次数和备注）
 - POST /invites/{code}/active 停用或恢复页面生成的邀请码
+- GET  /system                服务器状态：磁盘空间、数据占用、备份列表、财务数据的自动更新
+- POST /backup                现在手动备份一次
 """
+import shutil
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ..database import get_conn
-from ..quant import backup, platform_ai, registration
+from ..quant import backup, fundamentals_schedule, platform_ai, rate_limit, registration
+from ..quant.runtime import MARKET_ROOT, RUNTIME_ROOT
 from ..routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -162,3 +167,52 @@ def admin_stats():
         "registration": {"mode": registration.mode(), "invites": invites},
         "backup": _latest_backup(),
     }
+
+
+# 磁盘剩余少于这么多就提醒：行情数据会越来越大，磁盘满了每日更新会失败。
+DISK_WARN_BYTES = 5 * 1024 ** 3
+DISK_WARN_SHARE = 0.10
+SIZE_CACHE_SECONDS = 300
+_size_cache: dict[str, tuple[float, int]] = {}
+
+
+def _cached_size(path) -> int:
+    """文件夹大小；行情数据有几千个文件，算一次要一会儿，5 分钟内用上次的结果。"""
+
+    key = str(path)
+    hit = _size_cache.get(key)
+    if hit and time.monotonic() - hit[0] < SIZE_CACHE_SECONDS:
+        return hit[1]
+    size = backup.folder_size(path) if path.exists() else 0
+    _size_cache[key] = (time.monotonic(), size)
+    return size
+
+
+def _disk() -> dict:
+    target = MARKET_ROOT if MARKET_ROOT.exists() else RUNTIME_ROOT
+    usage = shutil.disk_usage(target)
+    low = usage.free < DISK_WARN_BYTES or usage.free < usage.total * DISK_WARN_SHARE
+    return {"total": usage.total, "used": usage.used, "free": usage.free, "warning": low}
+
+
+@router.get("/system", dependencies=[Depends(require_admin)])
+def system_status():
+    from ..routes.workspace import _data_jobs
+
+    return {
+        "disk": _disk(),
+        "sizes": {"market": _cached_size(MARKET_ROOT), "runtime": _cached_size(RUNTIME_ROOT),
+                  "backups": sum(item["size"] for item in backup.listing())},
+        "backups": {**_latest_backup(), "items": backup.listing()},
+        "fundamentals": fundamentals_schedule.status(_data_jobs().records()),
+    }
+
+
+@router.post("/backup", status_code=status.HTTP_201_CREATED)
+def backup_now(user: dict = Depends(require_admin)):
+    rate_limit.check(f"backup:{user['id']}", 6, 60 * 60, "备份太频繁")
+    try:
+        folder = backup.backup(manual=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"备份失败：{exc.strerror or exc}") from None
+    return {"name": folder.name if folder else None, "items": backup.listing()}

@@ -143,8 +143,8 @@ class DataJobs:
                     job["status"] = "INTERRUPTED"
             job["progress"] = read_json(path.parent / "progress.json")
             job["stopping"] = (path.parent / "stop").exists()
-            if "daily" in job.get("datasets", []):
-                job["result"] = read_json(path.parent / "result.json")
+            # 结果（每一步下载了多少、哪里失败）给页面看；任务还没结束时为空。
+            job["result"] = read_json(path.parent / "result.json")
             records.append(job)
         return records
 
