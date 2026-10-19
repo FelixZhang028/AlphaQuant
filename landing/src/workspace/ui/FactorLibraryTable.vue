@@ -1,7 +1,7 @@
 <script setup>
 // 因子库表格：一行一个因子，长的说明和公式只显示一行，全文在“详情”里。每页 20 个；手机上改成卡片。
 import { computed, ref, watch } from 'vue'
-import { ALPHA101_NOTE, directionText, factorSummary, historyText } from '../factorPresentation.js'
+import { ALPHA101_NOTE, directionText, directionTone, factorSummary, historyText } from '../factorPresentation.js'
 
 const props = defineProps({
   factors: { type: Array, default: () => [] },
@@ -29,7 +29,7 @@ watch(() => props.factors, () => { page.value = 1 })
       <div class="hidden overflow-x-auto md:block">
         <table class="w-full min-w-[760px] table-fixed text-left text-sm">
           <colgroup>
-            <col class="w-[30%]" /><col class="w-[14%]" /><col /><col class="w-[7.5rem]" /><col class="w-[5.5rem]" /><col class="w-[4.5rem]" />
+            <col class="w-[30%]" /><col class="w-[14%]" /><col /><col class="w-[4.5rem]" /><col class="w-[5.5rem]" /><col class="w-[4.5rem]" />
           </colgroup>
           <thead>
             <tr class="text-xs text-slate-500">
@@ -54,7 +54,7 @@ watch(() => props.factors, () => { page.value = 1 })
               <td class="py-2.5 pr-4">
                 <p class="truncate" :class="summary.formula ? 'font-mono text-xs text-slate-400' : 'text-slate-300'" :title="summary.text">{{ summary.text }}</p>
               </td>
-              <td class="whitespace-nowrap py-2.5 pr-4 text-xs text-slate-300">{{ directionText(factor.direction) }}</td>
+              <td class="whitespace-nowrap py-2.5 pr-4 text-xs" :class="directionTone(factor.direction)">{{ directionText(factor.direction) }}</td>
               <td class="whitespace-nowrap py-2.5 pr-4 text-right text-xs text-slate-400">{{ historyText(factor.min_history) }}</td>
               <td class="py-2.5 text-right">
                 <button type="button" class="whitespace-nowrap rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-2.5 py-1 text-xs text-indigo-300 transition hover:bg-indigo-400/20" @click="emit('detail', factor)">详情</button>
@@ -70,7 +70,7 @@ watch(() => props.factors, () => { page.value = 1 })
           <button type="button" class="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-left transition hover:bg-white/10" @click="emit('detail', factor)">
             <div class="flex items-start justify-between gap-3">
               <span class="min-w-0 font-medium text-slate-100">{{ factor.display_name || factor.name }}</span>
-              <span class="shrink-0 text-xs text-slate-400">{{ directionText(factor.direction) }}</span>
+              <span class="shrink-0 text-xs" :class="directionTone(factor.direction)">{{ directionText(factor.direction) }}</span>
             </div>
             <p class="mt-0.5 font-mono text-[11px] text-slate-500">{{ factor.name }} · {{ factor.logical_category || factor.category }} · {{ historyText(factor.min_history) }}</p>
             <p class="mt-1.5 line-clamp-2 text-xs" :class="summary.formula ? 'font-mono text-slate-500' : 'text-slate-400'">{{ summary.text }}</p>

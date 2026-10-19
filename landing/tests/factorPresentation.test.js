@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ALPHA101_NOTE, directionText, factorNote, factorSummary, historyText } from '../src/workspace/factorPresentation.js'
+import { ALPHA101_NOTE, directionText, directionTone, factorNote, factorSummary, historyText } from '../src/workspace/factorPresentation.js'
 
 const alpha = {
   name: 'alpha101_001', display_name: '收益为负时的波动与价格的高点位置', source: 'Alpha101', direction: 1, min_history: 25,
@@ -8,10 +8,13 @@ const alpha = {
   formula: 'rank(Ts_ArgMax(SignedPower(((returns < 0) ? stddev(returns, 20) : close), 2.), 5)) - 0.5',
 }
 
-test('方向和历史长度写成看得懂的话', () => {
-  assert.equal(directionText(1), '↑ 越大越好')
-  assert.equal(directionText(-1), '↓ 越小越好')
+test('方向写正向 / 反向，正向绿色、反向红色；历史长度带单位', () => {
+  assert.equal(directionText(1), '正向')
+  assert.equal(directionText(-1), '反向')
   assert.equal(directionText(0), '—')
+  assert.equal(directionTone(1), 'text-emerald-300')
+  assert.equal(directionTone(-1), 'text-rose-300')
+  assert.equal(directionTone(0), 'text-slate-400')
   assert.equal(historyText(25), '25 天')
   assert.equal(historyText(null), '—')
 })

@@ -18,7 +18,7 @@ import LineChart from '../ui/LineChart.vue'
 import FactorFilter from '../ui/FactorFilter.vue'
 import FactorLibraryTable from '../ui/FactorLibraryTable.vue'
 import { factorsBySource, filterFactors } from '../factorFilters.js'
-import { directionText, factorNote } from '../factorPresentation.js'
+import { directionText, directionTone, factorNote } from '../factorPresentation.js'
 import { NEUTRALIZATION_OPTIONS } from '../dataPresentation.js'
 
 const props = defineProps({
@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
 
     <!-- ============ 因子库 ============ -->
     <template v-if="activeTab === 'library'">
-      <SectionCard title="因子库" hint="可以搜索，也可以按来源和类型筛选；方向表示因子值越大还是越小，预期收益越高">
+      <SectionCard title="因子库" hint="可以搜索，也可以按来源和类型筛选；正向表示因子值越大越好，反向表示越小越好">
         <div v-if="factorsLoading" class="py-8 text-sm text-slate-400">加载中…</div>
         <FactorFilter v-if="!factorsLoading && factors.length" v-model="factorFilter" :factors="factors" class="mb-4" />
         <FactorLibraryTable v-if="!factorsLoading" :factors="shownFactors" :empty="factors.length ? '没有符合条件的因子' : '暂无因子'" @detail="showFactorDetail" />
@@ -1082,7 +1082,7 @@ onBeforeUnmount(() => {
       <SectionCard title="已定义自定义因子" hint="自行创建的因子，可用于单因子评估和组合研究">
         <DataTable :columns="customCols" :rows="customFactors" empty="暂无自定义因子">
           <template #cell-direction="{ value }">
-            <span class="whitespace-nowrap text-slate-300">{{ directionText(value) }}</span>
+            <span class="whitespace-nowrap" :class="directionTone(value)">{{ directionText(value) }}</span>
           </template>
           <template #cell-actions="{ row }">
             <div class="flex justify-end gap-2">
@@ -1129,7 +1129,12 @@ onBeforeUnmount(() => {
             <span class="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2.5 py-0.5 text-xs text-indigo-300">{{ detailFactor.category }}</span>
             <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-400">{{ detailFactor.logical_category }}</span>
             <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-400">{{ detailFactor.source }}</span>
-            <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-slate-300">{{ directionText(detailFactor.direction) }}</span>
+            <span
+              class="rounded-full border px-2.5 py-0.5 text-xs"
+              :class="detailFactor.direction === 1 ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : detailFactor.direction === -1 ? 'border-rose-400/30 bg-rose-400/10 text-rose-300' : 'border-white/10 bg-white/5 text-slate-400'"
+            >
+              {{ directionText(detailFactor.direction) }}
+            </span>
           </div>
 
           <!-- 是什么 -->
