@@ -2,13 +2,18 @@
 
 // Alpha101 的说明末尾都是这一句；表格里不再每行重复，筛选到 Alpha101 时在表格上方提示一次。
 export const ALPHA101_SUFFIX = '按原公式计算，正向输出；A股有效性需独立评估。'
-export const ALPHA101_NOTE = 'Alpha101 因子来自 WorldQuant 的《101 Formulaic Alphas》，按原公式计算，数值越大越好；在 A 股是否有效需要自己评估，可以先在「因子评估」里看 IC 和分层收益。'
+export const ALPHA101_NOTE = 'Alpha101 因子来自 WorldQuant 的《101 Formulaic Alphas》，按原公式计算，都是正向；在 A 股是否有效需要自己评估，可以先在「因子评估」里看 IC 和分层收益。'
 
-// 方向：因子值越大，预期收益越高（正向）还是越低（反向）。
+// 方向：正向是因子值越大越好，反向是越小越好。正向绿色、反向红色。
 export function directionText(direction) {
-  if (direction === 1) return '↑ 越大越好'
-  if (direction === -1) return '↓ 越小越好'
+  if (direction === 1) return '正向'
+  if (direction === -1) return '反向'
   return '—'
+}
+export function directionTone(direction) {
+  if (direction === 1) return 'text-emerald-300'
+  if (direction === -1) return 'text-rose-300'
+  return 'text-slate-400'
 }
 
 export function historyText(days) {
