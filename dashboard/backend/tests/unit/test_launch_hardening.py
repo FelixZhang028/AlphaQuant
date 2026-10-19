@@ -327,6 +327,10 @@ def test_the_admin_console_is_served_under_admin(main_app, tmp_path):
     client = main_app(FELLOWQUANT_STATIC_DIR=str(site), FELLOWQUANT_ADMIN_DIR=str(console))
     page = client.get("/admin/")
     assert "管理后台" in page.text and "script-src 'self'" in page.headers["Content-Security-Policy"]
+    assert page.headers["Cache-Control"] == "no-cache"                        # 发布新版本后不会用旧页面
+    (site / "assets").mkdir()
+    (site / "assets" / "app-1a2b.js").write_text("console.log(1)", encoding="utf-8")
+    assert "immutable" in client.get("/assets/app-1a2b.js").headers["Cache-Control"]
     assert "首页" in client.get("/").text
 
 
@@ -381,10 +385,11 @@ def test_admin_stats_count_real_users_research_ai_and_invites(accounts, monkeypa
         conn.execute("INSERT INTO ai_usage (user_id, day, kind, count) VALUES (1, ?, 'brief', 2)", (platform_ai._today(),))
         conn.execute("INSERT INTO ai_usage_total (day, count) VALUES (?, 2)", (platform_ai._today(),))
     stats = accounts.get("/api/v1/admin/stats", headers=bearer(user_token)).json()
-    assert stats["users"] == {"total": 1, "new_today": 1, "active_today": 1}
+    assert stats["users"] == {"total": 1, "new_today": 1, "active_today": 1, "disabled": 0}
     assert stats["research"]["backtests"] == 0 and stats["research"]["briefs"] == 0
     assert stats["ai"]["used"] == 2 and stats["ai"]["by_kind"] == [{"kind": "brief", "label": "AI 解读", "count": 2}]
-    assert stats["registration"] == {"mode": "invite", "invites": [{"code": "TRIAL", "limit": 3, "used": 1}]}
+    assert stats["registration"]["mode"] == "invite"
+    assert [(i["code"], i["limit"], i["used"], i["source"]) for i in stats["registration"]["invites"]] == [("TRIAL", 3, 1, "env")]
     assert stats["backup"]["latest"] == "2026-10-18" and stats["backup"]["count"] == 1
     users = accounts.get("/api/v1/admin/users", headers=bearer(user_token)).json()
     assert users[0]["last_seen_at"]
@@ -405,3 +410,84 @@ def test_last_visit_is_written_at_most_every_few_minutes(accounts, monkeypatch):
     for _ in range(3):
         assert accounts.get("/api/v1/auth/me", headers=bearer(token)).status_code == 200
     assert len(writes) == 1
+
+
+# --------------------------------------------------------------------------- #
+# 管理后台的操作：停用账户、注册方式、邀请码
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def console(accounts):
+    """An administrator token and a normal user's token on the same app."""
+
+    from app.routes import admin
+
+    accounts.app.include_router(admin.router)
+    sign_up(accounts, email="boss@example.test")
+    with database.get_conn() as conn:
+        conn.execute("UPDATE users SET is_admin = 1 WHERE email = 'boss@example.test'")
+    sign_up(accounts)
+    boss = bearer(log_in(accounts, email="boss@example.test").json()["token"])
+    return accounts, boss
+
+
+def test_a_disabled_account_cannot_log_in_and_is_logged_out_everywhere(console):
+    client, boss = console
+    user = log_in(client).json()
+    token = bearer(user["token"])
+    assert client.post(f"/api/v1/admin/users/{user['user']['id']}/active", json={"active": False}, headers=token).status_code == 403
+    assert client.post(f"/api/v1/admin/users/{user['user']['id']}/active", json={"active": False}, headers=boss).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=token).status_code == 401                  # 已经登录的设备立即失效
+    assert log_in(client, password="wrong password").status_code == 401                     # 猜密码看不出账户状态
+    blocked = log_in(client)
+    assert blocked.status_code == 403 and "停用" in blocked.json()["detail"]
+    listed = {u["email"]: u for u in client.get("/api/v1/admin/users", headers=boss).json()}
+    assert listed["a@example.test"]["is_active"] is False and listed["a@example.test"]["ai_today"] == 0
+    assert client.get("/api/v1/admin/stats", headers=boss).json()["users"]["disabled"] == 1
+    client.post(f"/api/v1/admin/users/{user['user']['id']}/active", json={"active": True}, headers=boss)
+    assert log_in(client).status_code == 200
+    admin_id = listed["boss@example.test"]["id"]
+    assert client.post(f"/api/v1/admin/users/{admin_id}/active", json={"active": False}, headers=boss).status_code == 403
+
+
+def test_the_admin_chooses_how_people_sign_up(console, monkeypatch):
+    client, boss = console
+    assert client.get("/api/v1/auth/registration").json()["mode"] == "open"
+    assert client.put("/api/v1/admin/registration", json={"mode": "closed"}, headers=boss).json()["mode"] == "closed"
+    assert sign_up(client, email="c@example.test").status_code == 403
+    assert client.put("/api/v1/admin/registration", json={"mode": "invite"}, headers=boss).status_code == 200
+    assert sign_up(client, email="c@example.test").status_code == 403                    # 还没有邀请码，谁也注册不了
+    assert client.put("/api/v1/admin/registration", json={"mode": "maybe"}, headers=boss).status_code == 400
+    monkeypatch.setenv("FELLOWQUANT_REGISTRATION", "closed")
+    locked = client.get("/api/v1/admin/registration", headers=boss).json()
+    assert locked["mode"] == "closed" and locked["locked"] is True
+    assert client.put("/api/v1/admin/registration", json={"mode": "open"}, headers=boss).status_code == 409
+
+
+def test_invite_codes_made_in_the_page_can_be_used_and_stopped(console, monkeypatch):
+    client, boss = console
+    monkeypatch.setenv("FELLOWQUANT_INVITE_CODES", "FROMENV:5")
+    client.put("/api/v1/admin/registration", json={"mode": "invite"}, headers=boss)
+    made = client.post("/api/v1/admin/invites", json={"max_uses": 1, "note": "给小王"}, headers=boss)
+    assert made.status_code == 201
+    code = made.json()["code"]
+    assert code.startswith("FQ-") and len(code) == 11
+    assert client.post("/api/v1/admin/invites", json={"code": code.lower()}, headers=boss).status_code == 409
+    assert client.post("/api/v1/admin/invites", json={"code": "fromenv"}, headers=boss).status_code == 409
+    assert client.post("/api/v1/admin/invites", json={"code": "a b"}, headers=boss).status_code == 400
+    assert sign_up(client, email="c@example.test", invite_code=code.lower()).status_code == 201
+    used_up = sign_up(client, email="d@example.test", invite_code=code)
+    assert used_up.status_code == 403 and "用完" in used_up.json()["detail"]
+    named = client.post("/api/v1/admin/invites", json={"code": "team-b"}, headers=boss).json()["code"]
+    client.post(f"/api/v1/admin/invites/{named}/active", json={"active": False}, headers=boss)
+    assert sign_up(client, email="d@example.test", invite_code="TEAM-B").json()["detail"] == "邀请码不正确。"
+    assert client.post("/api/v1/admin/invites/FROMENV/active", json={"active": False}, headers=boss).status_code == 409
+    assert client.post("/api/v1/admin/invites/NOPE/active", json={"active": False}, headers=boss).status_code == 404
+    listed = {i["code"]: i for i in client.get("/api/v1/admin/registration", headers=boss).json()["invites"]}
+    assert listed[code]["used"] == 1 and listed[code]["note"] == "给小王" and listed[code]["source"] == "page"
+    assert listed["TEAM-B"]["active"] is False and listed["FROMENV"]["source"] == "env"
+    assert sign_up(client, email="d@example.test", invite_code="fromenv").status_code == 201
+    user = bearer(log_in(client).json()["token"])
+    assert client.post("/api/v1/admin/invites", json={}, headers=user).status_code == 403          # 普通用户不能生成邀请码
+    assert client.put("/api/v1/admin/registration", json={"mode": "open"}, headers=user).status_code == 403

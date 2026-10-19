@@ -11,6 +11,8 @@
 - POST /forgot/reset      忘记密码：校验验证码 → 重置密码
 - GET  /me                凭令牌获取当前用户信息（功能台鉴权守卫调用）
 
+管理员停用的账户不能登录，已经登录的也会立即失效。
+
 登录、注册、找回密码都限制频率（见 ``app.quant.rate_limit``）。
 """
 import hmac
@@ -55,6 +57,7 @@ FORGOT_PER_IP = (10, 60 * 60)
 FORGOT_PER_EMAIL = (3, 60 * 60)
 # 最后访问时间最多每 5 分钟写一次，不必每个请求都写数据库。
 SEEN_EVERY = timedelta(minutes=5)
+DISABLED_MESSAGE = "这个账户已被停用，如有疑问请联系管理员。"
 
 
 class RegisterIn(BaseModel):
@@ -106,10 +109,12 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效或已过期")
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, email, created_at, is_admin, token_version, last_seen_at FROM users WHERE id = ?", (payload["uid"],)
+            "SELECT id, name, email, created_at, is_admin, is_active, token_version, last_seen_at FROM users WHERE id = ?", (payload["uid"],)
         ).fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+    if not row["is_active"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=DISABLED_MESSAGE)
     if payload.get("ver", 0) != row["token_version"]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
     _mark_seen(row["id"], row["last_seen_at"])
@@ -185,13 +190,16 @@ def login(body: LoginIn, request: Request):
     rate_limit.check(failures, *LOGIN_FAILURES_PER_EMAIL, "这个账户密码输错次数太多", record=False)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, email, password_hash, salt, created_at, is_admin, token_version FROM users WHERE email = ?",
+            "SELECT id, name, email, password_hash, salt, created_at, is_admin, is_active, token_version FROM users WHERE email = ?",
             (email,),
         ).fetchone()
     if not row or not verify_password(body.password, row["salt"], row["password_hash"]):
         rate_limit.record(failures, LOGIN_FAILURES_PER_EMAIL[1])
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     rate_limit.clear(failures)
+    if not row["is_active"]:
+        # 密码对了才说明停用，猜密码的人看不出这个账户的状态。
+        raise HTTPException(status_code=403, detail=DISABLED_MESSAGE)
     if needs_rehash(row["password_hash"]):
         # 以前的密码哈希强度低：登录成功时用现在的强度重新加密（这时才知道密码）。
         salt = gen_salt()
@@ -255,7 +263,7 @@ def _find_user_by_name_email(name: str, email: str):
     """按账号名 + 邮箱查找用户（邮箱不区分大小写）。"""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, name, email FROM users WHERE email = ? AND name = ? COLLATE NOCASE",
+            "SELECT id, name, email FROM users WHERE email = ? AND name = ? COLLATE NOCASE AND is_active = 1",
             (email.lower(), name.strip()),
         ).fetchone()
 

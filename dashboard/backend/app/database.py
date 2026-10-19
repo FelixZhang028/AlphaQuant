@@ -178,10 +178,23 @@ def init_db() -> None:
                 PRIMARY KEY (user_id, backtest_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
-            -- 邀请码用过几次（FELLOWQUANT_INVITE_CODES）
+            -- 邀请码用过几次（.env 里的和管理后台生成的都记在这里）
             CREATE TABLE IF NOT EXISTS invite_uses (
                 code TEXT PRIMARY KEY,
                 used INTEGER NOT NULL DEFAULT 0
+            );
+            -- 管理员在管理后台生成的邀请码；停用以后不能再注册，用过的次数保留
+            CREATE TABLE IF NOT EXISTS invite_codes (
+                code       TEXT    PRIMARY KEY,
+                max_uses   INTEGER,                         -- 空表示不限次数
+                active     INTEGER NOT NULL DEFAULT 1,
+                note       TEXT    NOT NULL DEFAULT '',
+                created_at TEXT    NOT NULL
+            );
+            -- 管理员在页面上改的平台设置，例如注册方式（registration = open / invite / closed）
+            CREATE TABLE IF NOT EXISTS site_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
             -- 全站每天用掉的 AI 次数（FELLOWQUANT_AI_DAILY_TOTAL）；不跟着用户删除，注销重注册不能重置
             CREATE TABLE IF NOT EXISTS ai_usage_total (
