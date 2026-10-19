@@ -101,7 +101,7 @@ npm run dev -- --host 127.0.0.1
 | `WEKNORA_BASE_URL` / `WEKNORA_API_KEY` | WeKnora 服务地址与空间 Key，也可由管理员在页面配置；没有配置时知识库问答不可用 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_FROM` | 密码重置邮件服务，采用 STARTTLS；默认端口 587 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP 登录凭据（邮件服务需要时填写） |
-| `FELLOWQUANT_REGISTRATION` / `FELLOWQUANT_INVITE_CODES` | 注册方式：填了邀请码（`码:次数`，逗号分开，例如 `TRIAL2026:20,FRIEND`，不写次数就不限次数）就只能凭邀请码注册；`FELLOWQUANT_REGISTRATION=closed` 暂停注册；都不填时开放注册 |
+| `FELLOWQUANT_REGISTRATION` / `FELLOWQUANT_INVITE_CODES` | 注册方式和邀请码一般在管理后台的“注册与邀请码”里设置，改完立即生效。这两项只是默认值：在页面上选过注册方式以后以页面为准；`.env` 里的邀请码（`码:次数`，逗号分开，例如 `TRIAL2026:20,FRIEND`，不写次数就不限次数）和页面生成的一起有效；`FELLOWQUANT_REGISTRATION=closed` 会固定暂停注册，页面上也改不了 |
 | `FELLOWQUANT_CLIENT_IP_HEADER` | 部署在 Cloudflare 或 Nginx 后面时，从哪个请求头读取用户的真实 IP（Cloudflare 填 `CF-Connecting-IP`），用于登录、注册的频率限制 |
 | `FELLOWQUANT_CORS_ORIGINS` | 允许跨域访问的网页地址，逗号分开；默认只允许本机开发服务器。前后端同一个地址时不需要 |
 | `FELLOWQUANT_STATIC_DIR` / `FELLOWQUANT_ADMIN_DIR` | 打包好的网页目录（`landing/dist`）和管理后台目录（`admin/dist`，在 `/admin/` 下），设置后后端直接提供网页，见下面的“正式部署” |
@@ -135,7 +135,7 @@ scripts/serve.sh            # Windows：powershell -File scripts\serve.ps1
 
 脚本先打包 `landing/` 和 `admin/`，再在 `127.0.0.1:8000` 启动后端，只开一个进程（次数限制和后台任务记在这个进程里，不要开多个 worker）。前面用 Cloudflare Tunnel 或 Nginx 提供 https，不直接暴露端口。上线前在 `.env` 里至少确认：`APP_SECRET`、管理员账户、`OPENROUTER_API_KEY`、`FELLOWQUANT_AI_DAILY_TOTAL`、注册方式（试用阶段建议用邀请码）、`FELLOWQUANT_CLIENT_IP_HEADER`、SMTP 和备份目录。`requirements.lock` 是测试通过的固定版本。
 
-服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录，显示注册人数、今天活跃、回测和 AI 用量、邀请码、行情数据和备份的真实情况。
+服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录：概览（注册人数、今天活跃、回测和 AI 用量、行情数据和备份）、用户（每个人今天和累计的 AI 次数、回测数，可以停用或恢复账户；停用后不能登录，已经登录的设备立即退出，数据不删除）、注册与邀请码（选择开放 / 邀请码 / 暂停，生成和停用邀请码）、数据更新（每天自动更新的情况、后台任务进度，可以马上运行今天的更新或停止任务）。网页每次打开都会检查有没有新版本，发布更新以后不会用到旧页面。
 
 ## 🧩 项目结构
 

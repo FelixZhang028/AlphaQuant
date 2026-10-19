@@ -1,6 +1,8 @@
 // 管理后台 API 封装（FastAPI）
 // 开发时（npm run dev）连 http://127.0.0.1:8000；打包后放在网站的 /admin/ 下，连自己所在的地址。
 export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
+// 功能台的地址：开发时是官网的开发服务器，部署后和管理后台同一个网站。
+export const SITE_BASE = import.meta.env.DEV ? import.meta.env.VITE_SITE_BASE || 'http://localhost:5273' : ''
 
 const TOKEN_KEY = 'zt_admin_token'
 
@@ -32,7 +34,9 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
     /* ignore */
   }
   if (!res.ok) {
-    const msg = (data && (data.detail || data.message)) || `请求失败 (${res.status})`
+    // 422 的 detail 是一组字段错误，直接显示会变成 [object Object]。
+    const detail = data && (Array.isArray(data.detail) ? '填写的内容不符合要求' : data.detail || data.message)
+    const msg = detail || `请求失败 (${res.status})`
     const err = new Error(msg)
     err.status = res.status
     throw err
@@ -67,6 +71,34 @@ export function adminUsers() {
 export function adminStats() {
   return request('/api/v1/admin/stats', { auth: true })
 }
+export function setUserActive(id, active) {
+  return request(`/api/v1/admin/users/${id}/active`, { method: 'POST', body: { active }, auth: true })
+}
+
+// 注册方式与邀请码
+export function registrationSettings() {
+  return request('/api/v1/admin/registration', { auth: true })
+}
+export function setRegistrationMode(mode) {
+  return request('/api/v1/admin/registration', { method: 'PUT', body: { mode }, auth: true })
+}
+export function createInvite({ code = '', max_uses = null, note = '' }) {
+  return request('/api/v1/admin/invites', { method: 'POST', body: { code, max_uses, note }, auth: true })
+}
+export function setInviteActive(code, active) {
+  return request(`/api/v1/admin/invites/${encodeURIComponent(code)}/active`, { method: 'POST', body: { active }, auth: true })
+}
+
+// 数据更新（和功能台“数据更新”页用同一组接口）
 export function dailyUpdateStatus() {
   return request('/api/v1/data-center/daily-update', { auth: true })
+}
+export function runDailyUpdate() {
+  return request('/api/v1/data-center/daily-update/run', { method: 'POST', body: {}, auth: true })
+}
+export function dataJobs() {
+  return request('/api/v1/data-center/jobs', { auth: true })
+}
+export function stopDataJob(id) {
+  return request(`/api/v1/data-center/jobs/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {}, auth: true })
 }
