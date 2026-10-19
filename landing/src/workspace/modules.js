@@ -18,10 +18,12 @@ export const groups = [
     ] },
     { key: 'run-library', label: '研究记录' },
   ] },
-  { label: '数据管理', items: [
-    { key: 'data-management', label: '数据概览' },
-    { key: 'data-update', label: '数据更新' },
+  // 数据由平台统一更新：所有人看数据说明、查股票、管自己的股票池；数据运维只有管理员看得到。
+  { label: '数据', items: [
+    { key: 'data-guide', label: '数据说明' },
+    { key: 'market-lookup', label: '股票查询' },
     { key: 'universe', label: '股票池管理' },
+    { key: 'data-update', label: '数据运维', admin: true },
   ] },
   { label: '系统', items: [
     { key: 'account', label: '个人中心' },
@@ -34,7 +36,8 @@ const utilityItems = [
   // 文档问答与决策辅助暂不放进侧栏，旧链接仍能打开。研究经验在 AI研究员页面里管理。
   { key: 'knowledge-base', label: '投研知识库', parent: 'agent-lab' },
   { key: 'decision-center', label: '决策辅助', parent: 'agent-lab' },
-  { key: 'xtick-data', label: 'XTick 数据服务', parent: 'data-management' },
+  { key: 'data-management', label: '数据检查', parent: 'data-update', admin: true },
+  { key: 'xtick-data', label: 'XTick 数据服务', parent: 'data-update', admin: true },
   { key: 'strategy-studio', label: '新建规则策略', parent: 'strategy-hub' },
   { key: 'audit-report', label: '可信度审计', parent: 'backtest-review' },
   { key: 'strategy-forensics', label: '成交核查', parent: 'backtest-review' },
@@ -50,6 +53,18 @@ const legacyViews = {
 }
 export function resolveView(key) {
   return legacyViews[key] || key
+}
+
+// 只有管理员能打开的页面；其他人打开旧链接（以前的“数据更新”“数据概览”）时落到数据说明。
+export const adminViews = new Set(allItems.filter((item) => item.admin).map((item) => item.key))
+export function viewFor(key, isAdmin) {
+  const resolved = resolveView(key)
+  return !isAdmin && adminViews.has(resolved) ? 'data-guide' : resolved
+}
+
+// 侧栏：普通用户看不到只给管理员的入口。
+export function visibleGroups(isAdmin) {
+  return groups.map((group) => ({ ...group, items: group.items.filter((item) => isAdmin || !item.admin) }))
 }
 
 export function navigationItem(key) {
@@ -91,6 +106,8 @@ export const views = {
   'strategy-forensics': defineAsyncComponent(() => import('./views/StrategyForensicsView.vue')),
   research: defineAsyncComponent(() => import('./views/ResearchView.vue')),
   'run-library': defineAsyncComponent(() => import('./views/RunLibraryView.vue')),
+  'data-guide': defineAsyncComponent(() => import('./views/DataGuideView.vue')),
+  'market-lookup': defineAsyncComponent(() => import('./views/MarketLookupView.vue')),
   'data-update': defineAsyncComponent(() => import('./views/DataUpdateView.vue')),
   'data-management': defineAsyncComponent(() => import('./views/DataManagementView.vue')),
   'xtick-data': defineAsyncComponent(() => import('./views/XtickDataView.vue')),

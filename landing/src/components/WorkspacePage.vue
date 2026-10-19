@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import OnboardingTour from './OnboardingTour.vue'
 import ThemeToggle from './ThemeToggle.vue'
-import { allItems, contentLayout, groups, itemLabel, navigationItem, overviewKey, resolveView, views } from '../workspace/modules.js'
+import { adminViews, allItems, contentLayout, itemLabel, navigationItem, overviewKey, resolveView, viewFor, views, visibleGroups } from '../workspace/modules.js'
 import { getLocalUser, logout, restoreSession } from '../api.js'
 import '../workspace/workspace.css'
 import { researchContext, researchUrl } from '../workspace/researchNavigation.js'
@@ -22,7 +22,7 @@ const tourOpen = ref(false)
 const githubUrl = 'https://github.com/FelixZhang028/AlphaQuant'
 
 function navigate(destination) {
-  const key = resolveView(typeof destination === 'string' ? destination : destination?.view)
+  const key = viewFor(typeof destination === 'string' ? destination : destination?.view, !!user.value?.is_admin)
   if (!allItems.some((item) => item.key === key)) return
   const url = researchUrl(window.location.href, typeof destination === 'string' ? key : { ...destination, view: key })
   routeContext.value = researchContext(url)
@@ -80,6 +80,9 @@ const navIcons = {
   research:
     'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99',
   'run-library': 'M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z',
+  'data-guide':
+    'M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z',
+  'market-lookup': 'M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z',
   'data-update':
     'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3',
   'data-management':
@@ -99,7 +102,7 @@ const navIcons = {
 
 // 初始视图：支持 /app.html?view=factor-lab 直达（落地页导航跳转用）
 function initialViewKey() {
-  const key = resolveView(new URLSearchParams(window.location.search).get('view'))
+  const key = viewFor(new URLSearchParams(window.location.search).get('view'), !!user.value?.is_admin)
   return key && allItems.some((i) => i.key === key) ? key : overviewKey
 }
 
@@ -121,6 +124,13 @@ async function verifySession() {
     return
   }
   user.value = session.user
+  // 普通用户打开了只给管理员的页面（例如旧的“数据更新”链接）：换成数据说明，地址栏也跟着改。
+  const requested = resolveView(new URLSearchParams(window.location.search).get('view'))
+  if (!session.user?.is_admin && (adminViews.has(activeKey.value) || adminViews.has(requested))) {
+    activeKey.value = 'data-guide'
+    window.history.replaceState({}, '', researchUrl(window.location.href, 'data-guide'))
+    routeContext.value = researchContext(new URL(window.location.href))
+  }
   loading.value = false
   // 首次进入工作台自动弹出新手引导（可在顶栏 ? 图标重新打开）
   if (!localStorage.getItem('zt_tour_done')) tourOpen.value = true
@@ -193,7 +203,7 @@ function doLogout() {
             首页
           </button>
 
-          <template v-for="group in groups" :key="group.label">
+          <template v-for="group in visibleGroups(!!user?.is_admin)" :key="group.label">
             <!-- 用户旅程分组：研究工作台 / 验证与审计 / 数据 / 系统 -->
             <p class="px-3 pb-1 pt-4 text-xs font-medium text-slate-500">{{ group.label }}</p>
 
