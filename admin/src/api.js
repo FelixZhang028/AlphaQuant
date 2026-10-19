@@ -102,3 +102,20 @@ export function dataJobs() {
 export function stopDataJob(id) {
   return request(`/api/v1/data-center/jobs/${encodeURIComponent(id)}/stop`, { method: 'POST', body: {}, auth: true })
 }
+export function startDataJob(payload) {
+  return request('/api/v1/data-center/jobs/start', { method: 'POST', body: payload, auth: true })
+}
+export function dataJobLog(id) {
+  return request(`/api/v1/data-center/jobs/${encodeURIComponent(id)}/log`, { auth: true })
+}
+export function closedLoopStatus() {
+  return request('/api/v1/data-center/closed-loop', { auth: true })
+}
+
+// 服务器：磁盘空间、数据占用、备份、财务数据的自动更新
+export function systemStatus() {
+  return request('/api/v1/admin/system', { auth: true })
+}
+export function backupNow() {
+  return request('/api/v1/admin/backup', { method: 'POST', body: {}, auth: true })
+}

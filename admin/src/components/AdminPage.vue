@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { SITE_BASE, adminStats, adminUsers, dailyUpdateStatus } from '../api.js'
+import { SITE_BASE, adminStats, adminUsers, dailyUpdateStatus, systemStatus } from '../api.js'
+import { bytes } from '../format.js'
 import DataPanel from './DataPanel.vue'
 import InvitesPanel from './InvitesPanel.vue'
 import UsersPanel from './UsersPanel.vue'
@@ -24,6 +25,7 @@ function openTab(key) {
 const stats = ref(null)
 const users = ref([])
 const market = ref(null)
+const system = ref(null)
 const error = ref('')
 const loading = ref(false)
 const toast = ref('')
@@ -38,11 +40,12 @@ function notify(message) {
 async function load() {
   loading.value = true
   error.value = ''
-  const [s, u, m] = await Promise.allSettled([adminStats(), adminUsers(), dailyUpdateStatus()])
+  const [s, u, m, sys] = await Promise.allSettled([adminStats(), adminUsers(), dailyUpdateStatus(), systemStatus()])
   if (s.status === 'fulfilled') stats.value = s.value
   else error.value = s.reason?.message || '统计加载失败'
   if (u.status === 'fulfilled') users.value = u.value
   if (m.status === 'fulfilled') market.value = m.value
+  if (sys.status === 'fulfilled') system.value = sys.value
   loading.value = false
 }
 onMounted(load)
@@ -153,12 +156,14 @@ const marketText = computed(() => {
 
       <section class="glass rounded-2xl p-5" aria-label="数据与备份">
         <h2 class="text-sm font-semibold text-white">数据与备份</h2>
-        <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-3">
+        <p v-if="system?.disk?.warning" role="alert" class="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">磁盘只剩 {{ bytes(system.disk.free) }}，空间不够时每日更新和备份会失败。</p>
+        <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-4">
           <div><dt class="text-xs text-slate-400">行情数据</dt><dd class="mt-1 text-slate-200">{{ marketText }}</dd></div>
           <div><dt class="text-xs text-slate-400">每天自动更新</dt><dd class="mt-1 text-slate-200">{{ market?.text || '—' }}</dd></div>
           <div><dt class="text-xs text-slate-400">账户数据备份</dt><dd class="mt-1 text-slate-200">{{ backupText }}</dd></div>
+          <div><dt class="text-xs text-slate-400">磁盘剩余</dt><dd class="mt-1" :class="system?.disk?.warning ? 'text-rose-300' : 'text-slate-200'">{{ system ? `${bytes(system.disk.free)} / ${bytes(system.disk.total)}` : '—' }}</dd></div>
         </dl>
-        <button type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openTab('data')">查看进度、现在运行更新 →</button>
+        <button type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openTab('data')">查看每一步结果、财务数据、下载历史数据、备份 →</button>
       </section>
     </main>
 
