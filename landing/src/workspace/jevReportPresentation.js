@@ -18,9 +18,9 @@ export function distributionRows(probabilities = {}) {
 export function reportSummary(report) {
   if (report?.summary) return report.summary
   return {
-    偏多: '当前保存的判断偏多，需要结合风险和数据范围理解。',
-    中性: '当前保存的判断偏中性，尚未形成明确的方向优势。',
-    偏空: '当前保存的判断偏空，需要优先核查不利线索。',
+    偏多: '数据里的利好因素多于风险，仍需结合风险和数据范围理解。',
+    中性: '利好和风险因素大致相当，尚未形成明确的一边。',
+    偏空: '数据里的风险因素多于利好，需要优先核查不利线索。',
   }[report?.choice] || '暂无综合判断。'
 }
 

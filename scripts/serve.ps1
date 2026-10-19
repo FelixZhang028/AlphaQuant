@@ -11,20 +11,27 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $backendRoot = Join-Path $projectRoot 'dashboard\backend'
 $siteRoot = Join-Path $projectRoot 'landing'
 $siteDist = Join-Path $siteRoot 'dist'
+$adminRoot = Join-Path $projectRoot 'admin'
+$adminDist = Join-Path $adminRoot 'dist'
 
 if (-not $SkipBuild) {
-    Write-Host '[打包] 官网和功能台 ...'
-    Push-Location $siteRoot
-    try {
-        if (-not (Test-Path (Join-Path $siteRoot 'node_modules'))) { & npm ci; if ($LASTEXITCODE) { throw 'npm ci 失败' } }
-        & npm run build; if ($LASTEXITCODE) { throw '前端打包失败' }
-    } finally { Pop-Location }
+    foreach ($root in @($siteRoot, $adminRoot)) {
+        Write-Host "[打包] $root ..."
+        Push-Location $root
+        try {
+            if (-not (Test-Path (Join-Path $root 'node_modules'))) { & npm ci; if ($LASTEXITCODE) { throw 'npm ci 失败' } }
+            & npm run build; if ($LASTEXITCODE) { throw '前端打包失败' }
+        } finally { Pop-Location }
+    }
 }
-if (-not (Test-Path (Join-Path $siteDist 'index.html'))) { throw "没有找到打包好的网页：$siteDist" }
+foreach ($dist in @($siteDist, $adminDist)) {
+    if (-not (Test-Path (Join-Path $dist 'index.html'))) { throw "没有找到打包好的网页：$dist" }
+}
 
 $env:FELLOWQUANT_STATIC_DIR = $siteDist
+$env:FELLOWQUANT_ADMIN_DIR = $adminDist
 Remove-Item Env:FELLOWQUANT_API_DOCS -ErrorAction SilentlyContinue
-Write-Host "[启动] FellowQuant  http://${ListenHost}:$Port  （按 Ctrl+C 停止）"
+Write-Host "[启动] FellowQuant  http://${ListenHost}:$Port  管理后台 /admin/  （按 Ctrl+C 停止）"
 # 只开一个进程：次数限制和后台任务都记在这个进程里。
 & python -m uvicorn app.main:app --app-dir $backendRoot --host $ListenHost --port $Port --no-server-header
 exit $LASTEXITCODE

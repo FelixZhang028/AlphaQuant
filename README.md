@@ -45,7 +45,7 @@ v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。�
 | 数据管理 | 数据概览、数据更新、股票池管理；XTick 位于概览的「数据源与高级工具」 |
 | 系统 | 个人中心、账户独立的服务配置 |
 
-**能力边界：**回测与因子评估需要先下载行情数据；监控大屏使用模拟指标。文本 AI 需要服务器配置 `OPENROUTER_API_KEY` 或其他兼容服务，Jev 决策可单独使用 `TYPESAFE_API_KEY`，没有配置时不显示相应 AI 结果；WeKnora 文档问答需要独立部署的服务。项目用于研究与模拟，不连接真实资金交易。
+**能力边界：**回测与因子评估需要先下载行情数据。文本 AI 需要服务器配置 `OPENROUTER_API_KEY` 或其他兼容服务，Jev 决策可单独使用 `TYPESAFE_API_KEY`，没有配置时不显示相应 AI 结果；WeKnora 文档问答需要独立部署的服务。项目用于研究与模拟，不连接真实资金交易。
 
 ## 🚀 快速开始
 
@@ -80,7 +80,7 @@ npm run dev -- --host 127.0.0.1
 
 注册并登录后，先进入「数据管理 → 数据更新」，再创建策略、运行回测。接口文档位于 `http://127.0.0.1:8000/docs`。
 
-独立管理后台与监控大屏可分别从 `admin/`、`dashboard/frontend/` 运行 `npm ci` 和 `npm run dev`，默认端口为 5175、5174。
+管理后台在 `admin/` 里运行 `npm ci` 和 `npm run dev`（端口 5175），用管理员账户登录；正式部署时在网站的 `/admin/` 下。
 
 ## ⚙️ 可选配置
 
@@ -104,9 +104,8 @@ npm run dev -- --host 127.0.0.1
 | `FELLOWQUANT_REGISTRATION` / `FELLOWQUANT_INVITE_CODES` | 注册方式：填了邀请码（`码:次数`，逗号分开，例如 `TRIAL2026:20,FRIEND`，不写次数就不限次数）就只能凭邀请码注册；`FELLOWQUANT_REGISTRATION=closed` 暂停注册；都不填时开放注册 |
 | `FELLOWQUANT_CLIENT_IP_HEADER` | 部署在 Cloudflare 或 Nginx 后面时，从哪个请求头读取用户的真实 IP（Cloudflare 填 `CF-Connecting-IP`），用于登录、注册的频率限制 |
 | `FELLOWQUANT_CORS_ORIGINS` | 允许跨域访问的网页地址，逗号分开；默认只允许本机开发服务器。前后端同一个地址时不需要 |
-| `FELLOWQUANT_STATIC_DIR` | 打包好的网页目录（`landing/dist`），设置后后端直接提供网页，见下面的“正式部署” |
+| `FELLOWQUANT_STATIC_DIR` / `FELLOWQUANT_ADMIN_DIR` | 打包好的网页目录（`landing/dist`）和管理后台目录（`admin/dist`，在 `/admin/` 下），设置后后端直接提供网页，见下面的“正式部署” |
 | `FELLOWQUANT_API_DOCS` | 填 `on` 打开接口文档 `/docs`（默认关闭；`scripts/start.ps1` 本机开发时自动打开） |
-| `FELLOWQUANT_DEMO_MONITOR` | 填 `on` 打开监控大屏（`dashboard/frontend`）用的模拟数据接口 `/api/v1/stats` 和 `/ws/dashboard`；默认关闭 |
 | `FELLOWQUANT_MAX_BODY_MB` | 一次请求最大多少 MB（默认 5），超过返回 413 |
 | `FELLOWQUANT_BACKUP` / `_BACKUP_DIR` / `_BACKUP_KEEP` | 每天自动备份账户数据库、登录密钥和数据源、知识库设置（默认开启，放在 `data/backups`，保留 14 份）；备份目录最好设在另一块硬盘或同步盘；行情数据可以重新下载，不备份 |
 | `FELLOWQUANT_PASSWORD_ITERATIONS` | 密码加密的计算轮数（默认 600000），一般不用改；旧账户登录时自动升级 |
@@ -117,7 +116,7 @@ npm run dev -- --host 127.0.0.1
 
 未配置 SMTP 时密码重置不可用；验证码只发送至注册邮箱，不返回到浏览器。重置密码、修改密码和退出登录后，这个账户的旧登录令牌全部失效。用户可以在个人中心修改密码和注销账户，注销会删除账户和全部研究数据。登录、注册和找回密码都有频率限制：同一 IP 15 分钟最多登录 30 次，同一邮箱连续输错 5 次密码要等 15 分钟，同一 IP 每小时最多注册 5 个账户。本机账户、行情、运行记录和密钥保存在后端 `data/` 中，不进入 Git。
 
-WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。AI研究员的文字解读和“用一句话生成规则”使用平台的聊天模型；没有配置时，生成规则改用离线规则识别。决策模型 Jev 按概率回答选择、是非、评分三类问题：AI研究员可只使用 Jev 给出偏多/中性/偏空的概率，无需文本模型；回测结果页用它评估风险等级和过度拟合的可能。材料由平台从本地数据自动整理，结果按账户保存，重复打开不再计费；独立判断计入每日评估额度。TypeSafe 的请求协议见[官方文档](https://docs.typesafe.ai/api)。
+WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取、检索和聊天权限。AI研究员的文字解读和“用一句话生成规则”使用平台的聊天模型；没有配置时，生成规则改用离线规则识别。决策模型 Jev 按概率回答选择、是非、评分三类问题：AI研究员可只使用 Jev 给出利好多/中性/风险多的概率，无需文本模型；回测结果页用它评估风险等级和过度拟合的可能。材料由平台从本地数据自动整理，结果按账户保存，重复打开不再计费；独立判断计入每日评估额度。TypeSafe 的请求协议见[官方文档](https://docs.typesafe.ai/api)。
 
 需要验证实际集成时，在项目根目录运行 `python scripts/verify_jev.py --live`。该命令会向配置的 Jev 服务发送本地行情和回测摘要，消耗 API 额度；使用独立账户数据库，报告保存在 Git 忽略的 `outputs/`，不会修改现有账户和行情。
 
@@ -134,18 +133,17 @@ cd ../..
 scripts/serve.sh            # Windows：powershell -File scripts\serve.ps1
 ```
 
-脚本先打包 `landing/`，再在 `127.0.0.1:8000` 启动后端，只开一个进程（次数限制和后台任务记在这个进程里，不要开多个 worker）。前面用 Cloudflare Tunnel 或 Nginx 提供 https，不直接暴露端口。上线前在 `.env` 里至少确认：`APP_SECRET`、管理员账户、`OPENROUTER_API_KEY`、`FELLOWQUANT_AI_DAILY_TOTAL`、注册方式（试用阶段建议用邀请码）、`FELLOWQUANT_CLIENT_IP_HEADER`、SMTP 和备份目录。`requirements.lock` 是测试通过的固定版本。
+脚本先打包 `landing/` 和 `admin/`，再在 `127.0.0.1:8000` 启动后端，只开一个进程（次数限制和后台任务记在这个进程里，不要开多个 worker）。前面用 Cloudflare Tunnel 或 Nginx 提供 https，不直接暴露端口。上线前在 `.env` 里至少确认：`APP_SECRET`、管理员账户、`OPENROUTER_API_KEY`、`FELLOWQUANT_AI_DAILY_TOTAL`、注册方式（试用阶段建议用邀请码）、`FELLOWQUANT_CLIENT_IP_HEADER`、SMTP 和备份目录。`requirements.lock` 是测试通过的固定版本。
 
-服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台（`admin/`）和监控大屏（`dashboard/frontend/`）里的业务统计目前是模拟数据，不对外开放。
+服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`，上线前要把【运营者名称】【联系邮箱】【生效日期】换成真实信息，并请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录，显示注册人数、今天活跃、回测和 AI 用量、邀请码、行情数据和备份的真实情况。
 
 ## 🧩 项目结构
 
 ```text
 .
-├── landing/              # Vue 官网、登录、功能台与社区页面
-├── admin/                # 独立管理后台
+├── landing/              # Vue 官网、登录、功能台、法律页面
+├── admin/                # 管理后台（正式部署时在 /admin/）
 ├── dashboard/
-│   ├── frontend/         # 实时监控大屏
 │   └── backend/
 │       ├── app/          # FastAPI 路由、认证、数据库
 │       ├── quant_platform/  # 量化研究、WeKnora 与 Jev 适配器
@@ -167,7 +165,7 @@ python -m pytest -q
 python -m compileall -q app quant_platform trading_agents
 ```
 
-在 `landing/`、`admin/`、`dashboard/frontend/` 各自执行 `npm ci`、`npm run build`。回归测试覆盖成交核查、外部服务协议、账户配置隔离、认证及密码重置；外部服务使用模拟响应，不产生模型费用。
+在 `landing/`、`admin/` 各自执行 `npm ci`、`npm run build`。回归测试覆盖成交核查、外部服务协议、账户配置隔离、认证及密码重置；外部服务使用模拟响应，不产生模型费用。
 
 ## 🤝 参与贡献
 

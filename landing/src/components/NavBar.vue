@@ -10,7 +10,6 @@ const links = [
   { label: '策略中心', href: '/app.html?view=strategy-hub' },
   { label: '回测系统', href: '/app.html?view=backtest-review' },
   { label: '因子实验室', href: '/app.html?view=factor-lab' },
-  { label: '社区论坛', href: '/community.html' },
 ]
 
 function onScroll() {

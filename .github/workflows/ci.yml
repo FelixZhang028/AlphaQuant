@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        directory: [landing, admin, dashboard/frontend]
+        directory: [landing, admin]
     defaults:
       run:
         working-directory: ${{ matrix.directory }}

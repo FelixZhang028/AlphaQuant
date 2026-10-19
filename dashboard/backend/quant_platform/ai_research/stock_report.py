@@ -104,9 +104,9 @@ def stock_report(client: Any, stock: StockFacts) -> dict[str, Any]:
     unavailable = [item["title"] for item in dimensions if item["status"] == "insufficient"]
     risk = answers.get("risk")
     headline = {
-        "偏多": "当前数据的综合判断偏多，仍需结合风险与数据缺口理解。",
-        "中性": "当前数据的综合判断偏中性，尚未形成明确的方向优势。",
-        "偏空": "当前数据的综合判断偏空，优先关注不利线索与风险。",
+        "偏多": "数据里的利好因素多于风险，仍需结合风险与数据缺口理解。",
+        "中性": "利好和风险因素大致相当，尚未形成明确的一边。",
+        "偏空": "数据里的风险因素多于利好，优先关注不利线索与风险。",
     }[tilt["choice"]]
     followups = []
     if unavailable:

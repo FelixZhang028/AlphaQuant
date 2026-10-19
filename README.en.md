@@ -83,11 +83,11 @@ npm run dev -- --host 127.0.0.1
 
 Register and sign in, update market data under Data Management, then create a strategy and run a backtest. API documentation is available at `http://127.0.0.1:8000/docs`.
 
-The optional admin app and monitoring dashboard run from `admin/` and `dashboard/frontend/`. Use `npm ci` and `npm run dev` in each directory; their default ports are 5175 and 5174.
+The admin console runs from `admin/` (`npm ci`, then `npm run dev`, port 5175) and needs an administrator account; in production it is served under `/admin/`.
 
 ## ⚙️ Optional configuration
 
-Copy `dashboard/backend/.env.example` to `.env` in the same directory. The backend loads it at startup. Model and WeKnora settings saved through the UI take precedence over the corresponding environment variables.
+Copy `dashboard/backend/.env.example` to `.env` in the same directory. The backend loads it at startup. AI model keys are configured only on the server; WeKnora can also be configured by an administrator in the UI, which then applies to the whole platform.
 
 | Variable | Purpose |
 | --- | --- |
@@ -130,7 +130,7 @@ python -m pytest -q
 python -m compileall -q app quant_platform trading_agents
 ```
 
-Run `npm ci` and `npm run build` separately in `landing/`, `admin/`, and `dashboard/frontend/`. Regression tests cover trade verification, external API contracts, account-isolated configuration, authentication, and password reset. External APIs are mocked in tests, so tests do not incur model charges.
+Run `npm ci` and `npm run build` separately in `landing/` and `admin/`. Regression tests cover trade verification, external API contracts, account-isolated configuration, authentication, and password reset. External APIs are mocked in tests, so tests do not incur model charges.
 
 ## 🤝 Contributing
 

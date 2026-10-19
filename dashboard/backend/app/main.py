@@ -6,11 +6,11 @@ FastAPI 应用入口。
     uvicorn app.main:app --reload
 
 REST 文档：FELLOWQUANT_API_DOCS=on 时在 http://localhost:8000/docs（正式部署默认关闭）
-监控大屏的模拟数据：FELLOWQUANT_DEMO_MONITOR=on 时提供 /api/v1/stats 和 /ws/dashboard
 
 部署时的设置（都写在 .env 里）：
 - FELLOWQUANT_CORS_ORIGINS：允许跨域访问的网页地址，逗号分开；前后端同一个地址时不需要
 - FELLOWQUANT_STATIC_DIR：打包好的前端目录（landing/dist），后端直接提供网页，整个网站只有一个地址
+- FELLOWQUANT_ADMIN_DIR：打包好的管理后台（admin/dist），在 /admin/ 提供
 - FELLOWQUANT_MAX_BODY_MB：一次请求最大多少 MB（默认 5）
 """
 import logging
@@ -32,11 +32,8 @@ from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
 from .routes.auth import router as auth_router
 from .routes.backtests import router as backtests_router
-from .routes.stats import router as stats_router
-from .routes.strategies import router as strategies_router
 from .routes.workspace import _data_jobs
 from .routes.workspace import router as workspace_router
-from .ws import router as ws_router
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -47,13 +44,12 @@ def _flag(name: str, default: bool) -> bool:
 
 
 API_DOCS = _flag("FELLOWQUANT_API_DOCS", False)
-DEMO_MONITOR = _flag("FELLOWQUANT_DEMO_MONITOR", False)
 STATIC_DIR = os.getenv("FELLOWQUANT_STATIC_DIR", "").strip()
+ADMIN_DIR = os.getenv("FELLOWQUANT_ADMIN_DIR", "").strip()
 DEV_ORIGINS = [
     #   官网/功能台   http://127.0.0.1:5273（Vite 开发服务器也用 5173）
-    #   监控大屏前端  http://127.0.0.1:5174
-    #   独立管理后台  http://127.0.0.1:5175
-    f"http://{host}:{port}" for port in (5273, 5173, 5174, 5175) for host in ("localhost", "127.0.0.1")
+    #   管理后台      http://127.0.0.1:5175
+    f"http://{host}:{port}" for port in (5273, 5173, 5175) for host in ("localhost", "127.0.0.1")
 ]
 CORS_ORIGINS = [origin.strip().rstrip("/") for origin in os.getenv("FELLOWQUANT_CORS_ORIGINS", "").split(",") if origin.strip()] or DEV_ORIGINS
 try:
@@ -110,7 +106,7 @@ async def guard_requests(request: Request, call_next):
     response = await call_next(request)
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
-    if STATIC_DIR and response.headers.get("content-type", "").startswith("text/html"):
+    if (STATIC_DIR or ADMIN_DIR) and response.headers.get("content-type", "").startswith("text/html"):
         response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
     return response
 
@@ -171,15 +167,10 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(strategies_router)
 app.include_router(backtests_router)
 app.include_router(admin_router)
 app.include_router(workspace_router)
 app.include_router(agent_lab_router)
-if DEMO_MONITOR:
-    # 监控大屏的数据是模拟的，而且不需要登录：只在演示时打开。
-    app.include_router(stats_router)
-    app.include_router(ws_router)
 
 
 @app.get("/api/health", summary="健康检查")
@@ -187,6 +178,9 @@ def health():
     return {"status": "ok", "service": "FellowQuant 后端"}
 
 
+if ADMIN_DIR:
+    # 管理后台：只有管理员账户能登录，接口另外检查管理员权限。
+    app.mount("/admin", StaticFiles(directory=Path(ADMIN_DIR), html=True), name="admin")
 if STATIC_DIR:
     # 后端直接提供打包好的网页：/、/app.html、/auth.html……接口仍在 /api 下（前面已经注册）。
     app.mount("/", StaticFiles(directory=Path(STATIC_DIR), html=True), name="site")

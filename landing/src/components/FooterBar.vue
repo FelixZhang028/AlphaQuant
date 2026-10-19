@@ -14,7 +14,6 @@ const columns = [
     title: '资源',
     links: [
       { label: '策略示例', href: '/app.html?view=strategy-hub' },
-      { label: '社区论坛', href: '/community.html' },
       { label: '新手引导', href: '/app.html?view=overview' },
     ],
   },

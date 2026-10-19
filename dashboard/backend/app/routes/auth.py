@@ -20,7 +20,7 @@ from email.message import EmailMessage
 import re
 import secrets
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -53,6 +53,8 @@ LOGIN_FAILURES_PER_EMAIL = (5, 15 * 60)  # 同一账户 15 分钟内输错 5 次
 REGISTER_PER_IP = (5, 60 * 60)        # 同一地址每小时最多注册 5 个账户
 FORGOT_PER_IP = (10, 60 * 60)
 FORGOT_PER_EMAIL = (3, 60 * 60)
+# 最后访问时间最多每 5 分钟写一次，不必每个请求都写数据库。
+SEEN_EVERY = timedelta(minutes=5)
 
 
 class RegisterIn(BaseModel):
@@ -104,13 +106,27 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效或已过期")
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, email, created_at, is_admin, token_version FROM users WHERE id = ?", (payload["uid"],)
+            "SELECT id, name, email, created_at, is_admin, token_version, last_seen_at FROM users WHERE id = ?", (payload["uid"],)
         ).fetchone()
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
     if payload.get("ver", 0) != row["token_version"]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录已失效，请重新登录")
+    _mark_seen(row["id"], row["last_seen_at"])
     return _user_to_out(row)
+
+
+def _mark_seen(user_id: int, last_seen: str | None) -> None:
+    """记下用户最后一次访问的时间（管理后台的“今天活跃”用）。"""
+
+    now = datetime.now(timezone.utc)
+    try:
+        if last_seen and now - datetime.fromisoformat(last_seen) < SEEN_EVERY:
+            return
+    except ValueError:
+        pass
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET last_seen_at = ? WHERE id = ?", (now.isoformat(), user_id))
 
 
 def _password_row(user_id: int):

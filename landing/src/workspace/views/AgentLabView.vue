@@ -6,7 +6,7 @@ import PriorKnowledgeView from './PriorKnowledgeView.vue'
 import JevStockReport from '../ui/JevStockReport.vue'
 import { openResearch } from '../researchNavigation.js'
 import {
-  evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, tiltTone,
+  evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, TILT_NOTE, tiltLabel, tiltTone,
 } from '../aiPresentation.js'
 
 const props = defineProps({
@@ -257,8 +257,9 @@ function moveTone(value) {
 
       <SectionCard v-if="brief" title="AI 解读" :hint="`只根据下面的数据写成，每条后面是它引用的数据 · 模型 ${record.model}`">
         <div class="flex flex-wrap items-center gap-3">
-          <span class="rounded-full border px-4 py-1.5 text-base font-semibold" :class="tiltTone(brief.tilt)">{{ brief.tilt }}</span>
+          <span class="rounded-full border px-4 py-1.5 text-base font-semibold" :class="tiltTone(brief.tilt)">{{ tiltLabel(brief.tilt) }}</span>
           <span class="text-sm text-slate-400">信心：{{ brief.confidence }}</span>
+          <span class="text-xs text-slate-500">{{ TILT_NOTE }}</span>
         </div>
         <p v-if="brief.summary" class="mt-4 text-sm leading-relaxed text-slate-200">{{ brief.summary }}</p>
         <div class="mt-5 grid gap-4 lg:grid-cols-3">
@@ -324,7 +325,7 @@ function moveTone(value) {
           <button type="button" class="min-w-0 text-left text-slate-200 hover:text-white" @click="openResearch('agent-lab', { brief: item.id })">
             {{ item.name }} <span class="text-xs text-slate-500">{{ item.symbol }} · {{ item.trade_date }}</span>
           </button>
-          <span class="rounded-full border px-2 py-0.5 text-xs" :class="tiltTone(item.tilt)">{{ item.tilt || '只有数据' }}</span>
+          <span class="rounded-full border px-2 py-0.5 text-xs" :class="tiltTone(item.tilt)">{{ tiltLabel(item.tilt) || '只有数据' }}</span>
           <span class="ml-auto text-xs" :class="moveTone(item.later?.change)">
             <template v-if="item.later">之后 {{ signedPercent(item.later.change) }}<span class="text-slate-500">（{{ item.later.days }} 个交易日<template v-if="item.later.benchmark_change != null">，沪深300 {{ signedPercent(item.later.benchmark_change) }}</template>）</span></template>
             <span v-else class="text-slate-500">还没有之后的行情</span>
