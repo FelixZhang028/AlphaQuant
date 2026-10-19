@@ -4,6 +4,7 @@
 - 一起复制：登录令牌的签名密钥（丢了所有人都要重新登录）、数据源和知识库的设置；
 - 放在 ``FELLOWQUANT_BACKUP_DIR``（默认 ``data/backups``，最好设成另一块硬盘或同步盘），
   每天一个文件夹，保留最近 ``FELLOWQUANT_BACKUP_KEEP`` 份（默认 14）；
+- 管理员也可以在管理后台手动备份（升级前先备份一次），手动备份另外保留最近 ``MANUAL_KEEP`` 份；
 - 行情数据不备份：体积大，而且可以从数据源重新下载。
 - ``FELLOWQUANT_BACKUP=off`` 关闭。
 """
@@ -15,7 +16,7 @@ import os
 import shutil
 import sqlite3
 import threading
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from ..database import DB_PATH
@@ -24,6 +25,8 @@ from .runtime import BACKEND_ROOT, RUNTIME_ROOT
 logger = logging.getLogger("uvicorn.error")
 CHECK_SECONDS = 3600
 EXTRA_FILES = ("app-secret.key", "data_source_settings.json", "weknora_settings.json")
+MANUAL_KEEP = 5
+MANUAL_MARK = "-manual-"
 
 
 def enabled() -> bool:
@@ -43,11 +46,16 @@ def keep() -> int:
 
 
 def backup(today: date | None = None, *, root: Path | None = None, database: Path | None = None,
-           runtime: Path | None = None) -> Path | None:
-    """Back up today's data unless already done; returns the folder written (None if it existed)."""
+           runtime: Path | None = None, manual: bool = False) -> Path | None:
+    """Back up today's data unless already done; returns the folder written (None if it existed).
+
+    ``manual``: a backup the administrator asked for, named with the time, always written."""
 
     root = root or backup_root()
-    folder = root / (today or date.today()).isoformat()
+    name = (today or date.today()).isoformat()
+    if manual:
+        name += f"{MANUAL_MARK}{datetime.now():%H%M%S}"
+    folder = root / name
     if (folder / "app.db").exists():
         return None
     temporary = root / f".{folder.name}.partial"
@@ -66,9 +74,33 @@ def backup(today: date | None = None, *, root: Path | None = None, database: Pat
             shutil.copy2(path, temporary / name)
     temporary.rename(folder)  # 复制完整以后才出现正式的文件夹
     folders = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
-    for old in folders[:-keep()]:
-        shutil.rmtree(old, ignore_errors=True)
+    # 每天的和手动的分开保留，手动备份多了也不会挤掉每天的。
+    for kept, group in ((keep(), [p for p in folders if MANUAL_MARK not in p.name]),
+                        (MANUAL_KEEP, [p for p in folders if MANUAL_MARK in p.name])):
+        for old in group[:-kept]:
+            shutil.rmtree(old, ignore_errors=True)
     return folder
+
+
+def folder_size(path: Path) -> int:
+    total = 0
+    for item in path.rglob("*"):
+        try:
+            if item.is_file():
+                total += item.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def listing(root: Path | None = None) -> list[dict]:
+    """已有的备份，新的在前：名字、是不是手动备份、大小。"""
+
+    root = root or backup_root()
+    if not root.is_dir():
+        return []
+    folders = sorted((p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")), key=lambda p: p.name, reverse=True)
+    return [{"name": p.name, "manual": MANUAL_MARK in p.name, "size": folder_size(p)} for p in folders]
 
 
 class BackupScheduler:
