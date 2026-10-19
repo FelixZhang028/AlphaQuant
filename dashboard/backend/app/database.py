@@ -2,8 +2,7 @@
 数据库初始化与连接（SQLite）。
 
 表：
-- users          官网注册用户（含 is_admin 标记）
-- strategies     每个用户的策略
+- users          官网注册用户（含 is_admin 标记、最后访问时间）
 - backtests      每个用户的回测任务与结果
 - chart_drawings 每个用户在每只股票 K 线上画的线
 - ai_usage       每个用户每天调用平台 AI 的次数
@@ -49,17 +48,6 @@ def init_db() -> None:
                 created_at    TEXT    NOT NULL,
                 is_active     INTEGER NOT NULL DEFAULT 1,
                 is_admin      INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS strategies (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id    INTEGER NOT NULL,
-                name       TEXT    NOT NULL,
-                type       TEXT    NOT NULL,
-                market     TEXT    NOT NULL,
-                status     TEXT    NOT NULL DEFAULT '已暂停',
-                pnl        REAL    NOT NULL DEFAULT 0,
-                created_at TEXT    NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS backtests (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +198,8 @@ def init_db() -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         if "token_version" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+        if "last_seen_at" not in columns:
+            conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
 
     # No public default credentials. Bootstrap only when explicitly configured.
     email = os.getenv("FELLOWQUANT_ADMIN_EMAIL", "").strip().lower()

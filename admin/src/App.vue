@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import DynamicBackground from './components/DynamicBackground.vue'
 import AdminLogin from './components/AdminLogin.vue'
 import AdminPage from './components/AdminPage.vue'
-import { clearSession, getToken, me } from './api.js'
+import { clearSession, getToken, logout, me } from './api.js'
 
 const checking = ref(true)
 const authed = ref(false)
@@ -27,7 +27,7 @@ function onLogin() {
   authed.value = true
 }
 function onLogout() {
-  clearSession()
+  logout()
   authed.value = false
 }
 </script>

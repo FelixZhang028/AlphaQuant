@@ -257,6 +257,10 @@ def test_the_llm_multi_agent_strategy_is_for_admins_only(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
+DEPLOY_SETTINGS = ("FELLOWQUANT_API_DOCS", "FELLOWQUANT_STATIC_DIR", "FELLOWQUANT_ADMIN_DIR",
+                   "FELLOWQUANT_CORS_ORIGINS", "FELLOWQUANT_MAX_BODY_MB")
+
+
 @pytest.fixture
 def main_app(tmp_path, monkeypatch):
     """The real application, loaded with the given environment and an isolated account database."""
@@ -267,29 +271,30 @@ def main_app(tmp_path, monkeypatch):
     import app.main as main
 
     def load(**env):
-        for name in ("FELLOWQUANT_API_DOCS", "FELLOWQUANT_DEMO_MONITOR", "FELLOWQUANT_STATIC_DIR", "FELLOWQUANT_CORS_ORIGINS", "FELLOWQUANT_MAX_BODY_MB"):
+        for name in DEPLOY_SETTINGS:
             monkeypatch.delenv(name, raising=False)
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         return TestClient(importlib.reload(main).app)
 
     yield load
-    for name in ("FELLOWQUANT_API_DOCS", "FELLOWQUANT_DEMO_MONITOR", "FELLOWQUANT_STATIC_DIR", "FELLOWQUANT_CORS_ORIGINS", "FELLOWQUANT_MAX_BODY_MB"):
+    for name in DEPLOY_SETTINGS:
         monkeypatch.delenv(name, raising=False)
     importlib.reload(main)
 
 
-def test_by_default_no_api_docs_no_demo_monitor_and_safe_headers(main_app):
+def test_by_default_no_api_docs_no_demo_data_and_safe_headers(main_app):
     client = main_app()
     assert client.get("/docs").status_code == 404 and client.get("/openapi.json").status_code == 404
-    assert client.get("/api/v1/stats/snapshot").status_code == 404
+    assert client.get("/api/v1/stats/snapshot").status_code == 404           # 模拟的监控数据已经删除
+    assert client.get("/api/v1/strategies").status_code == 404               # 旧的演示策略接口也删除了
     health = client.get("/api/health")
     assert health.status_code == 200 and health.headers["X-Frame-Options"] == "DENY"
     assert health.headers["X-Content-Type-Options"] == "nosniff"
     big = client.post("/api/v1/auth/login", content=b"x" * (6 * 1024 * 1024), headers={"Content-Type": "application/json"})
     assert big.status_code == 413
-    with_docs = main_app(FELLOWQUANT_API_DOCS="on", FELLOWQUANT_DEMO_MONITOR="on")
-    assert with_docs.get("/docs").status_code == 200 and with_docs.get("/api/v1/stats/snapshot").status_code == 200
+    with_docs = main_app(FELLOWQUANT_API_DOCS="on")
+    assert with_docs.get("/docs").status_code == 200
 
 
 def test_cors_follows_the_configured_site(main_app):
@@ -311,6 +316,18 @@ def test_the_backend_can_serve_the_built_site_on_one_address(main_app, tmp_path)
     assert "功能台" in client.get("/app.html").text
     assert client.get("/api/health").json()["status"] == "ok"
     assert client.get("/api/v1/auth/registration").status_code == 200        # 接口不受影响
+
+
+def test_the_admin_console_is_served_under_admin(main_app, tmp_path):
+    site, console = tmp_path / "dist", tmp_path / "admin"
+    site.mkdir()
+    console.mkdir()
+    (site / "index.html").write_text("<html>首页</html>", encoding="utf-8")
+    (console / "index.html").write_text("<html>管理后台</html>", encoding="utf-8")
+    client = main_app(FELLOWQUANT_STATIC_DIR=str(site), FELLOWQUANT_ADMIN_DIR=str(console))
+    page = client.get("/admin/")
+    assert "管理后台" in page.text and "script-src 'self'" in page.headers["Content-Security-Policy"]
+    assert "首页" in client.get("/").text
 
 
 # --------------------------------------------------------------------------- #
@@ -341,3 +358,50 @@ def test_a_daily_backup_is_complete_and_old_ones_are_pruned(tmp_path, monkeypatc
     backup.backup(date(2026, 10, 17), root=root, database=database_file, runtime=runtime)
     backup.backup(date(2026, 10, 18), root=root, database=database_file, runtime=runtime)
     assert sorted(p.name for p in root.iterdir()) == ["2026-10-17", "2026-10-18"]
+
+
+# --------------------------------------------------------------------------- #
+# 管理后台的真实数字
+# --------------------------------------------------------------------------- #
+
+
+def test_admin_stats_count_real_users_research_ai_and_invites(accounts, monkeypatch, tmp_path):
+    from app.routes import admin
+
+    monkeypatch.setenv("FELLOWQUANT_INVITE_CODES", "TRIAL:3")
+    monkeypatch.setenv("FELLOWQUANT_BACKUP_DIR", str(tmp_path / "backups"))
+    (tmp_path / "backups" / "2026-10-18").mkdir(parents=True)
+    accounts.app.include_router(admin.router)
+    assert sign_up(accounts, invite_code="trial").status_code == 201
+    user_token = log_in(accounts).json()["token"]
+    assert accounts.get("/api/v1/auth/me", headers=bearer(user_token)).status_code == 200    # 记下今天访问过
+    assert accounts.get("/api/v1/admin/stats", headers=bearer(user_token)).status_code == 403
+    with database.get_conn() as conn:
+        conn.execute("UPDATE users SET is_admin = 1 WHERE email = 'a@example.test'")
+        conn.execute("INSERT INTO ai_usage (user_id, day, kind, count) VALUES (1, ?, 'brief', 2)", (platform_ai._today(),))
+        conn.execute("INSERT INTO ai_usage_total (day, count) VALUES (?, 2)", (platform_ai._today(),))
+    stats = accounts.get("/api/v1/admin/stats", headers=bearer(user_token)).json()
+    assert stats["users"] == {"total": 1, "new_today": 1, "active_today": 1}
+    assert stats["research"]["backtests"] == 0 and stats["research"]["briefs"] == 0
+    assert stats["ai"]["used"] == 2 and stats["ai"]["by_kind"] == [{"kind": "brief", "label": "AI 解读", "count": 2}]
+    assert stats["registration"] == {"mode": "invite", "invites": [{"code": "TRIAL", "limit": 3, "used": 1}]}
+    assert stats["backup"]["latest"] == "2026-10-18" and stats["backup"]["count"] == 1
+    users = accounts.get("/api/v1/admin/users", headers=bearer(user_token)).json()
+    assert users[0]["last_seen_at"]
+
+
+def test_last_visit_is_written_at_most_every_few_minutes(accounts, monkeypatch):
+    sign_up(accounts)
+    token = log_in(accounts).json()["token"]
+    writes = []
+    original = auth.get_conn
+
+    def counting():
+        conn = original()
+        conn.set_trace_callback(lambda sql: writes.append(sql) if sql.startswith("UPDATE users SET last_seen_at") else None)
+        return conn
+
+    monkeypatch.setattr(auth, "get_conn", counting)
+    for _ in range(3):
+        assert accounts.get("/api/v1/auth/me", headers=bearer(token)).status_code == 200
+    assert len(writes) == 1
