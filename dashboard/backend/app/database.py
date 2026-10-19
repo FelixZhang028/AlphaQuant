@@ -191,6 +191,13 @@ def init_db() -> None:
                 note       TEXT    NOT NULL DEFAULT '',
                 created_at TEXT    NOT NULL
             );
+            -- 每个用户的研究默认值（回测初始资金、持仓、调仓、区间，AI 研究员是否参考研究经验），JSON
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id    INTEGER PRIMARY KEY,
+                data       TEXT    NOT NULL,
+                updated_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             -- 管理员在页面上改的平台设置，例如注册方式（registration = open / invite / closed）
             CREATE TABLE IF NOT EXISTS site_settings (
                 key   TEXT PRIMARY KEY,

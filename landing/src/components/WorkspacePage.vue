@@ -42,13 +42,17 @@ function navigateResearchTab(key) {
 }
 // 子视图可派发 `fq-navigate` 请求切换视图（如结果页深链审计页），与侧栏导航共用同一路径。
 function onNavigateEvent(e) { navigate(e.detail) }
+// 设置页的“重新打开新手引导”。
+function onOpenTour() { tourOpen.value = true }
 onMounted(() => {
   window.addEventListener('popstate', syncView)
   window.addEventListener('fq-navigate', onNavigateEvent)
+  window.addEventListener('fq-open-tour', onOpenTour)
 })
 onUnmounted(() => {
   window.removeEventListener('popstate', syncView)
   window.removeEventListener('fq-navigate', onNavigateEvent)
+  window.removeEventListener('fq-open-tour', onOpenTour)
 })
 
 // 导航线性图标（Heroicons outline 路径），对齐 AlphaQuant 五组用户旅程

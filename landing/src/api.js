@@ -197,6 +197,30 @@ export function deleteCustomFactor(name) {
   return request(`/api/v1/factors/custom/${name}`, { method: 'DELETE', auth: true })
 }
 
+// ---- 个人设置 ----
+export function getPreferences() {
+  return request('/api/v1/settings/preferences', { auth: true })
+}
+export function savePreferences(preferences) {
+  return request('/api/v1/settings/preferences', { method: 'PUT', body: preferences, auth: true })
+}
+export function todayUsage() {
+  return request('/api/v1/settings/usage', { auth: true })
+}
+// 导出我的数据：下载成一个 JSON 文件。
+export async function exportMyData() {
+  const res = await fetch(`${API_BASE}/api/v1/settings/export`, { headers: { Authorization: `Bearer ${getToken()}` } })
+  if (!res.ok) {
+    let detail = ''
+    try { detail = (await res.json()).detail } catch { /* ignore */ }
+    const err = new Error(sanitizeError(typeof detail === 'string' && detail ? detail : `导出失败 (${res.status})`))
+    err.status = res.status
+    throw err
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'fellowquant-export.json'
+  return { blob: await res.blob(), name }
+}
+
 // ---- AI 研究员 ----
 export function aiStatus() {
   return request('/api/v1/agent-lab/status', { auth: true })
