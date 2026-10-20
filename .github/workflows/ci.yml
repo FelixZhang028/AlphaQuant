@@ -36,6 +36,5 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.directory }}/package-lock.json
       - run: npm ci
-      - if: matrix.directory == 'landing'
-        run: node --test tests/*.test.js
+      - run: node --test tests/*.test.js
       - run: npm run build

@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .database import init_db
+from .quant import site_config
 from .quant.backup import BackupScheduler
 from .quant.daily_schedule import DailyScheduler
 from .quant.factor_profiles import FactorProfileWarmer
@@ -170,8 +171,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "服务器内部错误，请稍后重试"},
     )
 
-# 启动时建表（users 等）
+# 启动时建表（users 等），再把管理后台保存的系统设置放进环境变量（AI 密钥、次数、数据更新……）
 init_db()
+site_config.apply()
 
 # 允许跨域访问的网页地址：默认是本机的开发服务器；部署时用 FELLOWQUANT_CORS_ORIGINS 设置。
 app.add_middleware(

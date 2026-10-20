@@ -16,9 +16,6 @@
 登录、注册、找回密码都限制频率（见 ``app.quant.rate_limit``）。
 """
 import hmac
-import os
-import smtplib
-from email.message import EmailMessage
 import re
 import secrets
 import time
@@ -28,7 +25,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..database import get_conn
-from ..quant import rate_limit, registration
+from ..quant import mailer, rate_limit, registration
 from ..security import (
     create_token,
     decode_token,
@@ -271,7 +268,7 @@ def _find_user_by_name_email(name: str, email: str):
 @router.post("/forgot/request")
 def forgot_request(body: ForgotRequestIn, request: Request):
     """Send reset codes to the registered mailbox; never expose codes in API responses."""
-    if not os.getenv("SMTP_HOST") or not os.getenv("SMTP_FROM"):
+    if not mailer.configured():
         raise HTTPException(status_code=503, detail="密码重置邮件服务尚未配置，请联系管理员")
     if not _EMAIL_RE.match(body.email.strip()):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
@@ -285,17 +282,8 @@ def forgot_request(body: ForgotRequestIn, request: Request):
     if previous and previous[1] - RESET_CODE_TTL > time.time() - 60:
         raise HTTPException(status_code=429, detail="请等待一分钟后重新获取验证码")
     code = f"{secrets.randbelow(1000000):06d}"
-    mail = EmailMessage()
-    mail["Subject"] = "FellowQuant 密码重置验证码"
-    mail["From"] = os.environ["SMTP_FROM"]
-    mail["To"] = row["email"]
-    mail.set_content(f"您的验证码是 {code}，10 分钟内有效。若非本人操作，请忽略此邮件。")
     try:
-        with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.getenv("SMTP_PORT", "587")), timeout=15) as server:
-            server.starttls()
-            if os.getenv("SMTP_USERNAME"):
-                server.login(os.environ["SMTP_USERNAME"], os.environ.get("SMTP_PASSWORD", ""))
-            server.send_message(mail)
+        mailer.send_mail(row["email"], "FellowQuant 密码重置验证码", f"您的验证码是 {code}，10 分钟内有效。若非本人操作，请忽略此邮件。")
     except Exception:
         raise HTTPException(status_code=503, detail="验证码邮件发送失败，请稍后重试") from None
     _RESET_CODES[row["id"]] = (code, time.time() + RESET_CODE_TTL, 0)

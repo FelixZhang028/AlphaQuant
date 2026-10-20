@@ -215,7 +215,7 @@ const stepMark = { done: '✓', failed: '✗', skipped: '–' }
       <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-3">
         <div><dt class="text-xs text-slate-400">状态</dt><dd class="mt-1 text-slate-200">{{ daily?.text || '—' }}</dd></div>
         <div><dt class="text-xs text-slate-400">行情数据</dt><dd class="mt-1 text-slate-200">{{ marketText }}</dd></div>
-        <div><dt class="text-xs text-slate-400">自动更新时间</dt><dd class="mt-1 text-slate-200">{{ daily ? (daily.enabled ? `每个交易日 ${daily.time} 以后（北京时间）` : '已关闭（FELLOWQUANT_DAILY_UPDATE=off）') : '—' }}</dd></div>
+        <div><dt class="text-xs text-slate-400">自动更新时间</dt><dd class="mt-1 text-slate-200">{{ daily ? (daily.enabled ? `每个交易日 ${daily.time} 以后（北京时间）` : '已关闭（在系统设置里打开）') : '—' }}</dd></div>
       </dl>
       <div v-if="daily?.last" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
         <p class="text-slate-300">上一次：{{ daily.last.trade_date }} · {{ daily.last.trigger === 'auto' ? '自动' : '管理员手动' }} · {{ time(daily.last.finished_at) }}</p>
@@ -243,7 +243,7 @@ const stepMark = { done: '✓', failed: '✗', skipped: '–' }
         <div><dt class="text-xs text-slate-400">自动更新</dt><dd class="mt-1 text-slate-200">{{ fundamentals?.text || '—' }}</dd></div>
         <div><dt class="text-xs text-slate-400">上一次自动更新</dt><dd class="mt-1 text-slate-200">{{ lastFundamentalsText }}</dd></div>
       </dl>
-      <p class="mt-3 text-xs text-slate-500">财报季（1～4 月、7～8 月、10 月，以及 5、9、11 月的第一周）每个周六 10:00 以后自动下载最近 5 个报告期里还没有的财报；平时不会有新财报，不更新。关闭：FELLOWQUANT_FUNDAMENTALS_UPDATE=off。</p>
+      <p class="mt-3 text-xs text-slate-500">财报季（1～4 月、7～8 月、10 月，以及 5、9、11 月的第一周）每个周六 10:00 以后自动下载最近 5 个报告期里还没有的财报；平时不会有新财报，不更新。开关在“系统设置 → 数据更新”里。</p>
     </section>
 
     <!-- 正在运行 -->

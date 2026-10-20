@@ -9,6 +9,8 @@
 - stock_briefs   AI 研究员的每次分析（当时的数据、AI 解读、追问）
 - ai_reviews     每次回测的 AI 评估（风险等级、过度拟合的可能）
 - ai_chats       AI 问答的对话（每一轮的问题、回答和用到的数据）
+- admin_audit    管理员做过的操作（改设置、停用用户、启动数据任务……；不记录密钥本身）
+- ai_tokens      每天调用文本模型用掉的 token（服务商返回了用量时）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -181,6 +183,22 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_ai_chats_user ON ai_chats(user_id, updated_at);
+            CREATE TABLE IF NOT EXISTS admin_audit (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id    INTEGER,
+                admin_email TEXT    NOT NULL DEFAULT '',
+                action      TEXT    NOT NULL,                -- settings.update / user.disable / data.start ...
+                summary     TEXT    NOT NULL,                -- 给人看的一句话
+                detail      TEXT    NOT NULL DEFAULT '{}',   -- JSON：改了哪些项、哪个用户……
+                created_at  TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_admin_audit_time ON admin_audit(created_at);
+            CREATE TABLE IF NOT EXISTS ai_tokens (
+                day        TEXT    PRIMARY KEY,               -- 北京时间日期
+                calls      INTEGER NOT NULL DEFAULT 0,
+                prompt     INTEGER NOT NULL DEFAULT 0,
+                completion INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS ai_reviews (
                 user_id     INTEGER NOT NULL,
                 backtest_id INTEGER NOT NULL,

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import database, security
+from app.quant import mailer
 from app.routes import auth, workspace
 
 
@@ -48,7 +49,7 @@ def test_reset_code_is_only_sent_to_mailbox(api, monkeypatch):
     old_token = api.post('/api/v1/auth/login', json={'email': 'test@example.test', 'password': 'initial-password'}).json()['token']
     monkeypatch.setenv('SMTP_HOST', 'smtp.example.test')
     monkeypatch.setenv('SMTP_FROM', 'noreply@example.test')
-    with patch.object(auth.smtplib, 'SMTP') as smtp:
+    with patch.object(mailer.smtplib, 'SMTP') as smtp:
         response = api.post('/api/v1/auth/forgot/request', json={'name': 'test-user', 'email': 'test@example.test'})
         assert response.status_code == 200 and 'code' not in response.json()
         code = auth._RESET_CODES[user['id']][0]
@@ -69,7 +70,7 @@ def test_mail_failure_does_not_issue_code(api, monkeypatch):
     account(api)
     monkeypatch.setenv('SMTP_HOST', 'smtp.example.test')
     monkeypatch.setenv('SMTP_FROM', 'noreply@example.test')
-    with patch.object(auth.smtplib, 'SMTP', side_effect=OSError('secret details')):
+    with patch.object(mailer.smtplib, 'SMTP', side_effect=OSError('secret details')):
         result = api.post('/api/v1/auth/forgot/request', json={'name': 'test-user', 'email': 'test@example.test'})
     assert result.status_code == 503 and 'secret details' not in result.text
     assert not auth._RESET_CODES

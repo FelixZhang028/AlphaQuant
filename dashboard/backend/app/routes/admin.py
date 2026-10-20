@@ -10,18 +10,25 @@
 - POST /invites/{code}/active 停用或恢复页面生成的邀请码
 - GET  /system                服务器状态：磁盘空间、数据占用、备份列表、财务数据的自动更新
 - POST /backup                现在手动备份一次
+- GET  /settings              系统设置：AI 模型、AI 次数、数据更新、邮件服务（密钥只显示前后几位）
+- PUT  /settings              保存或清除系统设置（要再输一次管理员密码），立刻生效
+- POST /settings/test         用页面上（可以还没保存）的设置测试文本模型、Jev 或发一封测试邮件
+- GET  /audit                 管理员做过的操作
+- GET  /ai-usage              最近 30 天每天各类 AI 的次数、token 用量、用得最多的用户
 """
 import shutil
 import time
 from datetime import datetime, timezone
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..database import get_conn
-from ..quant import backup, fundamentals_schedule, platform_ai, rate_limit, registration
+from ..quant import audit, backup, fundamentals_schedule, mailer, platform_ai, rate_limit, registration, site_config
 from ..quant.runtime import MARKET_ROOT, RUNTIME_ROOT
 from ..routes.auth import get_current_user
+from ..security import verify_password
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -76,18 +83,20 @@ def list_users():
     ]
 
 
-@router.post("/users/{uid}/active", dependencies=[Depends(require_admin)])
-def set_user_active(uid: int, body: ActiveIn):
+@router.post("/users/{uid}/active")
+def set_user_active(uid: int, body: ActiveIn, admin: dict = Depends(require_admin)):
     """停用：不能再登录，已经登录的设备立即失效；恢复：可以重新登录。账户里的数据都不动。"""
 
     with get_conn() as conn:
-        row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT is_admin, email FROM users WHERE id = ?", (uid,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="没有这个用户")
         if row["is_admin"]:
             raise HTTPException(status_code=403, detail="管理员账户不能停用")
         conn.execute("UPDATE users SET is_active = ?, token_version = token_version + ? WHERE id = ?",
                      (1 if body.active else 0, 0 if body.active else 1, uid))
+    audit.record(admin, "user.enable" if body.active else "user.disable",
+                 f"{'恢复' if body.active else '停用'}了账户 {row['email']}", user_id=uid)
     return {"id": uid, "is_active": body.active}
 
 
@@ -96,21 +105,27 @@ def registration_settings():
     return {"mode": registration.mode(), "locked": registration.env_locked(), "invites": registration.all_codes()}
 
 
-@router.put("/registration", dependencies=[Depends(require_admin)])
-def change_registration(body: ModeIn):
+MODE_NAMES = {"open": "开放注册", "invite": "凭邀请码注册", "closed": "暂停注册"}
+
+
+@router.put("/registration")
+def change_registration(body: ModeIn, admin: dict = Depends(require_admin)):
     registration.set_mode(body.mode)
+    audit.record(admin, "registration.mode", f"注册方式改为“{MODE_NAMES.get(body.mode, body.mode)}”", mode=body.mode)
     return registration_settings()
 
 
-@router.post("/invites", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
-def create_invite(body: InviteIn):
+@router.post("/invites", status_code=status.HTTP_201_CREATED)
+def create_invite(body: InviteIn, admin: dict = Depends(require_admin)):
     code = registration.create_code(body.code, body.max_uses, body.note)
+    audit.record(admin, "registration.invite", f"生成了邀请码 {code}（可用 {body.max_uses} 次）", code=code, note=body.note)
     return {"code": code, **registration_settings()}
 
 
-@router.post("/invites/{code}/active", dependencies=[Depends(require_admin)])
-def set_invite_active(code: str, body: ActiveIn):
+@router.post("/invites/{code}/active")
+def set_invite_active(code: str, body: ActiveIn, admin: dict = Depends(require_admin)):
     registration.set_code_active(code, body.active)
+    audit.record(admin, "registration.invite_active", f"{'恢复' if body.active else '停用'}了邀请码 {code}", code=code)
     return registration_settings()
 
 
@@ -215,4 +230,110 @@ def backup_now(user: dict = Depends(require_admin)):
         folder = backup.backup(manual=True)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"备份失败：{exc.strerror or exc}") from None
+    audit.record(user, "backup.manual", f"手动备份了一次（{folder.name if folder else '没有新内容'}）")
     return {"name": folder.name if folder else None, "items": backup.listing()}
+
+
+# --------------------------------------------------------------------------- #
+# 系统设置
+# --------------------------------------------------------------------------- #
+
+
+class SettingsIn(BaseModel):
+    password: str = Field(..., min_length=1, max_length=200)     # 再输一次管理员密码
+    values: dict[str, Any] = Field(default_factory=dict)
+    clear: list[str] = Field(default_factory=list)               # 改回用 .env 的设置
+
+
+class SettingsTestIn(BaseModel):
+    target: Literal["text", "decision", "email"]
+    values: dict[str, Any] = Field(default_factory=dict)         # 页面上还没保存的值；密钥留空表示用已保存的
+
+
+PASSWORD_FAILURES = (5, 15 * 60)
+TEST_LIMIT = (10, 10 * 60)
+
+
+def _confirm_password(admin: dict, password: str) -> None:
+    """Saving settings needs the admin password again, so an unattended session cannot change keys."""
+
+    key = f"settings-password:{admin['id']}"
+    rate_limit.check(key, *PASSWORD_FAILURES, "管理员密码输错太多次", record=False)
+    with get_conn() as conn:
+        row = conn.execute("SELECT password_hash, salt FROM users WHERE id = ?", (admin["id"],)).fetchone()
+    if not row or not verify_password(password, row["salt"], row["password_hash"]):
+        rate_limit.record(key, PASSWORD_FAILURES[1])
+        raise HTTPException(status_code=403, detail="管理员密码不正确，设置没有保存")
+    rate_limit.clear(key)
+
+
+@router.get("/settings", dependencies=[Depends(require_admin)])
+def settings_list():
+    return site_config.describe()
+
+
+@router.put("/settings")
+def settings_save(body: SettingsIn, admin: dict = Depends(require_admin)):
+    _confirm_password(admin, body.password)
+    try:
+        changed = site_config.update(body.values, body.clear)
+    except site_config.SettingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if changed:
+        labels = [site_config.BY_NAME[name].label for name in changed]
+        cleared = [site_config.BY_NAME[name].label for name in body.clear]
+        audit.record(admin, "settings.update", "修改了系统设置：" + "、".join(labels)
+                     + (f"（其中改回用 .env：{'、'.join(cleared)}）" if cleared else ""), names=changed, cleared=body.clear)
+    return {**site_config.describe(), "changed": changed}
+
+
+@router.post("/settings/test")
+def settings_test(body: SettingsTestIn, admin: dict = Depends(require_admin)):
+    """Try the settings on the page (saved or not) once; nothing is saved and no user quota is used."""
+
+    rate_limit.check(f"settings-test:{admin['id']}", *TEST_LIMIT, "测试太频繁")
+    try:
+        config = site_config.candidate(body.values)
+    except site_config.SettingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    from .agent_lab import _ai_failure
+
+    started = time.monotonic()
+    try:
+        if body.target == "text":
+            model = platform_ai.platform_model(config)
+            if model is None:
+                raise HTTPException(status_code=422, detail="还没有填文本模型的密钥（或 OpenRouter 密钥）")
+            reply = platform_ai.model_client(model).chat([{"role": "user", "content": "这是连接测试，请只回复两个字：收到"}],
+                                                         temperature=0, max_tokens=10)
+            result = {"model": reply.model or model.model, "reply": reply.text.strip()[:40]}
+        elif body.target == "decision":
+            from quant_platform.jev.client import choice_question
+
+            client = platform_ai.decision_client(config)
+            if client is None:
+                raise HTTPException(status_code=422, detail="还没有填 TypeSafe Jev 密钥（或 OpenRouter 密钥）")
+            client.ask({"测试": "连接检查"}, {"ok": choice_question("这是连接测试，请选“正常”。", {"正常": "连接正常", "异常": "连接异常"})})
+            result = {"model": getattr(client, "served_model", None) or client.model}
+        else:
+            if not mailer.configured(config):
+                raise HTTPException(status_code=422, detail="还没有填 SMTP 服务器和发件人地址")
+            mailer.send_mail(admin["email"], "FellowQuant 测试邮件", "这是管理后台发出的测试邮件。收到说明邮件服务配置正确，找回密码可以正常发验证码。", config)
+            result = {"to": admin["email"]}
+            audit.record(admin, "settings.test_email", f"发了一封测试邮件到 {admin['email']}")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 把原因翻成看得懂的话
+        reason = "邮件发送失败，请检查服务器、端口、账号和授权码" if body.target == "email" else _ai_failure(exc)
+        return {"ok": False, "message": reason, "seconds": round(time.monotonic() - started, 1)}
+    return {"ok": True, "seconds": round(time.monotonic() - started, 1), **result}
+
+
+@router.get("/audit", dependencies=[Depends(require_admin)])
+def audit_list(kind: str = Query("", max_length=20), limit: int = Query(100, ge=1, le=audit.MAX_ROWS)):
+    return {"items": audit.listing(kind, limit), "kinds": audit.KINDS}
+
+
+@router.get("/ai-usage", dependencies=[Depends(require_admin)])
+def ai_usage(days: int = Query(30, ge=1, le=90)):
+    return platform_ai.usage_history(days)
