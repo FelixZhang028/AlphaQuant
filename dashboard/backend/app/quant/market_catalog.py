@@ -4,7 +4,6 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from functools import lru_cache
 import json
-import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
@@ -14,6 +13,8 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from .symbols import to_bare, to_canonical
+
+from quant_platform.core.files import replace_file
 
 _INDEX_LOCK = RLock()
 _CACHE_VERSION = 1
@@ -43,7 +44,7 @@ def _save_index(root: Path, signature: tuple, result: tuple) -> None:
         with NamedTemporaryFile(mode="w", encoding="utf-8", dir=root, prefix=".market-catalog-", suffix=".tmp", delete=False) as stream:
             temporary = Path(stream.name)
             json.dump(payload, stream, ensure_ascii=False)
-        os.replace(temporary, root / ".market-catalog.json")
+        replace_file(temporary, root / ".market-catalog.json")
     except OSError:
         # Browsing still works on a read-only repository; only persistence is skipped.
         pass

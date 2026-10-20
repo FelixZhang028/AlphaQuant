@@ -1,13 +1,17 @@
 """Data files are swapped in whole, data jobs outlive the launcher, and Jev's real version is shown."""
+import json
 import os
 import subprocess
 import time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from quant_platform.application import data_jobs
 from quant_platform.ai_research.decisions import model_name
+from quant_platform.core import files
+from quant_platform.core.files import write_json_atomic
 from quant_platform.data.repositories import parquet_repository
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository, write_parquet_atomic
 from quant_platform.jev.client import JevClient, choice_question
@@ -64,9 +68,62 @@ def test_a_file_being_read_on_windows_is_replaced_once_the_reader_lets_go(tmp_pa
             raise PermissionError("另一个程序正在使用此文件")
         original(source, target)
 
-    monkeypatch.setattr(parquet_repository.os, "replace", busy_twice)
+    monkeypatch.setattr(files.os, "replace", busy_twice)
     write_parquet_atomic(pd.DataFrame({"symbol": ["A", "B"]}), path)
     assert len(attempts) == 3 and pd.read_parquet(path)["symbol"].tolist() == ["A", "B"]
+
+
+def test_a_job_file_being_read_is_replaced_once_the_reader_lets_go(tmp_path, monkeypatch):
+    # 2026-10-20：后台每几秒读一次 progress.json，下载任务正好在这时替换它，Windows 报“拒绝访问”，整个任务失败。
+    path = tmp_path / "progress.json"
+    data_jobs.write_json(path, {"done": 1})
+    attempts = []
+    original = os.replace
+
+    def busy_twice(source, target):
+        attempts.append(1)
+        if len(attempts) <= 2:
+            raise PermissionError("[WinError 5] 拒绝访问。")
+        original(source, target)
+
+    monkeypatch.setattr(files.os, "replace", busy_twice)
+    data_jobs.write_json(path, {"done": 2})
+    assert len(attempts) == 3 and json.loads(path.read_text(encoding="utf-8")) == {"done": 2}
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_file_held_too_long_fails_without_leaving_a_temporary(tmp_path, monkeypatch):
+    def always_busy(source, target):
+        raise PermissionError("拒绝访问")
+
+    monkeypatch.setattr(files.os, "replace", always_busy)
+    monkeypatch.setattr(files, "REPLACE_WAIT_SECONDS", 0.1)
+    with pytest.raises(PermissionError):
+        write_json_atomic(tmp_path / "state.json", {"x": 1})
+    assert not list(tmp_path.glob("*.tmp")) and not (tmp_path / "state.json").exists()
+
+
+def test_a_download_keeps_going_when_its_progress_cannot_be_saved(tmp_path, monkeypatch):
+    def download(start, end, symbols=None, progress=None):
+        for done in range(3):
+            progress("quarterly_fundamentals", done, 3)
+        return {"failed": {}, "reports": 3}
+
+    service = SimpleNamespace(app={"app": {"runtime_dir": str(tmp_path)}}, backfill_fundamentals=download)
+    monkeypatch.setattr("quant_platform.application.data_service.DataCenterService", lambda config: service)
+    original = data_jobs.write_json
+
+    def progress_locked(path, value):
+        if path.name == "progress.json":
+            raise PermissionError("[WinError 5] 拒绝访问。")
+        original(path, value)
+
+    monkeypatch.setattr(data_jobs, "write_json", progress_locked)
+    folder = tmp_path / "job"
+    folder.mkdir()
+    job = {"config": "configs/app.yaml", "start_date": "2026-01-01", "end_date": "2026-10-20", "datasets": ["fundamentals"]}
+    assert data_jobs.attempt(folder, job) == 0
+    assert data_jobs.read_json(folder / "result.json")["quarterly_fundamentals"]["reports"] == 3
 
 
 def test_temporaries_left_by_a_killed_write_are_cleaned_up_later(tmp_path):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 import uuid
 from collections.abc import Iterable
@@ -15,6 +14,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from quant_platform.core.files import replace_file
 from quant_platform.data.fundamentals import (
     FUNDAMENTAL_COLUMNS,
     FUNDAMENTALS_TABLE,
@@ -46,8 +46,6 @@ _TABLE_KEYS: dict[str, list[str]] = {
 # they are partitioned by calendar year. Every other canonical table stays in one file.
 _PARTITIONED_TABLES = frozenset({"daily_bars", INDICATOR_TABLE})
 _PARTITION_COLUMN = "year"
-# Windows 上旧文件正被别的进程读着时不能替换：等它读完，最多等这么久。
-_REPLACE_WAIT_SECONDS = 10.0
 # 上次写到一半被结束留下的临时文件，过了这么久就清掉。
 _STALE_TEMPORARY_SECONDS = 3600
 
@@ -71,15 +69,7 @@ def write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         frame.to_parquet(temporary, index=False)
-        deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
-        while True:
-            try:
-                os.replace(temporary, path)
-                return
-            except PermissionError:
-                if time.monotonic() > deadline:
-                    raise
-                time.sleep(0.05)
+        replace_file(temporary, path)     # Windows 上旧文件正被别的进程读着时，等它读完再替换
     finally:
         temporary.unlink(missing_ok=True)
 
