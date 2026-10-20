@@ -6,12 +6,15 @@ import SectionCard from './SectionCard.vue'
 import DataTable from './DataTable.vue'
 import FormField from './FormField.vue'
 import StockFinancials from './StockFinancials.vue'
+import { setFocus } from '../chatFocus.js'
 
 // admin：只有管理员能单独更新某只股票；其他人的数据每天自动更新。
 // focus：从别的页面跳过来时直接打开这只股票的详情，mode 为 financials 时打开“财务”。
 const props = defineProps({
   notify: { type: Function, default: () => {} }, admin: { type: Boolean, default: false },
   focus: { type: Object, default: () => ({}) },
+  // 告诉右下角的 AI 问答“这个页面正在看哪只股票”时用的页面名。
+  focusView: { type: String, default: 'market-lookup' },
 })
 const emit = defineEmits(['changed'])
 const searchText = ref('')
@@ -147,6 +150,7 @@ async function updateStock() {
   finally { updating.value = false }
 }
 onActivated(() => load())
+watch(() => [selected.value?.symbol, selected.value?.name], ([symbol, name]) => setFocus(props.focusView, symbol ? { symbol, name } : null))
 watch(() => [props.focus?.symbol, props.focus?.mode], ([symbol, mode]) => {
   if (!symbol) return
   openDetail({ symbol: symbol.split('.')[0], name: '', rows: 0 }, false, mode === 'financials' ? 'financials' : 'market')

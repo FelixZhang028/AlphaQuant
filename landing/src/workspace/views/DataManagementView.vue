@@ -156,7 +156,7 @@ onActivated(loadOverview)
       <MetricCard label="待处理问题" :value="loading || loadError || summary.unknown == null ? '待检查' : summary.state === 'covered' ? '0 项' : '需要查看'" :sub="summary.missing == null || summary.unknown == null ? '等待检查' : `${summary.missing ? `${summary.missing} 只缺行情` : summary.coverage < 1 ? '部分交易日缺失' : '股票均有行情'} · ${summary.unknown} 条未知状态记录`" />
     </section>
 
-    <LocalMarketQuery :notify="notify" :admin="!!user?.is_admin" @changed="loadOverview" />
+    <LocalMarketQuery :notify="notify" :admin="!!user?.is_admin" focus-view="data-management" @changed="loadOverview" />
 
     <details class="glass rounded-2xl p-5">
       <summary class="cursor-pointer text-lg font-semibold text-white">数据源与高级工具</summary>

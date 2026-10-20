@@ -1,6 +1,7 @@
 <script setup>
 import FormField from '../ui/FormField.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { overlays } from '../chatFocus.js'
 import {
   compositeFactors,
   createCustomFactor,
@@ -106,6 +107,11 @@ const sourceGroups = computed(() => factorsBySource(factors.value))
 // ---------- 因子详情便签（右侧滑出） ----------
 const detailFactor = ref(null)
 const detailOpen = ref(false)
+// 因子详情从右边滑出时，右下角 AI 问答的按钮先让开；离开这个页面时还原。
+watch(detailOpen, (value) => { overlays.drawer = value })
+onActivated(() => { overlays.drawer = detailOpen.value })
+onDeactivated(() => { overlays.drawer = false })
+onBeforeUnmount(() => { overlays.drawer = false })
 
 // 内置因子的含义与作用说明（自定义因子走通用回退文案）
 const FACTOR_NOTES = {

@@ -8,6 +8,7 @@
 - ai_usage       每个用户每天调用平台 AI 的次数
 - stock_briefs   AI 研究员的每次分析（当时的数据、AI 解读、追问）
 - ai_reviews     每次回测的 AI 评估（风险等级、过度拟合的可能）
+- ai_chats       AI 问答的对话（每一轮的问题、回答和用到的数据）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -170,6 +171,16 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_stock_briefs_user ON stock_briefs(user_id, created_at);
+            CREATE TABLE IF NOT EXISTS ai_chats (
+                id         TEXT    PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                title      TEXT    NOT NULL,                -- 第一个问题的开头
+                turns      TEXT    NOT NULL DEFAULT '[]',   -- JSON：每一轮的问题、回答、用到的数据
+                created_at TEXT    NOT NULL,
+                updated_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_chats_user ON ai_chats(user_id, updated_at);
             CREATE TABLE IF NOT EXISTS ai_reviews (
                 user_id     INTEGER NOT NULL,
                 backtest_id INTEGER NOT NULL,

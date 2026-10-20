@@ -6,6 +6,7 @@ import PriorKnowledgeView from './PriorKnowledgeView.vue'
 import JevStockReport from '../ui/JevStockReport.vue'
 import StockDataReport from '../ui/StockDataReport.vue'
 import { openResearch } from '../researchNavigation.js'
+import { setFocus } from '../chatFocus.js'
 import {
   evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, TILT_NOTE, tiltLabel, tiltTone,
 } from '../aiPresentation.js'
@@ -114,6 +115,19 @@ onMounted(() => {
 })
 onActivated(loadStatus)
 watch(() => props.routeContext.brief, (id) => openRecord(id))
+watch(record, (value) => setFocus('agent-lab', value ? { symbol: String(value.symbol).split('.')[0], name: value.name } : null))
+// 从 AI 问答等地方带着股票代码跳过来：先填好这只股票，用户点“开始分析”再分析。
+// 右下角的 AI 问答：可以跨股票提问，例如排序、比较、问自己的回测。
+function openChat() { window.dispatchEvent(new CustomEvent('fq-open-chat')) }
+async function pickRouteSymbol(code) {
+  if (!code || props.routeContext.brief) return
+  const bare = String(code).split('.')[0]
+  try {
+    const found = ((await universeSearch(bare)).results || []).find((item) => String(item.symbol).startsWith(bare))
+    choose(found || { symbol: bare, name: '' })
+  } catch { choose({ symbol: bare, name: '' }) }
+}
+watch(() => props.routeContext.symbol, pickRouteSymbol, { immediate: true })
 
 async function run() {
   const code = pickSuggestion(query.value, picked.value, suggestions.value)
@@ -208,6 +222,8 @@ function moveTone(value) {
       <h2 class="text-xl font-bold text-white">AI研究员</h2>
       <p class="mt-1 text-sm text-slate-400">输入一只股票，先看本地数据整理出的走势、估值和风险，再看 AI 根据这些数据写的解读。</p>
       <p class="mt-1 text-xs text-slate-500">分析依据本地数据生成，仅供研究参考。</p>
+      <button type="button" class="relative mt-3 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-4 py-1.5 text-sm text-indigo-200 transition hover:bg-indigo-500/20"
+        @click="openChat">不只看一只股票？打开 AI 问答 →</button>
     </div>
 
     <SectionCard title="分析一只股票" hint="日期留空表示本地最近一个交易日">
