@@ -1,5 +1,6 @@
 // Only these research-context values travel between views and survive refresh/back.
-export const researchQueryKeys = ['strategy', 'run', 'baseline', 'mode', 'symbol', 'brief']
+// preset：事件研究预先填好的条件（从 AI研究员 的“这只股票现在的状态”跳过来）。
+export const researchQueryKeys = ['strategy', 'run', 'baseline', 'mode', 'symbol', 'brief', 'preset']
 
 export function researchContext(url) {
   return Object.fromEntries(researchQueryKeys.map((key) => [key, url.searchParams.get(key) || '']))

@@ -225,6 +225,13 @@ export async function exportMyData() {
 export function workspaceHome() {
   return request('/api/v1/home', { auth: true })
 }
+// 事件研究：满足条件以后，全市场历史上通常怎么样
+export function eventStudyOptions() {
+  return request('/api/v1/event-study/options', { auth: true })
+}
+export function runEventStudy(payload) {
+  return request('/api/v1/event-study', { method: 'POST', body: payload, auth: true })
+}
 // ---- AI 研究员 ----
 // AI 问答（右下角悬浮窗）：context 是正在看的页面、股票和回测。
 export function askAiChat({ message, chatId = '', context = {} }) {

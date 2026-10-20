@@ -1721,6 +1721,54 @@ def workspace_home(user: dict = Depends(get_current_user)):
     return clean(payload)
 
 
+def _industry_names() -> list[str]:
+    from quant_platform.ai_research.facts import industry_name
+    from quant_platform.data.industry import EXPOSURES_TABLE
+
+    exposures = market_repository().read_table(EXPOSURES_TABLE)
+    return sorted({industry_name(code) for code in exposures["industry"].dropna().unique()}) if not exposures.empty else []
+
+
+@router.get("/event-study/options", summary="事件研究：可以选的条件、股票范围、日期范围和行业")
+def event_study_options(user: dict = Depends(get_current_user)):
+    from quant_platform.research import event_study
+
+    bounds = market_repository().daily_bar_bounds()
+    return {**event_study.options(), "industries": _industry_names(),
+            "bounds": {"start": bounds[0].isoformat(), "end": bounds[1].isoformat()} if bounds else None,
+            "default_start": (bounds[0] + timedelta(days=event_study.LOOKBACK_CALENDAR_DAYS)).isoformat() if bounds else None}
+
+
+class EventStudyIn(BaseModel):
+    conditions: list[dict[str, Any]] = Field(..., min_length=1, max_length=3)
+    scope: str = Field("all", max_length=20)
+    industry: str = Field("", max_length=30)            # 行业关键词，例如“银行”“白酒”
+    start: str = Field("", max_length=10)
+    end: str = Field("", max_length=10)
+    cooldown: int = 20
+    keep_st: bool = False
+
+
+@router.post("/event-study", summary="事件研究：满足条件以后，全市场历史上通常怎么样（和全部交易日对照）")
+def event_study_run(body: EventStudyIn, user: dict = Depends(get_current_user)):
+    from quant_platform.ai_research import screen
+    from quant_platform.ai_research.report import clean
+    from quant_platform.research import event_study
+
+    industries = []
+    if body.industry.strip():
+        industries = screen.match_industries(pd.DataFrame({"industry": _industry_names()}), body.industry)
+        if not industries:
+            raise HTTPException(status_code=422, detail=f"证监会行业分类里没有和“{body.industry}”相近的行业")
+    request = {**body.model_dump(), "industries": industries}
+    pool = [to_canonical(code) for code in _load_universe_symbols(user["id"])]
+    try:
+        with computing(user):
+            return clean(event_study.run(market_repository(), request, pool=pool, names=security_names()))
+    except event_study.EventStudyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @router.get("/data-center/closed-loop", summary="全市场数据闭环落地状态（只读，不访问外网）")
 def data_closed_loop_status(user: dict = Depends(get_current_user)):
     service = build_data_center_service(user)

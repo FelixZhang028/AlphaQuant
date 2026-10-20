@@ -45,15 +45,21 @@ function navigateResearchTab(key) {
 function onNavigateEvent(e) { navigate(e.detail) }
 // 设置页的“重新打开新手引导”。
 function onOpenTour() { tourOpen.value = true }
+// 顶栏：页面在最上面时完全透明、没有分界线，和页面背景连成一片；往下滚以后才加一层磨砂底，免得文字和内容叠在一起。
+const scrolled = ref(false)
+function onScroll() { scrolled.value = window.scrollY > 4 }
 onMounted(() => {
   window.addEventListener('popstate', syncView)
   window.addEventListener('fq-navigate', onNavigateEvent)
   window.addEventListener('fq-open-tour', onOpenTour)
+  window.addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
 })
 onUnmounted(() => {
   window.removeEventListener('popstate', syncView)
   window.removeEventListener('fq-navigate', onNavigateEvent)
   window.removeEventListener('fq-open-tour', onOpenTour)
+  window.removeEventListener('scroll', onScroll)
 })
 
 // 导航线性图标（Heroicons outline 路径），对齐 AlphaQuant 五组用户旅程
@@ -64,6 +70,8 @@ const navIcons = {
     'M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z',
   'nl-strategy':
     'M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155',
+  'event-study':
+    'M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605',
   'market-chart':
     'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
   'strategy-hub':
@@ -239,7 +247,8 @@ function doLogout() {
       </aside>
 
       <div class="min-w-0 flex-1">
-        <header class="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-white/10 bg-ink/95 px-5 lg:px-8">
+        <header class="sticky top-0 z-30 flex h-16 items-center gap-3 px-5 transition-colors duration-300 lg:px-8"
+          :class="scrolled ? 'bg-ink/70 backdrop-blur-md' : 'bg-transparent'">
           <button class="rounded-lg p-2 text-slate-400 hover:bg-white/5 lg:hidden" @click="sidebarOpen = !sidebarOpen" aria-label="菜单">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
