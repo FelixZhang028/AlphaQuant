@@ -14,6 +14,8 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform.core.exceptions import DataSourceBlocked
+
 from quant_platform.data.fundamentals import quarter_end, quarters_between
 from quant_platform.data.industry import (
     EXPOSURES_TABLE,
@@ -73,6 +75,8 @@ class BaoStockIndustryBackfill:
                     }]))
                     stored += len(changes)
                     fetched += 1
+                except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 一张快照失败不影响其余日期
                     failed[day.isoformat()] = f"{type(exc).__name__}: {exc}"[:300]
                     logger.warning("行业分类快照下载失败：%s（%s）", day, exc)

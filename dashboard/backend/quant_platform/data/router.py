@@ -10,6 +10,7 @@ import pandas as pd
 
 from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
+    DataSourceBlocked,
     DataUnavailableError,
 )
 from quant_platform.data.interfaces import DataProvider
@@ -35,6 +36,7 @@ class DataRouter:
         """Call a provider method according to the route for a dataset."""
 
         failures: list[str] = []
+        blocked = False
         for provider_name in self.routes.get(dataset, []):
             provider = self.providers.get(provider_name)
             if provider is None:
@@ -49,7 +51,12 @@ class DataRouter:
                 return frame, provider_name
             except DataCapabilityNotSupported as exc:
                 failures.append(f"{provider_name}: {exc}")
+            except DataSourceBlocked as exc:
+                blocked = True
+                failures.append(f"{provider_name}: {exc}")
             except Exception as exc:
                 logger.exception("Provider fetch failed: %s/%s", provider_name, dataset)
                 failures.append(f"{provider_name}: {type(exc).__name__}: {exc}")
+        if blocked:   # 有数据源拒绝了这台服务器：保留这个原因，调用方会停下而不是重试
+            raise DataSourceBlocked(f"No provider returned {dataset}; " + "; ".join(failures))
         raise DataUnavailableError(f"No provider returned {dataset}; " + "; ".join(failures))

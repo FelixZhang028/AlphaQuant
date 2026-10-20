@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataSourceBlocked, DataUnavailableError
 from quant_platform.data.fundamentals import (
     BAOSTOCK_FUNDAMENTAL_FIELDS,
     FUNDAMENTALS_TABLE,
@@ -92,6 +92,9 @@ class BaoStockFundamentalsBackfill:
                     rows.extend(row for row in fetched if row is not None)
                     reports += sum(1 for row in fetched if row is not None and pd.notna(row["pub_date"]))
                     consecutive_failures = 0
+                except DataSourceBlocked:
+                    self._flush(rows)          # 已经取到的先存下来
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 单只失败不阻断其余股票
                     consecutive_failures += 1
                     failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]

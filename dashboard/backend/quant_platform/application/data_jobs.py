@@ -25,6 +25,44 @@ def now():
     return datetime.now(UTC).isoformat()
 
 
+# 没有完成的任务：从日志里找出原因，翻成给人看的话。被数据源拒绝（黑名单）时要单独说明，
+# 并且当天不要再自动重试——每次重试都会让拉黑持续更久。
+BLOCKED_REASON = ("数据源 BaoStock 暂时拒绝了这台服务器（被列入黑名单），通常是短时间内请求太多。"
+                  "请过几个小时再试，这段时间不要反复运行数据更新。")
+NETWORK_REASON = "连不上数据源 BaoStock（网络错误），稍后会自动重试。"
+LOG_TAIL_BYTES = 64000
+
+
+def failure_reason(text):
+    """``(reason, blocked)`` from the end of a job's log; ``("", False)`` when nothing is recognised."""
+
+    if not text:
+        return "", False
+    if "黑名单" in text or "10001011" in text:
+        return BLOCKED_REASON, True
+    if "网络接收错误" in text or "ConnectionError" in text or "timed out" in text:
+        return NETWORK_REASON, False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    errors = [line for line in lines if "Error" in line or "错误" in line or "失败" in line]
+    last = (errors or lines or [""])[-1]
+    try:
+        from quant_platform.core.diagnostics import redact_text
+
+        last = redact_text(last)
+    except Exception:  # noqa: BLE001 - 脱敏失败时只截短
+        pass
+    return last[:200], False
+
+
+def _log_tail(folder):
+    path = folder / "output.log"
+    if not path.exists():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(max(0, path.stat().st_size - LOG_TAIL_BYTES))
+        return handle.read().decode("utf-8", errors="replace")
+
+
 @contextmanager
 def exclusive(path):
     """OS lock, automatically released even if a process crashes."""
@@ -145,6 +183,11 @@ class DataJobs:
             job["stopping"] = (path.parent / "stop").exists()
             # 结果（每一步下载了多少、哪里失败）给页面看；任务还没结束时为空。
             job["result"] = read_json(path.parent / "result.json")
+            if job["status"] in ("FAILED", "INTERRUPTED", "PARTIAL"):
+                reason, blocked = failure_reason(_log_tail(path.parent))
+                if (job.get("result") or {}).get("blocked"):
+                    reason, blocked = BLOCKED_REASON, True
+                job["failure"], job["blocked"] = reason, blocked
             records.append(job)
         return records
 

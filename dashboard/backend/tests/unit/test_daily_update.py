@@ -100,7 +100,7 @@ def test_a_holiday_or_bars_not_yet_published_download_nothing(tmp_path):
     for provider, market in ((Provider(trading=False), "closed"), (Provider(published=False), "not_ready")):
         service = Service(provider)
         result = DailyUpdate(service, tmp_path / f"{market}.json").run(TODAY)
-        assert result["market"] == market and service.calls == [] and provider.closed == 1
+        assert result["market"] == market and service.calls == [] and provider.closed >= 1   # 还会问一次前几天的交易日历
 
 
 def test_a_trading_day_updates_every_listed_stock_and_the_rest_in_order(tmp_path):

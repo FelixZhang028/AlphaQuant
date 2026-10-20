@@ -2,7 +2,9 @@
 
 Steps, each on its own: one that fails is reported and the next still runs.
 
-1. Is today a trading day, and are today's bars published yet? If not, nothing is downloaded.
+1. Is today a trading day, and are today's bars published yet? If not, and the local data is behind
+   the last trading day that is published, the run catches up to that day instead (``caught_up``);
+   otherwise nothing is downloaded.
 2. The security list (new listings, delistings).
 3. Daily bars of every listed Shanghai and Shenzhen stock, ``BATCH`` at a time, through the same path as a manual
    update: each request starts at the stock's last stored bar and the new adjustment factors
@@ -14,7 +16,8 @@ Steps, each on its own: one that fails is reported and the next still runs.
 
 Steps and stocks already updated today are skipped when a run resumes, so a run that was
 stopped or killed picks up where it was. A stock that fails is retried on its own, so it
-does not hold back the rest of its batch.
+does not hold back the rest of its batch. When the data source refuses the server (BaoStock's
+blacklist) the whole run stops at once: every further request would only prolong the block.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from typing import Any
 import pandas as pd
 
 from quant_platform.core.diagnostics import redact_text
+from quant_platform.core.exceptions import DataSourceBlocked
 
 BATCH = 200
 # 判断今天的行情是否已经发布：几只几乎不停牌的大盘股，有一只有今天的日线就算发布了。
@@ -41,6 +45,9 @@ MARKETS = (".SH", ".SZ")
 # 连续几批失败就停下：多半是网络断了，等下次续传。
 BATCH_FAILURE_LIMIT = 3
 STEPS = ("security_master", "daily_bars", "corporate_actions", "benchmarks", "index_constituents", "industry", "derived")
+# 补齐前几天：本地有这一天行情的股票少于在市股票的这个比例，就认为还没更新到这一天。
+CAUGHT_UP_SHARE = 0.95
+CALENDAR_LOOKBACK_DAYS = 20
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -86,23 +93,39 @@ class DailyUpdate:
             self._progress(stage, done, total)
 
     def run(self, today: date) -> dict[str, Any]:
-        """``{trade_date, market, steps, errors}``; ``market`` is ``closed``, ``not_ready`` or ``updated``."""
+        """``{trade_date, market, steps, errors}``; ``market`` is ``closed``, ``not_ready`` or ``updated``.
 
-        state = _read(self.state_path)
-        if state.get("date") != today.isoformat():
-            state = {"date": today.isoformat(), "done": [], "results": {}, "symbols_done": []}
+        When today's bars are not out (or today is closed) but the local data is behind the last
+        published trading day, ``caught_up`` names that day and the steps run for it; ``trade_date``
+        is then that day."""
+
         result: dict[str, Any] = {"trade_date": today.isoformat(), "steps": {}, "errors": {}}
         self.progress("market_open", 0, 1)
         result["market"] = self._market(today)
+        day = today
         if result["market"] != "updated":
-            return result
+            previous = self._previous_trading_day(today)
+            if previous is None or not self._behind(previous):
+                result["up_to_date"] = previous is not None   # 本地已经有最近一个交易日的行情
+                return result
+            day = previous
+            result["caught_up"] = previous.isoformat()
+            result["trade_date"] = previous.isoformat()
+        state = _read(self.state_path)
+        if state.get("date") != day.isoformat():
+            state = {"date": day.isoformat(), "done": [], "results": {}, "symbols_done": []}
         for name in STEPS:
             if name in state["done"]:
                 result["steps"][name] = state["results"].get(name)
                 continue
             self.progress(name, 0, 1)
             try:
-                outcome = getattr(self, f"_{name}")(today, state)
+                outcome = getattr(self, f"_{name}")(day, state)
+            except DataSourceBlocked as exc:
+                # 数据源拒绝了这台服务器：后面的步骤也都要用它，全部停下，等解除后再运行。
+                result["errors"][name] = _error(exc)
+                result["blocked"] = True
+                break
             except Exception as exc:  # noqa: BLE001 - 一步失败不影响后面的步骤
                 result["errors"][name] = _error(exc)
                 continue
@@ -135,6 +158,34 @@ class DailyUpdate:
             return "not_ready"
         finally:
             provider.close()
+
+    def _previous_trading_day(self, today: date) -> date | None:
+        """The last trading day before ``today`` (its bars are out by now)."""
+
+        provider = self.service.sources.baostock_provider()
+        try:
+            calendar = provider.get_trade_calendar(today - timedelta(days=CALENDAR_LOOKBACK_DAYS), today - timedelta(days=1))
+            self.heartbeat()
+        finally:
+            provider.close()
+        if calendar.empty or "calendar_date" not in calendar.columns:
+            return None
+        open_days = calendar[calendar.get("is_trading_day", pd.Series(dtype=str)).astype(str).eq("1")]
+        if open_days.empty:
+            return None
+        return pd.Timestamp(open_days["calendar_date"].max()).date()
+
+    def _behind(self, day: date) -> bool:
+        """Whether fewer than ``CAUGHT_UP_SHARE`` of the listed stocks have bars on ``day``."""
+
+        listed = set(self._listed(day))
+        summary = self.service.repository.daily_bar_summary()
+        if not listed or summary.empty:
+            return True
+        ends = summary.loc[summary.index.astype(str).isin(listed), "end"]
+        if ends.empty:
+            return True
+        return float((pd.to_datetime(ends) >= pd.Timestamp(day)).mean()) < CAUGHT_UP_SHARE
 
     def _security_master(self, today: date, state: dict[str, Any]) -> dict[str, Any]:
         master = self.service.full_market_backfill().refresh_security_master()
@@ -171,11 +222,15 @@ class DailyUpdate:
             failed: dict[str, str] = {}
             try:
                 updates = [self._fetch(start, today, batch)]
+            except DataSourceBlocked:
+                raise
             except Exception as exc:  # noqa: BLE001 - 一只股票出错不能拖累整批：拆开逐只重试
                 updates = []
                 for symbol in batch:
                     try:
                         updates.append(self._fetch(start, today, [symbol]))
+                    except DataSourceBlocked:
+                        raise
                     except Exception as single:  # noqa: BLE001
                         failed[symbol] = _error(single)
                 if len(failed) == len(batch):
