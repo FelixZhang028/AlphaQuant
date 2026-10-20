@@ -274,7 +274,17 @@ function onEscape(event) {
   if (open.value) toggle(false)
   else if (bubble.value) quietBubble()
 }
-function onOpenEvent() { toggle(true) }
+// 别的页面打开窗口时可以带上 { chat: 对话编号 } 打开那个对话，或 { question: '…' } 填好一个问题（不自动发送）。
+async function onOpenEvent(event) {
+  const detail = event?.detail || {}
+  if (detail.chat) restoreId = ''
+  await toggle(true)
+  if (detail.chat) await openChat(detail.chat)
+  else if (detail.question) {
+    if (chat.value) newChat()
+    message.value = detail.question
+  }
+}
 watch(buttonEl, measure)
 onMounted(() => {
   window.addEventListener('keydown', onEscape)
@@ -401,7 +411,7 @@ onUnmounted(() => {
       <footer v-if="!showHistory" class="space-y-2 border-t border-white/10 px-4 py-3">
         <p v-if="error" class="text-xs text-rose-300" role="alert">{{ error }}</p>
         <p v-if="statusError" class="text-xs text-rose-300" role="alert">{{ statusError }} <button type="button" class="underline" @click="loadStatus">重试</button></p>
-        <p v-else-if="status && !available" class="text-xs text-amber-200">平台还没有配置文本模型，暂时不能使用 AI 问答。管理员在后端的 .env 里填好 AI 密钥后就能用。</p>
+        <p v-else-if="status && !available" class="text-xs text-amber-200">平台还没有配置文本模型，暂时不能使用 AI 问答。管理员在管理后台的“系统设置”里填好 AI 密钥后就能用。</p>
         <div v-if="focusLabel && available" class="flex items-center gap-2 text-xs">
           <span :class="includeFocus ? 'text-slate-300' : 'text-slate-500 line-through'">正在看：{{ focusLabel }}</span>
           <button type="button" class="text-indigo-300 hover:text-indigo-200" @click="includeFocus = !includeFocus">{{ includeFocus ? '不带上' : '带上' }}</button>

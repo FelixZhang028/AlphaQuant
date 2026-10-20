@@ -46,7 +46,7 @@ from ..quant.research_runs import (
     tunable_parameters,
     walk_forward_range,
 )
-from ..quant import audit, daily_schedule
+from ..quant import audit, daily_schedule, home
 from ..quant.compute import cached, computing
 from ..quant.runtime import (
     BACKEND_ROOT,
@@ -1705,6 +1705,20 @@ def daily_update_run(user: dict = Depends(require_admin)):
         raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
     audit.record(user, "data.daily", f"手动运行了 {today} 的每日更新", job=job.get("id"))
     return job
+
+
+@router.get("/home", summary="功能台首页：市场概况、我的股票池、最近的研究、新手任务、行业涨跌、数据日历")
+def workspace_home(user: dict = Depends(get_current_user)):
+    from quant_platform.ai_research.report import clean
+
+    today = daily_schedule.china_now().date()
+    payload = home.build(user, _load_universe_symbols(user["id"]), today)
+    status_now = daily_schedule.status(_data_jobs().records())
+    payload["daily"] = {key: status_now.get(key) for key in ("enabled", "time", "state", "text")}
+    payload["daily"]["data_date"] = (payload.get("breadth") or {}).get("day")
+    payload["ai"] = {"available": platform_ai.platform_model() is not None,
+                     "usage": {kind: platform_ai.usage(user, kind) for kind in ("chat", "brief")}}
+    return clean(payload)
 
 
 @router.get("/data-center/closed-loop", summary="全市场数据闭环落地状态（只读，不访问外网）")
