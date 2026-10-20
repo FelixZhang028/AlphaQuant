@@ -11,6 +11,7 @@ import ReportChart from './ReportChart.vue'
 import SectionCard from './SectionCard.vue'
 
 const props = defineProps({
+  symbol: { type: String, default: '' },
   report: { type: Object, required: true },
   previous: { type: Object, default: null },
   tradeDate: { type: String, default: '' },
@@ -134,6 +135,7 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
           </tbody>
         </table>
       </div>
+      <button v-if="symbol" type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="openResearch('market-lookup', { symbol, mode: 'financials' })">在股票查询里看全部历期财报 →</button>
     </SectionCard>
 
     <!-- 同行对比 -->

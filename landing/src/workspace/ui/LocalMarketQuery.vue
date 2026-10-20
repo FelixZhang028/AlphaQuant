@@ -1,13 +1,18 @@
 <script setup>
-import { computed, nextTick, onActivated, ref } from 'vue'
+import { computed, nextTick, onActivated, ref, watch } from 'vue'
 import { localMarketList, localMarketDetail, updateLocalStock, universeAdd } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import SectionCard from './SectionCard.vue'
 import DataTable from './DataTable.vue'
 import FormField from './FormField.vue'
+import StockFinancials from './StockFinancials.vue'
 
 // admin：只有管理员能单独更新某只股票；其他人的数据每天自动更新。
-const props = defineProps({ notify: { type: Function, default: () => {} }, admin: { type: Boolean, default: false } })
+// focus：从别的页面跳过来时直接打开这只股票的详情，mode 为 financials 时打开“财务”。
+const props = defineProps({
+  notify: { type: Function, default: () => {} }, admin: { type: Boolean, default: false },
+  focus: { type: Object, default: () => ({}) },
+})
 const emit = defineEmits(['changed'])
 const searchText = ref('')
 const query = ref('')
@@ -64,6 +69,7 @@ async function addStock(row) {
 }
 
 const selected = ref(null)
+const detailTab = ref('market')
 const detailPanel = ref(null)
 const detail = ref(null)
 const detailLoading = ref(false)
@@ -87,16 +93,20 @@ async function readDetail() {
   detail.value = null
   try {
     const response = await localMarketDetail(symbol)
-    if (request === detailRequest) detail.value = response
+    if (request === detailRequest) {
+      detail.value = response
+      selected.value = { ...selected.value, ...response }
+    }
   } catch (e) {
     if (request === detailRequest) detailError.value = e.message || '读取详情失败'
   } finally {
     if (request === detailRequest) detailLoading.value = false
   }
 }
-async function openDetail(row, update = false) {
+async function openDetail(row, update = false, tab = 'market') {
   if (updating.value) return
   selected.value = row
+  detailTab.value = update ? 'market' : tab
   showUpdate.value = update
   updateMessage.value = ''
   updateError.value = ''
@@ -107,6 +117,9 @@ async function openDetail(row, update = false) {
   endDate.value = dateString(today)
   readDetail()
   await nextTick()
+  scrollToDetail()
+}
+function scrollToDetail() {
   detailPanel.value?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
 }
 function closeDetail() {
@@ -134,10 +147,14 @@ async function updateStock() {
   finally { updating.value = false }
 }
 onActivated(() => load())
+watch(() => [props.focus?.symbol, props.focus?.mode], ([symbol, mode]) => {
+  if (!symbol) return
+  openDetail({ symbol: symbol.split('.')[0], name: '', rows: 0 }, false, mode === 'financials' ? 'financials' : 'market')
+}, { immediate: true })
 </script>
 
 <template>
-  <SectionCard title="行情查询" hint="查看平台上每只股票的行情范围，确认后再开始研究">
+  <SectionCard title="行情查询" hint="查看平台上每只股票的行情范围和历期财报，确认后再开始研究">
     <template #actions><button type="button" class="text-sm text-indigo-300 hover:underline disabled:opacity-50" :disabled="loading" @click="load()">刷新列表</button></template>
     <div class="flex flex-wrap gap-2" role="group" aria-label="行情查询范围">
       <button v-for="item in [{ key: 'all', label: '全部股票', count: catalog.downloaded_count }, { key: 'universe', label: '当前股票池', count: catalog.universe_count }]" :key="item.key"
@@ -151,41 +168,23 @@ onActivated(() => load())
     </form>
     <p class="mt-3 text-xs text-slate-400">“已保存区间完整”只表示区间内的交易日记录齐全；截至日期早于最近交易日的，多半是停牌或已经退市。</p>
     <p v-if="scope === 'universe' && loaded" class="mt-2 text-xs text-slate-400">股票池 {{ catalog.universe_count }} 只，已有行情 {{ catalog.universe_downloaded_count }} 只，未下载 {{ catalog.universe_count - catalog.universe_downloaded_count }} 只。</p>
-    <p v-if="loading" class="mt-4 text-sm text-slate-400" role="status">正在读取本地行情…</p>
-    <p v-else-if="error" class="mt-4 text-sm text-rose-300" role="alert">{{ error }} <button type="button" class="underline" @click="load()">重试</button></p>
-    <div v-else class="mt-4">
-      <DataTable :columns="columns" :rows="rows" :empty="query ? '没有找到匹配的股票，请调整名称或代码' : scope === 'all' ? '平台还没有行情数据，管理员更新后就能查询' : '当前股票池为空，请先到股票池管理添加股票'">
-        <template #cell-name="{ row }"><span class="whitespace-nowrap">{{ row.name }}</span></template>
-        <template #cell-symbol="{ row }"><span class="whitespace-nowrap">{{ row.symbol }}</span></template>
-        <template #cell-start_date="{ row }"><span class="whitespace-nowrap">{{ row.start_date }}</span></template>
-        <template #cell-end_date="{ row }"><span class="whitespace-nowrap">{{ row.end_date }}</span></template>
-        <template #cell-status="{ row }"><span class="whitespace-nowrap text-xs" :class="row.status === 'COMPLETE' ? 'text-emerald-300' : row.status === 'NO_DATA' ? 'text-slate-400' : 'text-amber-300'">{{ row.status_label }}</span></template>
-        <template #cell-actions="{ row }">
-          <div class="flex items-center justify-end gap-3 whitespace-nowrap">
-            <button type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row)">详情</button>
-            <button v-if="admin" type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row, true)">更新行情</button>
-            <span v-if="row.in_universe" class="text-xs text-slate-500">已在股票池</span>
-            <button v-else type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="!!addingSymbol" @click="addStock(row)">{{ addingSymbol === row.symbol ? '加入中…' : '加入股票池' }}</button>
-          </div>
-        </template>
-      </DataTable>
-      <p v-if="rows.length" class="mt-2 text-xs text-slate-500 sm:hidden">左右滑动表格可查看完整信息与操作。</p>
-      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
-        <span>共 {{ catalog.total }} 只 · 第 {{ catalog.page }} / {{ catalog.pages }} 页 · 每页 20 只</span>
-        <div class="flex gap-2">
-          <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40" :disabled="catalog.page <= 1" @click="load(catalog.page - 1)">上一页</button>
-          <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40" :disabled="catalog.page >= catalog.pages" @click="load(catalog.page + 1)">下一页</button>
-        </div>
-      </div>
-    </div>
-    <section v-if="selected" ref="detailPanel" class="mt-5 scroll-mt-24 rounded-xl border border-white/10 bg-white/5 p-4" aria-label="单只股票行情详情">
+    <!-- 详情放在列表上面：从别的页面跳过来、或者列表晚一点才加载完时，详情不会被推到下面。 -->
+    <section v-if="selected" ref="detailPanel" class="mt-4 scroll-mt-24 rounded-xl border border-white/10 bg-white/5 p-4" aria-label="单只股票详情">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h3 class="text-lg font-semibold text-white">{{ selected.name }} · {{ selected.symbol }}</h3>
+        <h3 class="text-lg font-semibold text-white">{{ selected.name ? `${selected.name} · ` : '' }}{{ selected.symbol }}</h3>
         <div class="flex items-center gap-4">
           <button v-if="selected.rows" type="button" class="text-sm text-indigo-300 hover:underline" @click="openResearch('market-chart', { symbol: selected.symbol })">在行情图表中打开</button>
           <button type="button" class="text-sm text-slate-400 hover:text-white disabled:opacity-40" :disabled="updating" @click="closeDetail">关闭详情</button>
         </div>
       </div>
+      <div class="mt-3 flex gap-2" role="tablist" aria-label="详情内容">
+        <button v-for="tab in [{ key: 'market', label: '行情' }, { key: 'financials', label: '财务' }]" :key="tab.key" type="button" role="tab"
+          :aria-selected="detailTab === tab.key" class="rounded-full border px-4 py-1.5 text-sm transition"
+          :class="detailTab === tab.key ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200' : 'border-white/10 text-slate-400 hover:text-slate-200'"
+          :disabled="updating" @click="detailTab = tab.key">{{ tab.label }}</button>
+      </div>
+      <StockFinancials v-if="detailTab === 'financials'" class="mt-4" :symbol="selected.symbol" :admin="admin" />
+      <template v-else>
       <p v-if="detailLoading" class="mt-3 text-sm text-slate-400">正在核对该股票的行情…</p>
       <p v-else-if="detailError" class="mt-3 text-sm text-rose-300">{{ detailError }} <button type="button" class="underline" @click="readDetail">重试</button></p>
       <div v-else-if="detail" class="mt-3 space-y-3 text-sm text-slate-300">
@@ -211,6 +210,35 @@ onActivated(() => load())
         <p v-if="updateMessage" class="mt-3 text-sm text-emerald-300" role="status">{{ updateMessage }}</p>
         <p v-if="updateError" class="mt-3 text-sm text-rose-300" role="alert">{{ updateError }}</p>
       </form>
+      </template>
     </section>
+    <p v-if="loading" class="mt-4 text-sm text-slate-400" role="status">正在读取本地行情…</p>
+    <p v-else-if="error" class="mt-4 text-sm text-rose-300" role="alert">{{ error }} <button type="button" class="underline" @click="load()">重试</button></p>
+    <div v-else class="mt-4">
+      <DataTable :columns="columns" :rows="rows" :empty="query ? '没有找到匹配的股票，请调整名称或代码' : scope === 'all' ? '平台还没有行情数据，管理员更新后就能查询' : '当前股票池为空，请先到股票池管理添加股票'">
+        <template #cell-name="{ row }"><span class="whitespace-nowrap">{{ row.name }}</span></template>
+        <template #cell-symbol="{ row }"><span class="whitespace-nowrap">{{ row.symbol }}</span></template>
+        <template #cell-start_date="{ row }"><span class="whitespace-nowrap">{{ row.start_date }}</span></template>
+        <template #cell-end_date="{ row }"><span class="whitespace-nowrap">{{ row.end_date }}</span></template>
+        <template #cell-status="{ row }"><span class="whitespace-nowrap text-xs" :class="row.status === 'COMPLETE' ? 'text-emerald-300' : row.status === 'NO_DATA' ? 'text-slate-400' : 'text-amber-300'">{{ row.status_label }}</span></template>
+        <template #cell-actions="{ row }">
+          <div class="flex items-center justify-end gap-3 whitespace-nowrap">
+            <button type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row)">详情</button>
+            <button type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row, false, 'financials')">财务</button>
+            <button v-if="admin" type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="updating" @click="openDetail(row, true)">更新行情</button>
+            <span v-if="row.in_universe" class="text-xs text-slate-500">已在股票池</span>
+            <button v-else type="button" class="text-indigo-300 hover:underline disabled:opacity-50" :disabled="!!addingSymbol" @click="addStock(row)">{{ addingSymbol === row.symbol ? '加入中…' : '加入股票池' }}</button>
+          </div>
+        </template>
+      </DataTable>
+      <p v-if="rows.length" class="mt-2 text-xs text-slate-500 sm:hidden">左右滑动表格可查看完整信息与操作。</p>
+      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+        <span>共 {{ catalog.total }} 只 · 第 {{ catalog.page }} / {{ catalog.pages }} 页 · 每页 20 只</span>
+        <div class="flex gap-2">
+          <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40" :disabled="catalog.page <= 1" @click="load(catalog.page - 1)">上一页</button>
+          <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40" :disabled="catalog.page >= catalog.pages" @click="load(catalog.page + 1)">下一页</button>
+        </div>
+      </div>
+    </div>
   </SectionCard>
 </template>

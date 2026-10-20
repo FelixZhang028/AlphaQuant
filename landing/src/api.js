@@ -311,6 +311,9 @@ export function localMarketList(params = {}) {
 export function localMarketDetail(symbol) {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}`, { auth: true })
 }
+export function localMarketFinancials(symbol) {
+  return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/financials`, { auth: true })
+}
 export function localMarketBars(symbol, adjust = 'forward') {
   return request(`/api/v1/data-center/market/${encodeURIComponent(symbol)}/bars?${new URLSearchParams({ adjust })}`, { auth: true })
 }

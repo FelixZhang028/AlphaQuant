@@ -48,7 +48,7 @@ export function guideRows(loop, daily) {
     },
     {
       key: 'fundamentals', name: '财务数据',
-      content: '季度财报里的毛利率、同比增长、资产负债率和总股本，质量、成长和规模类因子要用到',
+      content: '季度财报里的营收、净利润、毛利率、同比增长、资产负债率和总股本；在“股票查询”里打开一只股票就能看到它的历期财报，质量、成长和规模类因子也要用到',
       range: fundamentals?.symbols ? `${number(fundamentals.symbols)} 只股票` : '—',
       schedule: '财报季每周六更新（1～4、7～8、10 月）',
       now: fundamentals?.symbols ? `最新报告期 ${fundamentals.latest_stat_date}` : NOT_READY,
