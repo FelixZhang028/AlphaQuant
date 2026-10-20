@@ -258,13 +258,23 @@ class DataJobs:
             return handle.read().decode("utf-8", errors="replace")
 
 
+# 一次尝试被数据源拒绝（黑名单）时的退出码：任务直接结束，不再重试——每次重试都要重新登录，
+# 只会让拉黑持续更久。
+BLOCKED_EXIT = 3
+
+
 def attempt(folder, job):
+    from quant_platform.core.exceptions import DataSourceBlocked
     from quant_platform.data.full_market_backfill import _ProgressWatchdog
 
     watchdog = _ProgressWatchdog(STALL_SECONDS)
     watchdog.start()
     try:
         return _attempt(folder, job, watchdog)
+    except DataSourceBlocked as exc:
+        print(f"{exc}", flush=True)
+        print("数据源拒绝了这台服务器，任务结束，不再自动重试。", flush=True)
+        return BLOCKED_EXIT
     finally:
         watchdog.close()
 
@@ -391,6 +401,9 @@ def supervise(folder):
                 break
             if code == 2:
                 job["status"] = "PARTIAL"
+                break
+            if code == BLOCKED_EXIT:
+                job.update(status="FAILED", blocked=True)
                 break
             if retry == 20:
                 job["status"] = "FAILED"
