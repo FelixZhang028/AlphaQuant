@@ -56,8 +56,10 @@ from quant_platform.ai_research.decisions import tilt_odds
 from quant_platform.ai_research.stock_report import REPORT_VERSION, stock_report
 from quant_platform.ai_research.facts import StockFacts, stock_facts
 from quant_platform.ai_research.outcome import later_moves
+from quant_platform.ai_research.report import compare_facts, fill_pending_factors
 
 from ..database import get_conn
+from ..quant import factor_profiles  # noqa: F401 - 设置因子值的存放位置
 from ..quant import platform_ai
 from ..quant.compute import computing
 from ..quant.runtime import BACKEND_ROOT, market_repository, security_names
@@ -231,10 +233,35 @@ def _store_reading(brief_id: str, user: dict, reading: dict[str, Any] | None, no
                      (json.dumps(stored, ensure_ascii=False), model, brief_id, user["id"]))
 
 
-def _with_later(record: dict[str, Any]) -> dict[str, Any]:
+def _with_later(record: dict[str, Any], user: dict) -> dict[str, Any]:
+    """一次分析给页面看的样子：之后实际涨跌、补上后台算好的因子画像、和上一次分析同一只股票对比。"""
+
     day = date.fromisoformat(record["trade_date"])
-    moves = later_moves(market_repository(), [(record["symbol"], day)])
-    return {**record, "later": moves.get((record["symbol"], day))}
+    repository = market_repository()
+    moves = later_moves(repository, [(record["symbol"], day)])
+    report = (record.get("facts") or {}).get("report")
+    if report and fill_pending_factors(repository, report, record["symbol"]):
+        with get_conn() as conn:
+            conn.execute("UPDATE stock_briefs SET facts = ? WHERE id = ? AND user_id = ?",
+                         (json.dumps(record["facts"], ensure_ascii=False), record["id"], user["id"]))
+    return {**record, "later": moves.get((record["symbol"], day)), "previous": _previous(record, user)}
+
+
+def _previous(record: dict[str, Any], user: dict) -> dict[str, Any] | None:
+    """上一次分析同一只股票（更早保存的那次）和这次的关键数字有什么不同。"""
+
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, trade_date, created_at, facts FROM stock_briefs WHERE user_id = ? AND symbol = ? AND created_at < ? "
+            "ORDER BY created_at DESC LIMIT 1", (user["id"], record["symbol"], record["created_at"]),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        changes = compare_facts(json.loads(row["facts"]), record.get("facts") or {})
+    except (ValueError, TypeError, KeyError):
+        return None
+    return {"id": row["id"], "trade_date": row["trade_date"], "created_at": row["created_at"], "changes": changes}
 
 
 def _tilt_odds(stock: StockFacts) -> dict[str, Any] | None:
@@ -273,18 +300,18 @@ def brief_create(body: BriefIn, user: dict = Depends(get_current_user)):
             (brief_id, user["id"], stock.symbol, stock.name, stock.trade_date.isoformat(), "",
              json.dumps(stock.to_dict(), ensure_ascii=False), stored, _now()),
         )
-    return _with_later(_record(_load(brief_id, user)))
+    return _with_later(_record(_load(brief_id, user)), user)
 
 
 @router.post("/briefs/{brief_id}/reading", summary="分析一只股票，第二步：AI 根据保存的数据写解读")
 def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
     record = _record(_load(brief_id, user))
     if record["brief"] is not None:
-        return _with_later(record)  # 已经解读过，不再调用、不再计数
+        return _with_later(record, user)  # 已经解读过，不再调用、不再计数
     model = platform_ai.platform_model()
     if model is None:
         _store_reading(brief_id, user, None, TEXT_MODEL_NOTE, record["use_experience"], "")
-        return _with_later(_record(_load(brief_id, user)))
+        return _with_later(_record(_load(brief_id, user)), user)
     with _READING_LOCK:
         if brief_id in _READING:
             raise HTTPException(status_code=409, detail="这次分析正在解读，请稍候")
@@ -307,14 +334,14 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
     finally:
         with _READING_LOCK:
             _READING.discard(brief_id)
-    return _with_later(_record(_load(brief_id, user)))
+    return _with_later(_record(_load(brief_id, user)), user)
 
 
 @router.post("/briefs/{brief_id}/decision", summary="用 Jev 判断已保存的数据，不需要文本模型")
 def brief_decision(brief_id: str, upgrade: bool = Query(False), user: dict = Depends(get_current_user)):
     record = _record(_load(brief_id, user))
     if record["odds"] is not None and (not upgrade or record["odds"].get("report_version", 1) >= REPORT_VERSION):
-        return _with_later(record)
+        return _with_later(record, user)
     client = platform_ai.decision_client()
     if client is None:
         raise HTTPException(status_code=422, detail="平台还没有配置决策模型，暂时不能使用。")
@@ -323,7 +350,7 @@ def brief_decision(brief_id: str, upgrade: bool = Query(False), user: dict = Dep
             # Re-read under the per-user computation guard to prevent duplicate upgrades.
             record = _record(_load(brief_id, user))
             if record["odds"] is not None and (not upgrade or record["odds"].get("report_version", 1) >= REPORT_VERSION):
-                return _with_later(record)
+                return _with_later(record, user)
             return _save_stock_report(brief_id, user, record, client)
     except platform_ai.QuotaExceeded as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from None
@@ -345,7 +372,7 @@ def _save_stock_report(brief_id: str, user: dict, record: dict, client):
             stored["odds"] = odds
             conn.execute("UPDATE stock_briefs SET brief = ? WHERE id = ? AND user_id = ?",
                          (json.dumps(stored, ensure_ascii=False), brief_id, user["id"]))
-    return _with_later(_record(_load(brief_id, user)))
+    return _with_later(_record(_load(brief_id, user)), user)
 
 
 @router.get("/briefs", summary="以前的分析，以及之后实际涨跌")
@@ -369,7 +396,7 @@ def brief_list(limit: int = Query(20, ge=1, le=100), user: dict = Depends(get_cu
 
 @router.get("/briefs/{brief_id}", summary="打开一次分析")
 def brief_get(brief_id: str, user: dict = Depends(get_current_user)):
-    return _with_later(_record(_load(brief_id, user)))
+    return _with_later(_record(_load(brief_id, user)), user)
 
 
 @router.delete("/briefs/{brief_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除一次分析")

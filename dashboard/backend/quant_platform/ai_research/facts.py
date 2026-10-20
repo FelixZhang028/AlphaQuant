@@ -7,10 +7,15 @@ listed in ``missing`` with where to get it, instead of being guessed.
 
 Price facts use adjusted closes, so an ex-dividend day is not a fall. Market comparisons are
 among the stocks that traded that day.
+
+``report`` holds the structured report built from the same data (``report.build_report``): section
+summaries, a checklist, the quarterly trend, peers, the factor profile and chart data. The models
+only ever read ``facts``.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from dataclasses import asdict, dataclass, field
@@ -21,6 +26,8 @@ import pandas as pd
 
 from quant_platform.data.index_constituents import INDEX_UNIVERSES, members_on, stored_lists
 from quant_platform.data.industry import EXPOSURES_TABLE, industry_on
+
+logger = logging.getLogger(__name__)
 
 GROUPS = ("基本信息", "价格走势", "成交", "全市场比较", "估值", "财务", "事件")
 # 一年约 250 个交易日；多读一些日历天，保证停牌过的股票也有一整年。
@@ -55,6 +62,7 @@ class StockFacts:
     facts: list[Fact] = field(default_factory=list)
     missing: list[dict[str, str]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    report: dict[str, Any] = field(default_factory=dict)
 
     def by_key(self) -> dict[str, Fact]:
         return {fact.key: fact for fact in self.facts}
@@ -63,6 +71,7 @@ class StockFacts:
         return {
             "symbol": self.symbol, "name": self.name, "trade_date": self.trade_date.isoformat(),
             "facts": [fact.to_dict() for fact in self.facts], "missing": list(self.missing), "notes": list(self.notes),
+            "report": dict(self.report),
         }
 
     @classmethod
@@ -71,6 +80,7 @@ class StockFacts:
             symbol=data["symbol"], name=data.get("name", ""), trade_date=date.fromisoformat(data["trade_date"]),
             facts=[Fact(**item) for item in data.get("facts", [])],
             missing=list(data.get("missing", [])), notes=list(data.get("notes", [])),
+            report=dict(data.get("report") or {}),
         )
 
 
@@ -124,7 +134,7 @@ class _Builder:
         self.result.missing.append({"group": group, "reason": reason})
 
 
-def stock_facts(repository: Any, symbol: str, day: date | None = None, *, name: str = "") -> StockFacts:
+def stock_facts(repository: Any, symbol: str, day: date | None = None, *, name: str = "", with_report: bool = True) -> StockFacts:
     """The facts of ``symbol`` on its last trading day on or before ``day`` (default: the newest local day)."""
 
     bounds = repository.daily_bar_bounds()
@@ -174,6 +184,16 @@ def stock_facts(repository: Any, symbol: str, day: date | None = None, *, name: 
     _financials(builder, repository, symbol, trade_ts)
     _events(builder, repository, symbol, trade_ts)
     builder.result.facts.sort(key=lambda fact: GROUPS.index(fact.group))
+    if with_report:
+        from quant_platform.ai_research.report import build_report
+
+        try:
+            builder.result.report = build_report(
+                repository, symbol=symbol, trade_ts=trade_ts, window=window, prices=prices, complete=complete,
+                peers=peers, facts=builder.result.by_key(), missing=builder.result.missing,
+            )
+        except Exception:  # noqa: BLE001 - 报告失败时仍然给出数据表
+            logger.exception("stock report failed for %s", symbol)
     return builder.result
 
 

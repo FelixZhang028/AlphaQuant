@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from .database import init_db
 from .quant.backup import BackupScheduler
 from .quant.daily_schedule import DailyScheduler
+from .quant.factor_profiles import FactorProfileWarmer
 from .quant.fundamentals_schedule import FundamentalsScheduler
 from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
@@ -67,15 +68,18 @@ async def lifespan(_app: FastAPI):
     scheduler = DailyScheduler(_data_jobs())
     fundamentals = FundamentalsScheduler(_data_jobs())
     backups = BackupScheduler()
+    warmer = FactorProfileWarmer()      # 预先算好最新交易日的全市场因子值（AI 研究员的因子画像）
     scheduler.start()
     fundamentals.start()
     backups.start()
+    warmer.start()
     try:
         yield
     finally:
         scheduler.stop()
         fundamentals.stop()
         backups.stop()
+        warmer.stop()
 
 
 app = FastAPI(

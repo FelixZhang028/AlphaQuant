@@ -4,6 +4,7 @@ import { aiStatus, askBrief, createBrief, decideBrief, deleteBrief, getBrief, ge
 import SectionCard from '../ui/SectionCard.vue'
 import PriorKnowledgeView from './PriorKnowledgeView.vue'
 import JevStockReport from '../ui/JevStockReport.vue'
+import StockDataReport from '../ui/StockDataReport.vue'
 import { openResearch } from '../researchNavigation.js'
 import {
   evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, TILT_NOTE, tiltLabel, tiltTone,
@@ -31,6 +32,14 @@ const question = ref('')
 const asking = ref(false)
 const chatBox = ref(null)
 const upgradingReport = ref(false)
+const refreshing = ref(false)
+
+// 因子画像还在后台计算时，重新打开这次分析：算好了就会补上。
+async function refreshRecord() {
+  if (!record.value) return
+  refreshing.value = true
+  try { record.value = await getBrief(record.value.id) } catch (e) { props.notify(e.message || '刷新失败') } finally { refreshing.value = false }
+}
 
 const facts = computed(() => record.value?.facts || null)
 const groups = computed(() => factGroups(facts.value?.facts))
@@ -281,8 +290,12 @@ function moveTone(value) {
       <div v-else-if="step === 'reading'" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4 text-sm text-indigo-100">AI 正在根据下面的数据写解读…</div>
       <div v-else-if="record.ai_note" class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100">{{ record.ai_note }}</div>
 
-      <SectionCard title="数据摘要" hint="全部来自本地数据，只用分析日当天及以前已知的信息；涨跌幅按复权价格计算">
-        <div class="grid gap-4 md:grid-cols-2">
+      <StockDataReport v-if="facts.report?.version" :report="facts.report" :previous="record.previous" :trade-date="record.trade_date" :refreshing="refreshing" @refresh="refreshRecord" />
+
+      <SectionCard :title="facts.report?.version ? '全部数据' : '数据摘要'" hint="全部来自本地数据，只用分析日当天及以前已知的信息；涨跌幅按复权价格计算">
+        <details :open="!facts.report?.version">
+        <summary v-if="facts.report?.version" class="cursor-pointer text-sm text-slate-400">展开全部 {{ facts.facts.length }} 项数据</summary>
+        <div class="grid gap-4 md:grid-cols-2" :class="{ 'mt-3': facts.report?.version }">
           <div v-for="group in groups" :key="group.group" class="min-w-0 rounded-xl border border-white/10 bg-white/5 p-4">
             <h3 class="text-xs font-semibold text-slate-300">{{ group.group }}</h3>
             <dl class="mt-2 space-y-1.5">
@@ -293,6 +306,7 @@ function moveTone(value) {
             </dl>
           </div>
         </div>
+        </details>
         <div v-if="facts.missing.length" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
           <h3 class="text-xs font-semibold text-slate-300">本地缺少的数据（没有用到，也没有让 AI 猜）</h3>
           <ul class="mt-2 space-y-1 text-sm text-slate-400">
