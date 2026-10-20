@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  BUBBLE_DAILY_MAX, MARGIN, blockLinks, bubbleBelow, bubbleFor, chatContext, clampBox, codeColumn, dataSummary, dockedBox, focusText,
-  isDrag, nextBubble, panelBox, snapDock, suggestionsFor, usageText,
+  BUBBLE_DAILY_MAX, DEFAULT_OFFSET, MARGIN, blockLinks, boxFromSpot, bubbleBelow, bubbleFor, chatContext, clampBox, codeColumn, dataSummary,
+  focusText, isDrag, nextBubble, panelBox, spotFromBox, suggestionsFor, usageText,
 } from '../src/workspace/aiChat.js'
 
 test('推荐问题：看着一只股票或一次回测时换成和它有关的问题，否则按页面推荐', () => {
@@ -46,26 +46,28 @@ test('次数的说法', () => {
 const screen = { width: 1400, height: 900 }
 const pill = { width: 100, height: 48 }
 
-test('拖动：移动几个像素以内算点击；松手后贴到近的一边，上下按比例记，换了窗口大小也在屏幕里', () => {
+test('拖动：移动几个像素以内算点击；松手就停在那里，按比例记，换了窗口大小也在屏幕里', () => {
   assert.equal(isDrag({ x: 10, y: 10 }, { x: 13, y: 13 }), false)
   assert.equal(isDrag({ x: 10, y: 10 }, { x: 20, y: 10 }), true)
-  const dock = snapDock({ x: 300, y: 400 }, screen, pill)
-  assert.equal(dock.side, 'left')
-  assert.deepEqual(dockedBox(dock, screen, pill), { left: MARGIN, top: 400 })
-  assert.equal(snapDock({ x: 1000, y: -50 }, screen, pill).side, 'right')
-  assert.equal(snapDock({ x: 1000, y: -50 }, screen, pill).ratio, 0)
-  assert.equal(snapDock({ x: 1000, y: 5000 }, screen, pill).ratio, 1)
-  // 默认右下角；窗口变小后还在屏幕里
-  assert.deepEqual(dockedBox(undefined, screen, pill), { left: 1400 - 100 - MARGIN, top: 900 - 48 - MARGIN })
-  const small = dockedBox(dock, { width: 600, height: 500 }, pill)
-  assert.ok(small.top + pill.height <= 500 - MARGIN && small.top >= MARGIN)
+  // 默认不贴角落：离右边、下边各留一段
+  assert.deepEqual(boxFromSpot(null, screen, pill), { left: 1400 - 100 - DEFAULT_OFFSET.right, top: 900 - 48 - DEFAULT_OFFSET.bottom })
+  // 拖到哪里就停在哪里（不吸附到两边）
+  const spot = spotFromBox({ left: 700, top: 400 }, screen, pill)
+  assert.deepEqual(boxFromSpot(spot, screen, pill), { left: 700, top: 400 })
+  assert.deepEqual(spotFromBox({ left: -50, top: 5000 }, screen, pill), { x: 0, y: 1 })
+  // 窗口变小以后还在屏幕里
+  const small = boxFromSpot(spot, { width: 600, height: 500 }, pill)
+  assert.ok(small.left >= MARGIN && small.left + pill.width <= 600 - MARGIN)
+  assert.ok(small.top >= MARGIN && small.top + pill.height <= 500 - MARGIN)
+  assert.deepEqual(boxFromSpot({ x: 'oops' }, screen, pill), boxFromSpot(null, screen, pill))
   assert.deepEqual(clampBox({ left: -40, top: 2000 }, screen, pill), { left: MARGIN, top: 900 - 48 - MARGIN })
 })
 
-test('窗口跟着按钮：同一边弹出，底边对齐，放不下时整个留在屏幕里', () => {
+test('窗口跟着按钮：右半边右对齐、左半边左对齐；下半边往上展开、上半边往下展开；整个留在屏幕里', () => {
   const panel = { width: 400, height: 640 }
-  assert.deepEqual(panelBox({ left: MARGIN, top: 800 }, pill, screen, panel), { left: MARGIN, top: 800 + 48 - 640 })
-  assert.deepEqual(panelBox({ left: 1280, top: 100 }, pill, screen, panel), { left: 1400 - 400 - MARGIN, top: MARGIN })
+  assert.deepEqual(panelBox({ left: 1000, top: 760 }, pill, screen, panel), { left: 1000 + 100 - 400, top: 760 + 48 - 640 })
+  assert.deepEqual(panelBox({ left: 100, top: 60 }, pill, screen, panel), { left: 100, top: 60 })
+  assert.deepEqual(panelBox({ left: 1280, top: 300 }, pill, screen, panel), { left: 1400 - 400 - MARGIN, top: 240 })
   assert.equal(bubbleBelow({ top: 60 }), true)
   assert.equal(bubbleBelow({ top: 700 }), false)
 })

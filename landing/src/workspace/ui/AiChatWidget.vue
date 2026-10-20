@@ -1,15 +1,15 @@
 <script setup>
 // 功能台的 AI 问答：在任何页面都能问，回答只根据平台的本地数据，用到的数据可以展开看。
 // 知道当前页面正在看的股票或回测（chatFocus.js），问“这只”“这次回测”时自动带上，也可以不带。
-// 按钮默认在右下角，可以拖动，松手后贴到左边或右边；窗口从按钮那一边弹出，电脑上按住标题栏也能拖。
+// 按钮可以拖到任意位置，松手就停在那里；窗口在按钮旁边弹出，电脑上按住标题栏也能拖。
 // 按钮旁边偶尔弹出一个气泡提示可以问什么（每天最多几次，关掉或用过以后只在换股票时再说）。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { aiStatus, askAiChat, deleteAiChat, getAiChat, listAiChats } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { overlays, pageFocus } from '../chatFocus.js'
 import {
-  DEFAULT_DOCK, MARGIN, blockLinks, bubbleBelow, bubbleFor, chatContext, clampBox, codeColumn, dataSummary, dockedBox, focusText,
-  isDrag, loadChatState, nextBubble, panelBox, saveChatState, snapDock, suggestionsFor, usageText,
+  MARGIN, blockLinks, boxFromSpot, bubbleBelow, bubbleFor, chatContext, clampBox, codeColumn, dataSummary, focusText,
+  isDrag, loadChatState, nextBubble, panelBox, saveChatState, spotFromBox, suggestionsFor, usageText,
 } from '../aiChat.js'
 
 const props = defineProps({
@@ -53,20 +53,20 @@ watch([open, () => chat.value?.id], () => saveChatState({ open: open.value, chat
 // ---------- 位置 ----------
 const buttonEl = ref(null)
 const buttonSize = ref({ width: 104, height: 48 })
-const dock = ref(saved.dock || DEFAULT_DOCK)
+const spot = ref(saved.spot || null)            // 拖动过的按钮位置（比例）；没有时用默认位置
 const dragBox = ref(null)                       // 正在拖动的按钮位置
 const panelMoved = ref(saved.panel || null)     // 电脑上拖动过的窗口位置
-const docked = computed(() => dockedBox(dock.value, viewport.value, buttonSize.value))
-const buttonBox = computed(() => dragBox.value || docked.value)
+const placed = computed(() => boxFromSpot(spot.value, viewport.value, buttonSize.value))
+const buttonBox = computed(() => dragBox.value || placed.value)
 const buttonStyle = computed(() => ({ left: `${buttonBox.value.left}px`, top: `${buttonBox.value.top}px` }))
 const panelSize = computed(() => ({ width: Math.min(400, viewport.value.width - 2 * MARGIN), height: Math.min(640, viewport.value.height - 2 * MARGIN) }))
 const panelPos = computed(() => (panelMoved.value
   ? clampBox(panelMoved.value, viewport.value, panelSize.value)
-  : panelBox(docked.value, buttonSize.value, viewport.value, panelSize.value)))
+  : panelBox(placed.value, buttonSize.value, viewport.value, panelSize.value)))
 const panelStyle = computed(() => (isPhone() ? {} : {
   left: `${panelPos.value.left}px`, top: `${panelPos.value.top}px`, width: `${panelSize.value.width}px`, height: `${panelSize.value.height}px`,
 }))
-const movedAway = computed(() => Boolean(panelMoved.value) || dock.value.side !== DEFAULT_DOCK.side || dock.value.ratio !== DEFAULT_DOCK.ratio)
+const movedAway = computed(() => Boolean(panelMoved.value || spot.value))
 const onLeft = computed(() => buttonBox.value.left + buttonSize.value.width / 2 < viewport.value.width / 2)
 
 function measure() {
@@ -80,7 +80,7 @@ function onResize() { viewport.value = { width: window.innerWidth, height: windo
 function capture(event) {
   try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* 不影响拖动 */ }
 }
-// 按住按钮拖动：移动几个像素以内算点击；松手后贴到近的一边，窗口改为跟着按钮。
+// 按住按钮拖动：移动几个像素以内算点击；松手就停在那里，窗口改为跟着按钮。
 let press = null
 let swallowClick = false
 function onButtonDown(event) {
@@ -97,9 +97,9 @@ function onButtonMove(event) {
 }
 function onButtonUp() {
   if (press?.dragging && dragBox.value) {
-    dock.value = snapDock({ x: dragBox.value.left, y: dragBox.value.top }, viewport.value, buttonSize.value)
+    spot.value = spotFromBox(dragBox.value, viewport.value, buttonSize.value)
     panelMoved.value = null
-    saveChatState({ dock: dock.value, panel: null })
+    saveChatState({ spot: spot.value, panel: null })
     swallowClick = true
   }
   dragBox.value = null
@@ -130,9 +130,9 @@ function onHeaderDouble(event) {
   if (!event.target.closest('button')) resetPosition()
 }
 function resetPosition() {
-  dock.value = DEFAULT_DOCK
+  spot.value = null
   panelMoved.value = null
-  saveChatState({ dock: null, panel: null })
+  saveChatState({ spot: null, panel: null })
 }
 
 // ---------- 气泡 ----------
@@ -281,6 +281,7 @@ onMounted(() => {
   window.addEventListener('fq-open-chat', onOpenEvent)
   window.addEventListener('resize', onResize)
   measure()
+  document.fonts?.ready.then(measure)   // 字体加载完按钮宽度会变，再量一次，位置才准
   if (open.value) toggle(true)
   else planBubble()
 })
@@ -304,8 +305,8 @@ onUnmounted(() => {
       <button type="button" aria-label="关掉提示" class="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-slate-500 hover:bg-white/10 hover:text-white" @click="quietBubble">×</button>
     </div>
 
-    <!-- 悬浮按钮：按住可以拖动，松手后贴到左边或右边 -->
-    <button v-if="!open && !overlays.drawer" ref="buttonEl" type="button" aria-label="打开 AI 问答（按住可以拖动）" title="AI 问答 · 按住可以拖动"
+    <!-- 悬浮按钮：按住可以拖到任意位置；鼠标放上去不显示提示文字 -->
+    <button v-if="!open && !overlays.drawer" ref="buttonEl" type="button" aria-label="打开 AI 问答（按住可以拖动）"
       :style="buttonStyle"
       class="fixed z-[55] flex h-12 touch-none select-none items-center gap-2 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 pl-3.5 pr-4 text-sm font-semibold text-white shadow-xl shadow-indigo-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
       :class="dragBox ? 'cursor-grabbing' : 'cursor-pointer transition-[left,top,transform] duration-300 hover:-translate-y-0.5'"
@@ -318,11 +319,11 @@ onUnmounted(() => {
     <!-- 对话窗口：电脑上从按钮那一边弹出，可以拖动标题栏；手机上铺满屏幕 -->
     <section v-if="open" role="dialog" aria-label="AI 问答" :style="panelStyle"
       class="fixed inset-0 z-[56] flex flex-col border-white/10 bg-ink/95 shadow-2xl shadow-black/50 backdrop-blur-xl sm:inset-auto sm:rounded-2xl sm:border">
-      <header class="flex select-none items-center gap-2 border-b border-white/10 px-4 py-3 sm:cursor-move" title="按住可以拖动，双击回到默认位置"
+      <header class="flex select-none items-center gap-2 border-b border-white/10 px-4 py-3 sm:cursor-move"
         @pointerdown="onHeaderDown" @pointermove="onHeaderMove" @pointerup="onHeaderUp" @pointercancel="onHeaderUp" @dblclick="onHeaderDouble">
         <h2 class="whitespace-nowrap text-sm font-semibold text-white">AI 问答</h2>
         <div class="ml-auto flex items-center gap-1">
-          <button v-if="movedAway" type="button" title="回到默认位置" class="hidden whitespace-nowrap rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white sm:block" @click="resetPosition">复位</button>
+          <button v-if="movedAway" type="button" aria-label="回到默认位置" class="hidden whitespace-nowrap rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white sm:block" @click="resetPosition">复位</button>
           <button type="button" class="whitespace-nowrap rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white" @click="newChat">新对话</button>
           <button type="button" class="whitespace-nowrap rounded-lg px-2 py-1 text-xs hover:bg-white/5" :class="showHistory ? 'text-indigo-200' : 'text-slate-400 hover:text-white'"
             :aria-pressed="showHistory" @click="showHistory = !showHistory">以前的对话</button>

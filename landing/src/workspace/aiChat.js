@@ -69,30 +69,17 @@ export function dataSummary(turn) {
   return `用到的数据（${found} 项${missing ? `，${missing} 项没有查到` : ''}）`
 }
 
-// ---------- 位置：按钮可以拖动，松手后贴到左边或右边 ----------
+// ---------- 位置：按钮可以拖到任意位置，松手就停在那里 ----------
 export const MARGIN = 20
 export const DRAG_THRESHOLD = 5
-// 默认在右下角。上下位置按比例记（0 最上面，1 最下面），浏览器窗口变大变小都还在屏幕里。
-export const DEFAULT_DOCK = { side: 'right', ratio: 1 }
+// 默认位置：离右边和下边都留出一段，不贴着角落（按钮右边到窗口右边、按钮下边到窗口下边的距离）。
+export const DEFAULT_OFFSET = { right: 250, bottom: 96 }
 
 const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high))
 
 // 只移动一点点算点击，超过几个像素才算拖动，拖完不会误打开窗口。
 export function isDrag(start, point) {
   return Math.hypot(point.x - start.x, point.y - start.y) > DRAG_THRESHOLD
-}
-// 松手时按钮左上角的位置 -> 贴到离得近的那一边，记下上下的比例。
-export function snapDock(point, viewport, size) {
-  const side = point.x + size.width / 2 < viewport.width / 2 ? 'left' : 'right'
-  const room = viewport.height - size.height - 2 * MARGIN
-  const ratio = room > 0 ? clamp((point.y - MARGIN) / room, 0, 1) : 1
-  return { side, ratio: Math.round(ratio * 10000) / 10000 }
-}
-// 贴边的按钮在屏幕上的位置（左上角）。
-export function dockedBox(dock, viewport, size) {
-  const room = Math.max(0, viewport.height - size.height - 2 * MARGIN)
-  const ratio = Number.isFinite(dock?.ratio) ? clamp(dock.ratio, 0, 1) : 1
-  return { left: dock?.side === 'left' ? MARGIN : Math.max(MARGIN, viewport.width - size.width - MARGIN), top: Math.round(MARGIN + room * ratio) }
 }
 // 任意位置放回屏幕里（拖动中的按钮、拖动过的窗口）。
 export function clampBox(box, viewport, size) {
@@ -101,10 +88,29 @@ export function clampBox(box, viewport, size) {
     top: clamp(box.top, MARGIN, viewport.height - size.height - MARGIN),
   }
 }
-// 窗口跟着按钮：按钮在哪一边就从哪一边弹出，底边和按钮底边对齐，整个窗口留在屏幕里。
+// 松手时按钮的位置 -> 在可以移动的范围里的比例（0 最左/最上，1 最右/最下）。
+// 按比例记，浏览器窗口变大变小时按钮还在差不多的地方，也一定在屏幕里。
+export function spotFromBox(box, viewport, size) {
+  const ratio = (value, room) => (room > 0 ? Math.round(clamp((value - MARGIN) / room, 0, 1) * 10000) / 10000 : 1)
+  return { x: ratio(box.left, viewport.width - size.width - 2 * MARGIN), y: ratio(box.top, viewport.height - size.height - 2 * MARGIN) }
+}
+// 按钮在屏幕上的位置（左上角）；没有拖动过时用默认位置。
+export function boxFromSpot(spot, viewport, size) {
+  if (!spot || !Number.isFinite(spot.x) || !Number.isFinite(spot.y)) {
+    return clampBox({ left: viewport.width - size.width - DEFAULT_OFFSET.right, top: viewport.height - size.height - DEFAULT_OFFSET.bottom }, viewport, size)
+  }
+  const at = (ratio, room) => Math.round(MARGIN + Math.max(0, room) * clamp(ratio, 0, 1))
+  return { left: at(spot.x, viewport.width - size.width - 2 * MARGIN), top: at(spot.y, viewport.height - size.height - 2 * MARGIN) }
+}
+// 窗口跟着按钮：按钮在右半边时窗口右边和按钮右边对齐，在左半边时左边对齐；
+// 按钮在下半边时窗口往上展开（底边对齐），在上半边时往下展开（顶边对齐）。整个窗口留在屏幕里。
 export function panelBox(button, buttonSize, viewport, panelSize) {
-  const left = button.left + buttonSize.width / 2 < viewport.width / 2 ? MARGIN : viewport.width - panelSize.width - MARGIN
-  return clampBox({ left, top: button.top + buttonSize.height - panelSize.height }, viewport, panelSize)
+  const right = button.left + buttonSize.width / 2 >= viewport.width / 2
+  const lower = button.top + buttonSize.height / 2 >= viewport.height / 2
+  return clampBox({
+    left: right ? button.left + buttonSize.width - panelSize.width : button.left,
+    top: lower ? button.top + buttonSize.height - panelSize.height : button.top,
+  }, viewport, panelSize)
 }
 // 气泡在按钮上面；按钮太靠上时放到下面。
 export function bubbleBelow(button) {
