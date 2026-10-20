@@ -14,6 +14,8 @@ from datetime import UTC, date, datetime
 from functools import wraps
 from pathlib import Path
 
+from quant_platform.core.files import write_json_atomic
+
 MODULE = "quant_platform.application.data_jobs"
 DATASETS = {"bars", "actions", "derived", "indicators", "fundamentals", "industry", "index_constituents", "bar_gaps", "action_gaps", "daily"}
 # 除全市场日线（自带看门狗）以外的阶段：这么久没有进展就结束进程，由守护进程从断点续传。
@@ -120,9 +122,7 @@ def launch_detached(command, **options):
 
 
 def write_json(path, value):
-    temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-    os.replace(temporary, path)
+    write_json_atomic(path, value)
 
 
 def read_json(path):
@@ -278,10 +278,14 @@ def _attempt(folder, job, watchdog):
         watchdog.feed()
         checkpoint = read_json(checkpoint_path) if checkpoint_path else {}
         failures = len(checkpoint.get(stage, {}).get("failed", {}))
-        write_json(
-            folder / "progress.json",
-            dict(stage=stage, done=done, failed=failures, total=total, updated_at=now()),
-        )
+        try:
+            write_json(
+                folder / "progress.json",
+                dict(stage=stage, done=done, failed=failures, total=total, updated_at=now()),
+            )
+        except OSError as exc:
+            # 进度只是给页面看的：这一次没写进去，下一次会再写，下载不能因此停下。
+            print(f"progress not saved: {exc}", flush=True)
         print(f"{stage}: {done}/{total}", flush=True)
         if (folder / "stop").exists():
             raise SystemExit(130)

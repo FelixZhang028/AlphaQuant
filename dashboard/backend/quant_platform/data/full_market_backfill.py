@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from quant_platform.core.files import replace_file
 from quant_platform.core.exceptions import DataSourceBlocked, DataUnavailableError
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import (
@@ -192,7 +193,7 @@ class ClosedLoopState:
         temporary.write_text(
             json.dumps(self.datasets, ensure_ascii=False), encoding="utf-8"
         )
-        os.replace(temporary, self.path)
+        replace_file(temporary, self.path)
 
     def snapshot(self) -> dict[str, Any]:
         """返回可直接展示的断点摘要。"""

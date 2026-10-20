@@ -13,6 +13,7 @@ import pandas as pd
 import yaml
 
 from quant_platform.backtest.validity import load_persisted_validity
+from quant_platform.core.files import replace_file
 
 
 class RunStatus(StrEnum):
@@ -274,7 +275,7 @@ class BacktestRunStore:
             json.dumps(value, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
-        temporary.replace(target)
+        replace_file(temporary, target)
 
 
 def _mapping(value: Any) -> dict[str, Any]:

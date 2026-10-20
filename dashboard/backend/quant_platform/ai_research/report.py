@@ -26,6 +26,7 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform.core.files import replace_file
 from quant_platform.data.extras import extra_columns
 from quant_platform.data.index_constituents import INDEX_UNIVERSES, stored_lists
 from quant_platform.data.industry import EXPOSURES_TABLE
@@ -355,7 +356,7 @@ def ensure_cross_section(repository: Any, trade_ts: pd.Timestamp, *, background:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 temporary = path.with_suffix(".tmp")
                 result.to_parquet(temporary)
-                temporary.replace(path)
+                replace_file(temporary, path)
                 for old in sorted(path.parent.glob("*.parquet"))[:-30]:   # 只留最近 30 份
                     old.unlink(missing_ok=True)
             _remember(key, result)

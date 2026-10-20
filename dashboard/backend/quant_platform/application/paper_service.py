@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from quant_platform.application.backtest_service import BacktestRequest, BacktestService
+from quant_platform.core.files import replace_file
 from quant_platform.risk.config import RiskLimits
 
 if TYPE_CHECKING:
@@ -152,7 +153,7 @@ class PaperTradingService:
             json.dumps(asdict(record), ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
-        temporary.replace(target)
+        replace_file(temporary, target)
 
     @staticmethod
     def _serialize_request(request: BacktestRequest) -> dict[str, Any]:

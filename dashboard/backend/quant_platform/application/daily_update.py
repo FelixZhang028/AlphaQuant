@@ -23,8 +23,6 @@ blacklist) the whole run stops at once: every further request would only prolong
 from __future__ import annotations
 
 import json
-import os
-import uuid
 from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
@@ -34,6 +32,7 @@ import pandas as pd
 
 from quant_platform.core.diagnostics import redact_text
 from quant_platform.core.exceptions import DataSourceBlocked
+from quant_platform.core.files import write_json_atomic
 
 BATCH = 200
 # 判断今天的行情是否已经发布：几只几乎不停牌的大盘股，有一只有今天的日线就算发布了。
@@ -58,9 +57,7 @@ def _read(path: Path) -> dict[str, Any]:
 
 
 def _write(path: Path, value: dict[str, Any]) -> None:
-    temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-    os.replace(temporary, path)
+    write_json_atomic(path, value)
 
 
 def _error(exc: BaseException) -> str:
