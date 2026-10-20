@@ -99,7 +99,7 @@ const lastFundamentalsText = computed(() => {
   if (!last) return '还没有自动更新过'
   const outcome = last.result?.quarterly_fundamentals
   const reports = outcome ? `，新增 ${number(outcome.reports)} 份财报${Object.keys(outcome.failed || {}).length ? `，${Object.keys(outcome.failed).length} 只股票没取到` : ''}` : ''
-  return `${time(last.finished_at)} · ${statusLabel(last.status)}${reports}`
+  return `${time(last.finished_at)} · ${statusLabel(last.status)}${reports}${last.failure ? `：${last.failure}` : ''}`
 })
 async function updateFundamentals() {
   if (!window.confirm('现在更新最近 5 个报告期的财务数据？只下载还没有的报告期，全市场通常需要半小时到一小时。')) return
@@ -218,7 +218,9 @@ const stepMark = { done: '✓', failed: '✗', skipped: '–' }
         <div><dt class="text-xs text-slate-400">自动更新时间</dt><dd class="mt-1 text-slate-200">{{ daily ? (daily.enabled ? `每个交易日 ${daily.time} 以后（北京时间）` : '已关闭（FELLOWQUANT_DAILY_UPDATE=off）') : '—' }}</dd></div>
       </dl>
       <div v-if="daily?.last" class="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
-        <p class="text-slate-300">上一次：{{ daily.last.trade_date }} · {{ daily.last.trigger === 'auto' ? '自动' : '管理员手动' }} · {{ statusLabel(daily.last.status) }} · {{ time(daily.last.finished_at) }}</p>
+        <p class="text-slate-300">上一次：{{ daily.last.trade_date }} · {{ daily.last.trigger === 'auto' ? '自动' : '管理员手动' }} · {{ time(daily.last.finished_at) }}</p>
+        <p class="mt-1" :class="daily.last.blocked || ['FAILED', 'INTERRUPTED'].includes(daily.last.status) ? 'text-rose-300' : 'text-slate-200'">{{ daily.last.outcome || statusLabel(daily.last.status) }}</p>
+        <p v-if="daily.last.failure && !(daily.last.outcome || '').includes(daily.last.failure)" class="mt-1 text-xs text-rose-300">{{ daily.last.failure }}</p>
         <ul v-if="lastSteps.length" class="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2" aria-label="每一步的结果">
           <li v-for="step in lastSteps" :key="step.key" class="flex min-w-0 gap-2">
             <span :class="stepTone[step.state]" aria-hidden="true">{{ stepMark[step.state] }}</span>
@@ -302,11 +304,14 @@ const stepMark = { done: '✓', failed: '✗', skipped: '–' }
               <tr class="text-slate-300">
                 <td class="py-3">{{ datasetText(job) }}</td>
                 <td class="py-3 text-slate-400">{{ job.start_date }} ~ {{ job.end_date }}</td>
-                <td class="py-3" :class="{ 'text-emerald-300': job.status === 'SUCCESS', 'text-amber-300': ['PARTIAL', 'INTERRUPTED', 'STOPPED'].includes(job.status), 'text-rose-300': job.status === 'FAILED' }">{{ job.status_label || statusLabel(job.status) }}</td>
+                <td class="py-3" :class="{ 'text-emerald-300': job.status === 'SUCCESS', 'text-amber-300': ['PARTIAL', 'INTERRUPTED', 'STOPPED'].includes(job.status), 'text-rose-300': job.status === 'FAILED' }" :title="job.failure || ''">{{ job.blocked ? '被数据源拒绝' : job.status_label || statusLabel(job.status) }}</td>
                 <td class="py-3 text-slate-400">{{ job.trigger === 'auto' ? '自动' : '手动' }}</td>
                 <td class="py-3 text-slate-400">{{ time(job.created_at) }}</td>
                 <td class="py-3 text-slate-400">{{ time(job.updated_at) }}</td>
                 <td class="py-3 text-right"><button type="button" class="rounded-full border border-white/10 px-3 py-0.5 text-xs text-slate-300 hover:text-white" @click="toggleLog(job)">{{ logs[job.id] !== undefined ? '收起' : '查看' }}</button></td>
+              </tr>
+              <tr v-if="job.failure && job.status !== 'SUCCESS'" class="!border-t-0">
+                <td colspan="7" class="whitespace-normal pb-3 pt-0 text-xs text-rose-300">{{ job.failure }}</td>
               </tr>
               <tr v-if="logs[job.id] !== undefined">
                 <td colspan="7" class="pb-3">

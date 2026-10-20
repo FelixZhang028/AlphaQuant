@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataSourceBlocked, DataUnavailableError
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import (
     BaoStockRangeBackfill,
@@ -300,6 +300,8 @@ class FullMarketBackfill:
                     if not frame.empty:
                         frames.append(frame)
                     done.append(symbol)
+                except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 单只失败不断阻断全市场任务
                     consecutive_failures += 1
                     failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]
@@ -376,6 +378,8 @@ class FullMarketBackfill:
                     if not frame.empty:
                         frames.append(frame)
                     done.append(symbol)
+                except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 一只失败不影响其他股票
                     consecutive_failures += 1
                     failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]
@@ -455,6 +459,8 @@ class FullMarketBackfill:
                 for symbol in chunk_failures:
                     failed[symbol] = "akshare stock_fhps_detail_em 获取失败"
                 batch_failures = 0
+            except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                raise
             except Exception as exc:  # noqa: BLE001 - 整批失败先记录，连续熔断
                 batch_failures += 1
                 for symbol in chunk:

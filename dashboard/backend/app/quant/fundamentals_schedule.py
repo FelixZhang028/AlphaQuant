@@ -95,6 +95,8 @@ def decide(records: list[dict[str, Any]], now: datetime, *, on: bool = True) -> 
             return Decision(False, "done", f"管理员停止了今天的更新；下一次 {later}")
         if status in ("SUCCESS", "PARTIAL"):
             return Decision(False, "done", f"今天已经更新；下一次 {later}")
+        if last.get("blocked"):
+            return Decision(False, "failed", f"数据源 BaoStock 暂时拒绝了这台服务器（请求太多），今天不再自动重试；下一次 {later}")
         if len(runs) >= MAX_RUNS:
             return Decision(False, "failed", f"今天试了 {len(runs)} 次都没有完成；下一次 {later}")
         finished = _finished_at(last)
@@ -115,6 +117,7 @@ def status(records: list[dict[str, Any]], now: datetime | None = None) -> dict[s
     if finished is not None:
         result = finished.get("result") or {}
         last = {"status": finished.get("status"), "finished_at": finished.get("updated_at") or finished.get("created_at"),
+                "failure": finished.get("failure", ""), "blocked": bool(finished.get("blocked")),
                 "start_date": finished.get("start_date"), "end_date": finished.get("end_date"), "result": result}
     return {"enabled": enabled(), "state": decision.state, "text": decision.text, "next_run": next_run(now.date()).isoformat(),
             "window_days": WINDOW_DAYS, "last": last}

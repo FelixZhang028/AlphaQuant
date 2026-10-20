@@ -335,3 +335,19 @@ def test_status_counts_stocks_with_at_least_one_published_report(repo):
     assert DataCenterService.fundamentals_status(service) == {
         "symbols": 1, "missing_symbols": 1, "reports": 6, "latest_stat_date": "2025-03-31", "latest_pub_date": "2025-04-25"}
     assert repo.get_fundamentals()[FUNDAMENTALS_TABLE and "symbol"].nunique() == 1
+
+
+def test_a_blacklisted_server_stops_the_download_at_once_and_keeps_what_it_got(repo):
+    from quant_platform.core.exceptions import DataSourceBlocked
+
+    class Blocking(Vendor):
+        def get_quarterly_report(self, kind, symbol, year, quarter):
+            if symbol == "600519.SH":
+                raise DataSourceBlocked("黑名单用户")
+            return super().get_quarterly_report(kind, symbol, year, quarter)
+
+    vendor = Blocking()
+    with pytest.raises(DataSourceBlocked):
+        run(repo, vendor)
+    assert {symbol for kind, symbol, year, quarter in vendor.requests} == {"000001.SZ"}   # 被拒绝后没有再请求
+    assert set(repo.get_fundamentals()["symbol"]) == {"000001.SZ"}                          # 已经取到的存下来了

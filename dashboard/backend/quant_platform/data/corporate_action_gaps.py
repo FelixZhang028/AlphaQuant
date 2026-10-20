@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from quant_platform.core.exceptions import DataSourceBlocked
+
 from quant_platform.data.normalizers import canonical_symbol
 
 logger = logging.getLogger(__name__)
@@ -161,6 +163,8 @@ class BaoStockDividendBackfill:
                     added.append(rows[useful.astype(bool)])
                     checked.extend({"symbol": symbol, "year": year, "checked_at": datetime.now(UTC)} for year in years)
                     consecutive_failures = 0
+                except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 一只失败不影响其他股票
                     consecutive_failures += 1
                     failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]

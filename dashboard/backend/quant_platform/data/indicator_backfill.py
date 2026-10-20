@@ -14,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataSourceBlocked, DataUnavailableError
 from quant_platform.data.indicators import INDICATOR_TABLE, normalize_baostock_indicators
 from quant_platform.data.providers.baostock_provider import BaoStockDataProvider
 from quant_platform.data.repositories.parquet_repository import ParquetMarketDataRepository
@@ -95,6 +95,8 @@ class BaoStockIndicatorBackfill:
                         if not frame.empty:
                             frames.append(frame)
                     consecutive_failures = 0
+                except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                    raise
                 except Exception as exc:  # noqa: BLE001 - 单只失败不阻断其余股票
                     consecutive_failures += 1
                     failed[symbol] = f"{type(exc).__name__}: {exc}"[:300]

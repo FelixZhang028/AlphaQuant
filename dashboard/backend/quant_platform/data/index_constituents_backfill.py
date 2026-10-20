@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataSourceBlocked, DataUnavailableError
 from quant_platform.data.index_constituents import (
     CHECKS_TABLE,
     CONSTITUENTS_TABLE,
@@ -100,6 +100,8 @@ class BaoStockIndexConstituentsBackfill:
                 if not any(key.startswith(index_symbol) for key in failed):
                     try:
                         changes += self._check(index_symbol, lower, upper)
+                    except DataSourceBlocked:  # 数据源拒绝了这台服务器：整个任务停下，不再逐只重试
+                        raise
                     except Exception as exc:  # noqa: BLE001 - 一个指数失败不影响其他指数
                         failed[f"{index_symbol} {lower}~{upper}"] = f"{type(exc).__name__}: {exc}"[:300]
                         logger.warning("%s成分股下载失败：%s ~ %s（%s）", index_name(index_symbol), lower, upper, exc)

@@ -96,6 +96,9 @@ def decide(records: list[dict[str, Any]], now: datetime, *, at: time | None = No
             return Decision(False, "closed", "今天不是交易日，不更新")
         if status == "SUCCESS" and market == "updated":
             return Decision(False, "done", "今天的数据已经更新")
+        if last.get("blocked"):
+            # 被数据源拒绝：今天不再自动重试，重试只会让拉黑持续更久。
+            return Decision(False, "failed", "数据源 BaoStock 暂时拒绝了这台服务器（请求太多被列入黑名单）；今天不再自动重试，明天收盘后再更新")
         if len(runs) >= MAX_RUNS or now.time() >= LAST_START:
             reason = "行情还没有发布" if market == "not_ready" else "更新没有完成"
             return Decision(False, "failed", f"今天试了 {len(runs)} 次，{reason}；明天收盘后再更新")
@@ -175,6 +178,29 @@ def step_results(result: dict[str, Any]) -> list[dict[str, Any]]:
     return items
 
 
+def outcome_text(job: dict[str, Any], result: dict[str, Any]) -> str:
+    """One line about what a finished daily update actually did (not just “完成”)."""
+
+    status = job.get("status")
+    if status == "STOPPED":
+        return "管理员停止了这次更新"
+    if status in ("FAILED", "INTERRUPTED") and not result.get("steps"):
+        return "没有完成：" + (job.get("failure") or "原因见任务日志")
+    market, caught_up = result.get("market"), result.get("caught_up")
+    latest = "，本地已经有最近一个交易日的行情" if result.get("up_to_date") else ""
+    if market == "not_ready" and not caught_up:
+        return f"当天的行情还没有发布{latest}，没有下载数据"
+    if market == "closed" and not caught_up:
+        return f"当天不是交易日{latest}，没有下载数据"
+    head = f"当天的行情还没有发布，先补到 {caught_up}" if caught_up and market == "not_ready" else (
+        f"当天不是交易日，先补到 {caught_up}" if caught_up else "已更新到当天")
+    if result.get("blocked"):
+        return f"{head}，中途被数据源拒绝：{job.get('failure') or '请过几个小时再试'}"
+    if result.get("errors"):
+        return f"{head}，有 {len(result['errors'])} 项没有完成"
+    return head
+
+
 def _summary(result: dict[str, Any]) -> str:
     steps = result.get("steps") or {}
     bars = steps.get("daily_bars") or {}
@@ -201,10 +227,15 @@ def status(records: list[dict[str, Any]], now: datetime | None = None) -> dict[s
         result = finished.get("result") or {}
         last = {
             "trade_date": finished.get("end_date"),
+            "data_date": result.get("trade_date") or finished.get("end_date"),
+            "caught_up": result.get("caught_up"),
             "status": finished.get("status"),
             "market": result.get("market"),
             "finished_at": finished.get("updated_at") or finished.get("created_at"),
             "summary": _summary(result),
+            "outcome": outcome_text(finished, result),
+            "blocked": bool(finished.get("blocked")),
+            "failure": finished.get("failure", ""),
             "errors": [f"{STEP_NAMES.get(name, name)}：{message}" for name, message in (result.get("errors") or {}).items()][:5],
             "steps": step_results(result),
             "trigger": finished.get("trigger", "admin"),

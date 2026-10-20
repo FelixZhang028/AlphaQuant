@@ -21,6 +21,11 @@ class DataUnavailableError(DataError):
     """Raised when no configured provider can supply requested data."""
 
 
+class DataSourceBlocked(DataUnavailableError):
+    """The data source refuses this server for now (for example BaoStock's blacklist after too many
+    requests). Retrying makes it worse, so callers stop instead of retrying."""
+
+
 class DataCapabilityNotSupported(DataError):
     """Raised when a provider does not implement a requested dataset."""
 

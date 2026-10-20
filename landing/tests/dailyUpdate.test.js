@@ -26,3 +26,10 @@ test('进度：正在做哪一步，下载行情时显示做到第几只', () =>
   assert.equal(progressText({ stage: 'daily_bars', done: 1200, total: 5320 }), '下载日线行情 1,200 / 5,320')
   assert.equal(progressText({ stage: 'industry', done: 0, total: 1 }), '更新行业分类')
 })
+
+test('后端给出的结果说明优先：没下载、先补前几天、被数据源拒绝', () => {
+  assert.equal(lastText({ trade_date: '2026-10-20', status: 'SUCCESS', market: 'not_ready', outcome: '当天的行情还没有发布，先补到 2026-10-19', summary: '更新了 5,300 只股票的行情', trigger: 'admin' }),
+    '上次更新：2026-10-20 当天的行情还没有发布，先补到 2026-10-19（管理员手动运行），更新了 5,300 只股票的行情')
+  assert.equal(lastText({ trade_date: '2026-10-19', status: 'FAILED', outcome: '没有完成：数据源 BaoStock 暂时拒绝了这台服务器', blocked: true, summary: '', trigger: 'auto' }),
+    '上次更新：2026-10-19 没有完成：数据源 BaoStock 暂时拒绝了这台服务器')
+})

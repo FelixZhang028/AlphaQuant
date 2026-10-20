@@ -24,10 +24,12 @@ export function coverageText(data) {
 
 export function lastText(last) {
   if (!last) return '还没有运行过每日更新'
+  const who = last.trigger === 'admin' ? '（管理员手动运行）' : ''
+  // 后端写好的一句话：当天行情没发布时有没有先补前几天、被数据源拒绝等，比“完成 / 失败”说得清楚。
+  if (last.outcome) return `上次更新：${last.trade_date} ${last.outcome}${who}${last.summary && !last.blocked ? `，${last.summary}` : ''}`
   let outcome = { SUCCESS: '完成', PARTIAL: '部分完成', FAILED: '失败', INTERRUPTED: '意外中断', STOPPED: '已停止' }[last.status] || last.status
   if (last.status === 'SUCCESS' && last.market === 'closed') outcome = '不是交易日，没有更新'
   if (last.status === 'SUCCESS' && last.market === 'not_ready') outcome = '当时行情还没有发布'
-  const who = last.trigger === 'admin' ? '（管理员手动运行）' : ''
   return `上次更新：${last.trade_date} ${outcome}${who}${last.summary ? `，${last.summary}` : ''}`
 }
 

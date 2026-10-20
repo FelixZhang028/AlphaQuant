@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 import time
 from collections.abc import Callable
 from datetime import date
@@ -9,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataCapabilityNotSupported, DataUnavailableError
+from quant_platform.core.exceptions import DataCapabilityNotSupported, DataSourceBlocked, DataUnavailableError
 from quant_platform.data.interfaces import DataProvider
 from quant_platform.data.normalizers import canonical_symbol
 
@@ -25,6 +27,40 @@ _QUARTERLY_QUERIES = {
     "growth": "query_growth_data",
     "balance": "query_balance_data",
 }
+
+
+# BaoStock 会把短时间内请求太多的服务器列入黑名单（错误码 10001011），一段时间内拒绝登录。
+# 所以每两次请求之间至少间隔 FELLOWQUANT_BAOSTOCK_INTERVAL 秒（默认 0.1 秒，同一进程里所有连接共用）；
+# 一旦被拒绝就立刻停下，不再重试。
+BLOCKED_CODES = {"10001011"}
+BLOCKED_MESSAGE = ("数据源 BaoStock 暂时拒绝了这台服务器（被列入黑名单），通常是短时间内请求太多。"
+                   "请过几个小时再试，这段时间不要反复运行数据更新。")
+DEFAULT_INTERVAL = 0.1
+_PACE_LOCK = threading.Lock()
+_last_request = 0.0
+
+
+def request_interval() -> float:
+    try:
+        return max(0.0, float(os.getenv("FELLOWQUANT_BAOSTOCK_INTERVAL", "") or DEFAULT_INTERVAL))
+    except ValueError:
+        return DEFAULT_INTERVAL
+
+
+def _pace() -> None:
+    """Wait until at least ``request_interval()`` seconds have passed since the previous request."""
+
+    global _last_request
+    interval = request_interval()
+    with _PACE_LOCK:
+        wait = _last_request + interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request = time.monotonic()
+
+
+def _blocked(error_code: str, message: str) -> bool:
+    return error_code in BLOCKED_CODES or "黑名单" in message
 
 
 def _ensure_baostock_pandas_compat() -> None:
@@ -67,10 +103,13 @@ class BaoStockDataProvider(DataProvider):
         failures: list[str] = []
         for attempt in range(1, self._retries + 1):
             try:
+                _pace()
                 result = self._client.login()
                 self._check_result(result, "login")
                 self._logged_in = True
                 return
+            except DataSourceBlocked:
+                raise
             except Exception as exc:
                 failures.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
                 if attempt < self._retries:
@@ -237,6 +276,8 @@ class BaoStockDataProvider(DataProvider):
         error_code = str(getattr(result, "error_code", "0"))
         if error_code != "0":
             message = str(getattr(result, "error_msg", "unknown provider error"))
+            if _blocked(error_code, message):
+                raise DataSourceBlocked(f"{BLOCKED_MESSAGE}（BaoStock {operation} [{error_code}]: {message}）")
             raise DataUnavailableError(f"BaoStock {operation} failed [{error_code}]: {message}")
 
     @classmethod
@@ -251,7 +292,10 @@ class BaoStockDataProvider(DataProvider):
         failures: list[str] = []
         for attempt in range(1, self._retries + 1):
             try:
+                _pace()
                 return self._result_frame(request(), operation)
+            except DataSourceBlocked:
+                raise
             except Exception as exc:
                 failures.append(f"attempt {attempt}: {type(exc).__name__}: {exc}")
                 if attempt < self._retries:
