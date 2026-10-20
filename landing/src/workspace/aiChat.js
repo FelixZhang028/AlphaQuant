@@ -69,11 +69,73 @@ export function dataSummary(turn) {
   return `用到的数据（${found} 项${missing ? `，${missing} 项没有查到` : ''}）`
 }
 
-// 只记在这台电脑的浏览器里：窗口开着还是收起、正在看哪个对话。读写失败（隐私模式等）时当作没有。
+// ---------- 位置：按钮可以拖动，松手后贴到左边或右边 ----------
+export const MARGIN = 20
+export const DRAG_THRESHOLD = 5
+// 默认在右下角。上下位置按比例记（0 最上面，1 最下面），浏览器窗口变大变小都还在屏幕里。
+export const DEFAULT_DOCK = { side: 'right', ratio: 1 }
+
+const clamp = (value, low, high) => Math.min(Math.max(value, low), Math.max(low, high))
+
+// 只移动一点点算点击，超过几个像素才算拖动，拖完不会误打开窗口。
+export function isDrag(start, point) {
+  return Math.hypot(point.x - start.x, point.y - start.y) > DRAG_THRESHOLD
+}
+// 松手时按钮左上角的位置 -> 贴到离得近的那一边，记下上下的比例。
+export function snapDock(point, viewport, size) {
+  const side = point.x + size.width / 2 < viewport.width / 2 ? 'left' : 'right'
+  const room = viewport.height - size.height - 2 * MARGIN
+  const ratio = room > 0 ? clamp((point.y - MARGIN) / room, 0, 1) : 1
+  return { side, ratio: Math.round(ratio * 10000) / 10000 }
+}
+// 贴边的按钮在屏幕上的位置（左上角）。
+export function dockedBox(dock, viewport, size) {
+  const room = Math.max(0, viewport.height - size.height - 2 * MARGIN)
+  const ratio = Number.isFinite(dock?.ratio) ? clamp(dock.ratio, 0, 1) : 1
+  return { left: dock?.side === 'left' ? MARGIN : Math.max(MARGIN, viewport.width - size.width - MARGIN), top: Math.round(MARGIN + room * ratio) }
+}
+// 任意位置放回屏幕里（拖动中的按钮、拖动过的窗口）。
+export function clampBox(box, viewport, size) {
+  return {
+    left: clamp(box.left, MARGIN, viewport.width - size.width - MARGIN),
+    top: clamp(box.top, MARGIN, viewport.height - size.height - MARGIN),
+  }
+}
+// 窗口跟着按钮：按钮在哪一边就从哪一边弹出，底边和按钮底边对齐，整个窗口留在屏幕里。
+export function panelBox(button, buttonSize, viewport, panelSize) {
+  const left = button.left + buttonSize.width / 2 < viewport.width / 2 ? MARGIN : viewport.width - panelSize.width - MARGIN
+  return clampBox({ left, top: button.top + buttonSize.height - panelSize.height }, viewport, panelSize)
+}
+// 气泡在按钮上面；按钮太靠上时放到下面。
+export function bubbleBelow(button) {
+  return button.top < 140
+}
+
+// ---------- 气泡：像在说话，提醒可以问 AI ----------
+export const BUBBLE_DAILY_MAX = 3
+export function bubbleFor(view, focus) {
+  const question = suggestionsFor(view, focus)[0]
+  if (focus?.symbol) {
+    return { key: `stock:${focus.symbol}`, text: `要不要问问${focus.name || focus.symbol}最近四个季度的利润？`, question }
+  }
+  if (focus?.backtest) return { key: `backtest:${focus.backtest}`, text: '想知道这次回测的回撤发生在什么时候吗？', question }
+  return { key: 'general', text: `有问题可以问我，比如：${question}`, question }
+}
+// 要不要弹出这个气泡：每天最多几次，同一个提示一天只说一次；
+// 用户关掉过或者用过 AI 问答（quiet）以后，只在换到另一只股票、另一次回测时再提示。
+export function nextBubble(memory, bubble, today) {
+  const current = memory?.day === today ? memory : { day: today, count: 0, keys: [], quiet: Boolean(memory?.quiet) }
+  const blocked = current.count >= BUBBLE_DAILY_MAX || current.keys.includes(bubble.key) || (current.quiet && bubble.key === 'general')
+  if (blocked) return { show: false, memory: current }
+  return { show: true, memory: { ...current, count: current.count + 1, keys: [...current.keys, bubble.key] } }
+}
+
+// 只记在这台电脑的浏览器里：窗口开着还是收起、正在看哪个对话、按钮和窗口的位置、气泡说过什么。
+// 读写失败（隐私模式等）时当作没有。
 const STORAGE_KEY = 'fq_ai_chat'
 export function loadChatState() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {} } catch { return {} }
 }
-export function saveChatState(state) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) } catch { /* 存不了也不影响使用 */ }
+export function saveChatState(patch) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loadChatState(), ...patch })) } catch { /* 存不了也不影响使用 */ }
 }

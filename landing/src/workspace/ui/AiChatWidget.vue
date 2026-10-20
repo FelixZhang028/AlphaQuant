@@ -1,11 +1,16 @@
 <script setup>
-// 功能台右下角的 AI 问答：在任何页面都能问，回答只根据平台的本地数据，用到的数据可以展开看。
+// 功能台的 AI 问答：在任何页面都能问，回答只根据平台的本地数据，用到的数据可以展开看。
 // 知道当前页面正在看的股票或回测（chatFocus.js），问“这只”“这次回测”时自动带上，也可以不带。
+// 按钮默认在右下角，可以拖动，松手后贴到左边或右边；窗口从按钮那一边弹出，电脑上按住标题栏也能拖。
+// 按钮旁边偶尔弹出一个气泡提示可以问什么（每天最多几次，关掉或用过以后只在换股票时再说）。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { aiStatus, askAiChat, deleteAiChat, getAiChat, listAiChats } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { overlays, pageFocus } from '../chatFocus.js'
-import { blockLinks, chatContext, codeColumn, dataSummary, focusText, loadChatState, saveChatState, suggestionsFor, usageText } from '../aiChat.js'
+import {
+  DEFAULT_DOCK, MARGIN, blockLinks, bubbleBelow, bubbleFor, chatContext, clampBox, codeColumn, dataSummary, dockedBox, focusText,
+  isDrag, loadChatState, nextBubble, panelBox, saveChatState, snapDock, suggestionsFor, usageText,
+} from '../aiChat.js'
 
 const props = defineProps({
   view: { type: String, default: '' },
@@ -14,8 +19,9 @@ const props = defineProps({
 })
 
 const saved = loadChatState()
+const viewport = ref({ width: window.innerWidth, height: window.innerHeight })
 // 手机上窗口铺满屏幕：刷新页面后不自动打开，免得挡住页面。
-const isPhone = () => window.matchMedia('(max-width: 639px)').matches
+const isPhone = () => viewport.value.width < 640
 const open = ref(Boolean(saved.open) && !isPhone())
 // 上次正在看的对话：第一次打开窗口时接着显示，之后不再自动切换。
 let restoreId = saved.chat || ''
@@ -43,6 +49,142 @@ const usageLine = computed(() => usageText(usage.value))
 // 换了页面或者换了正在看的股票，就重新默认带上。
 watch(() => [props.view, focusLabel.value], () => { includeFocus.value = true })
 watch([open, () => chat.value?.id], () => saveChatState({ open: open.value, chat: chat.value?.id || '' }))
+
+// ---------- 位置 ----------
+const buttonEl = ref(null)
+const buttonSize = ref({ width: 104, height: 48 })
+const dock = ref(saved.dock || DEFAULT_DOCK)
+const dragBox = ref(null)                       // 正在拖动的按钮位置
+const panelMoved = ref(saved.panel || null)     // 电脑上拖动过的窗口位置
+const docked = computed(() => dockedBox(dock.value, viewport.value, buttonSize.value))
+const buttonBox = computed(() => dragBox.value || docked.value)
+const buttonStyle = computed(() => ({ left: `${buttonBox.value.left}px`, top: `${buttonBox.value.top}px` }))
+const panelSize = computed(() => ({ width: Math.min(400, viewport.value.width - 2 * MARGIN), height: Math.min(640, viewport.value.height - 2 * MARGIN) }))
+const panelPos = computed(() => (panelMoved.value
+  ? clampBox(panelMoved.value, viewport.value, panelSize.value)
+  : panelBox(docked.value, buttonSize.value, viewport.value, panelSize.value)))
+const panelStyle = computed(() => (isPhone() ? {} : {
+  left: `${panelPos.value.left}px`, top: `${panelPos.value.top}px`, width: `${panelSize.value.width}px`, height: `${panelSize.value.height}px`,
+}))
+const movedAway = computed(() => Boolean(panelMoved.value) || dock.value.side !== DEFAULT_DOCK.side || dock.value.ratio !== DEFAULT_DOCK.ratio)
+const onLeft = computed(() => buttonBox.value.left + buttonSize.value.width / 2 < viewport.value.width / 2)
+
+function measure() {
+  nextTick(() => {
+    if (buttonEl.value) buttonSize.value = { width: buttonEl.value.offsetWidth, height: buttonEl.value.offsetHeight }
+  })
+}
+function onResize() { viewport.value = { width: window.innerWidth, height: window.innerHeight } }
+
+// 拖动时把指针“抓住”，拖出按钮也不断；个别浏览器不支持或指针已经松开时照样能拖。
+function capture(event) {
+  try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* 不影响拖动 */ }
+}
+// 按住按钮拖动：移动几个像素以内算点击；松手后贴到近的一边，窗口改为跟着按钮。
+let press = null
+let swallowClick = false
+function onButtonDown(event) {
+  if (event.button !== 0) return
+  press = { start: { x: event.clientX, y: event.clientY }, offset: { x: event.clientX - buttonBox.value.left, y: event.clientY - buttonBox.value.top }, dragging: false }
+  capture(event)
+}
+function onButtonMove(event) {
+  if (!press) return
+  if (!press.dragging && !isDrag(press.start, { x: event.clientX, y: event.clientY })) return
+  press.dragging = true
+  bubble.value = null
+  dragBox.value = clampBox({ left: event.clientX - press.offset.x, top: event.clientY - press.offset.y }, viewport.value, buttonSize.value)
+}
+function onButtonUp() {
+  if (press?.dragging && dragBox.value) {
+    dock.value = snapDock({ x: dragBox.value.left, y: dragBox.value.top }, viewport.value, buttonSize.value)
+    panelMoved.value = null
+    saveChatState({ dock: dock.value, panel: null })
+    swallowClick = true
+  }
+  dragBox.value = null
+  press = null
+}
+function onButtonClick() {
+  if (swallowClick) { swallowClick = false; return }
+  toggle(true)
+}
+
+// 电脑上按住标题栏拖动窗口；双击标题栏或点“复位”回到默认位置。
+let panelPress = null
+function onHeaderDown(event) {
+  if (isPhone() || event.button !== 0 || event.target.closest('button')) return
+  panelPress = { x: event.clientX - panelPos.value.left, y: event.clientY - panelPos.value.top }
+  capture(event)
+}
+function onHeaderMove(event) {
+  if (!panelPress) return
+  panelMoved.value = clampBox({ left: event.clientX - panelPress.x, top: event.clientY - panelPress.y }, viewport.value, panelSize.value)
+}
+function onHeaderUp() {
+  if (!panelPress) return
+  panelPress = null
+  saveChatState({ panel: panelMoved.value })
+}
+function onHeaderDouble(event) {
+  if (!event.target.closest('button')) resetPosition()
+}
+function resetPosition() {
+  dock.value = DEFAULT_DOCK
+  panelMoved.value = null
+  saveChatState({ dock: null, panel: null })
+}
+
+// ---------- 气泡 ----------
+const bubble = ref(null)
+const halo = ref(false)
+const bubbleStyle = computed(() => {
+  const box = buttonBox.value
+  const horizontal = onLeft.value ? { left: `${box.left}px` } : { right: `${viewport.value.width - box.left - buttonSize.value.width}px` }
+  const vertical = bubbleBelow(box) ? { top: `${box.top + buttonSize.value.height + 10}px` } : { bottom: `${viewport.value.height - box.top + 10}px` }
+  return { ...horizontal, ...vertical }
+})
+// 气泡的小尖角指向按钮：气泡在上面时尖角朝下，在下面时朝上；左右跟着按钮。
+const tailClass = computed(() => [
+  bubbleBelow(buttonBox.value) ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-b border-r',
+  onLeft.value ? 'left-6' : 'right-6',
+])
+let bubbleTimer = null
+let hideTimer = null
+let haloTimer = null
+function localDay() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+// 换了页面、换了正在看的股票或回测，过几秒再看要不要说话。
+function planBubble() {
+  clearTimeout(bubbleTimer)
+  bubble.value = null
+  bubbleTimer = setTimeout(() => {
+    if (open.value || props.hidden || overlays.drawer || press) return
+    const candidate = bubbleFor(props.view, focus.value)
+    const result = nextBubble(loadChatState().bubble, candidate, localDay())
+    saveChatState({ bubble: result.memory })
+    if (!result.show) return
+    bubble.value = candidate
+    halo.value = true
+    clearTimeout(haloTimer)
+    haloTimer = setTimeout(() => { halo.value = false }, 3000)
+    clearTimeout(hideTimer)
+    hideTimer = setTimeout(() => { bubble.value = null }, 15000)
+  }, 3000)
+}
+watch(() => [props.view, focus.value?.symbol, focus.value?.backtest], planBubble)
+// 用户关掉过气泡、或者用过 AI 问答以后，不再说泛泛的提示。
+function quietBubble() {
+  bubble.value = null
+  saveChatState({ bubble: { ...(loadChatState().bubble || {}), quiet: true } })
+}
+async function acceptBubble() {
+  const question = bubble.value?.question || ''
+  await toggle(true)
+  if (question && !message.value) message.value = question   // 只填好问题，由用户决定要不要发送
+}
 
 async function loadStatus() {
   statusError.value = ''
@@ -116,6 +258,7 @@ function go(link) {
 async function toggle(value = !open.value) {
   open.value = value
   if (value) {
+    quietBubble()
     await Promise.all([loadStatus(), loadChats()])
     if (!chat.value && restoreId) {
       const id = restoreId
@@ -127,35 +270,59 @@ async function toggle(value = !open.value) {
   }
 }
 function onEscape(event) {
-  if (event.key === 'Escape' && open.value) toggle(false)
+  if (event.key !== 'Escape') return
+  if (open.value) toggle(false)
+  else if (bubble.value) quietBubble()
 }
 function onOpenEvent() { toggle(true) }
+watch(buttonEl, measure)
 onMounted(() => {
   window.addEventListener('keydown', onEscape)
   window.addEventListener('fq-open-chat', onOpenEvent)
+  window.addEventListener('resize', onResize)
+  measure()
   if (open.value) toggle(true)
+  else planBubble()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscape)
   window.removeEventListener('fq-open-chat', onOpenEvent)
+  window.removeEventListener('resize', onResize)
+  clearTimeout(bubbleTimer)
+  clearTimeout(hideTimer)
+  clearTimeout(haloTimer)
 })
 </script>
 
 <template>
   <div v-if="!hidden">
-    <!-- 悬浮按钮 -->
-    <button v-if="!open && !overlays.drawer" type="button" aria-label="打开 AI 问答" title="AI 问答"
-      class="fixed bottom-5 right-5 z-[55] flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-xl shadow-indigo-900/40 transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
-      @click="toggle(true)">
-      <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
+    <!-- 气泡：像在说话，点了就打开窗口并填好这个问题 -->
+    <div v-if="bubble && !open && !overlays.drawer" role="status" :style="bubbleStyle"
+      class="fixed z-[55] w-max max-w-[min(280px,calc(100vw-2.5rem))] rounded-2xl border border-indigo-400/30 bg-ink/95 py-2.5 pl-3.5 pr-8 text-sm text-slate-200 shadow-xl shadow-black/40 backdrop-blur">
+      <span class="absolute h-3 w-3 rotate-45 border-indigo-400/30 bg-ink" :class="tailClass" aria-hidden="true" />
+      <button type="button" class="relative text-left leading-relaxed hover:text-white" @click="acceptBubble">{{ bubble.text }}</button>
+      <button type="button" aria-label="关掉提示" class="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-slate-500 hover:bg-white/10 hover:text-white" @click="quietBubble">×</button>
+    </div>
+
+    <!-- 悬浮按钮：按住可以拖动，松手后贴到左边或右边 -->
+    <button v-if="!open && !overlays.drawer" ref="buttonEl" type="button" aria-label="打开 AI 问答（按住可以拖动）" title="AI 问答 · 按住可以拖动"
+      :style="buttonStyle"
+      class="fixed z-[55] flex h-12 touch-none select-none items-center gap-2 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 pl-3.5 pr-4 text-sm font-semibold text-white shadow-xl shadow-indigo-900/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+      :class="dragBox ? 'cursor-grabbing' : 'cursor-pointer transition-[left,top,transform] duration-300 hover:-translate-y-0.5'"
+      @pointerdown="onButtonDown" @pointermove="onButtonMove" @pointerup="onButtonUp" @pointercancel="onButtonUp" @click="onButtonClick">
+      <span v-if="halo" class="fq-halo pointer-events-none absolute inset-0 rounded-full bg-indigo-400/60" aria-hidden="true" />
+      <svg class="relative h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
+      <span class="relative">问 AI</span>
     </button>
 
-    <!-- 对话窗口：电脑上在右下角，手机上铺满屏幕 -->
-    <section v-if="open" role="dialog" aria-label="AI 问答"
-      class="fixed inset-0 z-[56] flex flex-col border-white/10 bg-ink/95 shadow-2xl shadow-black/50 backdrop-blur-xl sm:inset-auto sm:bottom-5 sm:right-5 sm:h-[min(640px,calc(100vh-6rem))] sm:w-[400px] sm:rounded-2xl sm:border">
-      <header class="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+    <!-- 对话窗口：电脑上从按钮那一边弹出，可以拖动标题栏；手机上铺满屏幕 -->
+    <section v-if="open" role="dialog" aria-label="AI 问答" :style="panelStyle"
+      class="fixed inset-0 z-[56] flex flex-col border-white/10 bg-ink/95 shadow-2xl shadow-black/50 backdrop-blur-xl sm:inset-auto sm:rounded-2xl sm:border">
+      <header class="flex select-none items-center gap-2 border-b border-white/10 px-4 py-3 sm:cursor-move" title="按住可以拖动，双击回到默认位置"
+        @pointerdown="onHeaderDown" @pointermove="onHeaderMove" @pointerup="onHeaderUp" @pointercancel="onHeaderUp" @dblclick="onHeaderDouble">
         <h2 class="whitespace-nowrap text-sm font-semibold text-white">AI 问答</h2>
         <div class="ml-auto flex items-center gap-1">
+          <button v-if="movedAway" type="button" title="回到默认位置" class="hidden whitespace-nowrap rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white sm:block" @click="resetPosition">复位</button>
           <button type="button" class="whitespace-nowrap rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-white/5 hover:text-white" @click="newChat">新对话</button>
           <button type="button" class="whitespace-nowrap rounded-lg px-2 py-1 text-xs hover:bg-white/5" :class="showHistory ? 'text-indigo-200' : 'text-slate-400 hover:text-white'"
             :aria-pressed="showHistory" @click="showHistory = !showHistory">以前的对话</button>
