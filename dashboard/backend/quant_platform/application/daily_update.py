@@ -266,16 +266,19 @@ class DailyUpdate:
         return {key: value for key, value in outcome.items() if isinstance(value, (int, float, str))}
 
     def _benchmarks(self, today: date, state: dict[str, Any]) -> dict[str, Any]:
+        # 先查一遍已存的指数行情：不可能的点位（例如下载时把同代码的股票当成了指数）删掉重新下载。
+        repaired = self.service.repair_benchmarks()
+        self.heartbeat()
         stored = self.service.repository.read_table("benchmark_bars")
         symbols = sorted(stored["symbol"].astype(str).unique()) if not stored.empty else ["000300.SH"]
-        errors: list[str] = []
+        errors: list[str] = list(repaired["errors"])
         for symbol in symbols:
             self.heartbeat()
             try:
                 self.service.update_benchmark(today - timedelta(days=30), today, symbol)
             except Exception as exc:  # noqa: BLE001 - 一个指数失败不影响别的指数
                 errors.append(f"{symbol}：{_error(exc)}")
-        return {"symbols": len(symbols), "errors": errors}
+        return {"symbols": len(symbols), "errors": errors, "repaired": repaired["detail"]}
 
     def _index_constituents(self, today: date, state: dict[str, Any]) -> dict[str, Any]:
         outcome = self.service.backfill_index_constituents(HISTORY_START, today, progress=self.progress)

@@ -19,6 +19,7 @@ from quant_platform.application.manifest_summary import add_provider_route_summa
 from quant_platform.core.config import load_app_config, load_yaml, require_mapping
 from quant_platform.core.exceptions import (
     DataCapabilityNotSupported,
+    DataQualityError,
     DataUnavailableError,
 )
 from quant_platform.data.adjustment import (
@@ -29,6 +30,7 @@ from quant_platform.data.adjustment import (
 from quant_platform.data.akshare_backfill import AkShareRangeBackfill
 from quant_platform.data.akshare_catalog import AkShareCatalogIngestor
 from quant_platform.data.baostock_backfill import BaoStockRangeBackfill
+from quant_platform.data.benchmark_quality import describe, fill_first_pre_close, jumps, outliers
 from quant_platform.data.fundamentals_backfill import BaoStockFundamentalsBackfill
 from quant_platform.data.indicator_backfill import BaoStockIndicatorBackfill
 from quant_platform.data.bar_gaps import stocks_missing_history
@@ -434,6 +436,9 @@ class DataCenterService:
                     symbol, start_date, end_date
                 )
                 existing = self.repository.read_table("benchmark_bars")
+                wrong = jumps(fill_first_pre_close(frame, existing))
+                if not wrong.empty:
+                    raise DataQualityError(f"下载到的指数行情有不可能的涨跌，没有保存：{describe(wrong)}")
                 frame = pd.concat([existing, frame], ignore_index=True).drop_duplicates(
                     ["symbol", "trade_date"], keep="last"
                 )
@@ -457,6 +462,28 @@ class DataCenterService:
         except Exception as exc:
             save_manifest(self.repository, manifest.fail(exc))
             raise
+
+    def repair_benchmarks(self) -> dict[str, Any]:
+        """Remove stored index bars that cannot be right and download those weeks again.
+
+        ``removed`` names what was taken out; ``errors`` the indexes whose new download failed
+        (their wrong bars stay removed, so a chart shows a gap instead of a wrong level)."""
+
+        stored = self.repository.read_table("benchmark_bars")
+        wrong = outliers(stored)
+        if wrong.empty:
+            return {"removed": 0, "detail": "", "errors": []}
+        detail = describe(wrong)
+        logger.warning("removing impossible index bars: %s", detail)
+        self.repository.replace_table("benchmark_bars", stored.drop(index=wrong.index))
+        errors = []
+        for symbol, rows in wrong.groupby("symbol"):
+            days = pd.to_datetime(rows["trade_date"])
+            try:
+                self.update_benchmark(days.min().date() - timedelta(days=10), days.max().date() + timedelta(days=10), symbol)
+            except Exception as exc:  # noqa: BLE001 - 一个指数下载失败不影响别的指数
+                errors.append(f"{symbol}：{exc}")
+        return {"removed": int(len(wrong)), "detail": detail, "errors": errors}
 
     @serialized_update
     def update_all(

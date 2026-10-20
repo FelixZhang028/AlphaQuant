@@ -8,7 +8,8 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from quant_platform.core.exceptions import DataUnavailableError
+from quant_platform.core.exceptions import DataQualityError, DataUnavailableError
+from quant_platform.data.benchmark_quality import describe, fill_first_pre_close, jumps
 from quant_platform.data.catalog_normalizers import (
     normalize_akshare_corporate_actions,
     normalize_akshare_index_daily,
@@ -136,11 +137,11 @@ class AkShareCatalogIngestor:
             raise DataUnavailableError(f"AkShare returned no benchmark bars: {symbol}")
         self.raw_repository.save("akshare", "benchmark_daily", end_date, raw, parameters)
         normalized = normalize_akshare_index_daily(raw, symbol)
-        existing = self.market_repository.read_table("benchmark_bars")
-        if not existing.empty:
-            existing["trade_date"] = pd.to_datetime(existing["trade_date"]).dt.normalize()
-            existing_keys = pd.MultiIndex.from_frame(existing[["symbol", "trade_date"]])
-            incoming_keys = pd.MultiIndex.from_frame(normalized[["symbol", "trade_date"]])
-            normalized = normalized.loc[~incoming_keys.isin(existing_keys)]
+        # 新下载的覆盖已有的同一天（以前跳过已有的日期，错了的数据就再也改不掉）。
+        # 第一天的昨收用已存的前一天补上；有一天涨跌超过 20% 的整批不存，免得把错的数据写进去。
+        normalized = fill_first_pre_close(normalized, self.market_repository.read_table("benchmark_bars"))
+        wrong = jumps(normalized)
+        if not wrong.empty:
+            raise DataQualityError(f"下载到的指数行情有不可能的涨跌，没有保存：{describe(wrong)}")
         self.market_repository.save_table("benchmark_bars", normalized)
-        return normalize_akshare_index_daily(raw, symbol)
+        return normalized
