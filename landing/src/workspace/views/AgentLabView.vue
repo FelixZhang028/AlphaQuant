@@ -290,7 +290,7 @@ function moveTone(value) {
       <div v-else-if="step === 'reading'" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4 text-sm text-indigo-100">AI 正在根据下面的数据写解读…</div>
       <div v-else-if="record.ai_note" class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100">{{ record.ai_note }}</div>
 
-      <StockDataReport v-if="facts.report?.version" :report="facts.report" :previous="record.previous" :trade-date="record.trade_date" :refreshing="refreshing" @refresh="refreshRecord" />
+      <StockDataReport v-if="facts.report?.version" :symbol="record.symbol" :report="facts.report" :previous="record.previous" :trade-date="record.trade_date" :refreshing="refreshing" @refresh="refreshRecord" />
 
       <SectionCard :title="facts.report?.version ? '全部数据' : '数据摘要'" hint="全部来自本地数据，只用分析日当天及以前已知的信息；涨跌幅按复权价格计算">
         <details :open="!facts.report?.version">

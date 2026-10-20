@@ -31,6 +31,7 @@ from ..quant.result_adapter import _round
 from ..quant.run_evidence import with_run_evidence, run_directory
 from ..quant.run_comparison import compare_persisted_runs
 from ..quant.market_catalog import LocalMarketCatalog
+from ..quant.stock_financials import stock_financials
 from ..quant import platform_ai
 from ..quant.markets import CURRENT_POOL, market_options, use_market
 from ..quant.run_trades import symbol_trades, traded_symbols
@@ -1447,6 +1448,20 @@ def local_market_detail(symbol: str, user: dict = Depends(get_current_user)):
         return _local_market_catalog().detail(symbol, _load_universe_symbols(user["id"]))
     except KeyError:
         raise HTTPException(status_code=404, detail="本地没有该股票的行情，且该股票不在当前股票池")
+
+
+@router.get("/data-center/market/{symbol}/financials", summary="单只股票的历期财报")
+def local_market_financials(symbol: str, user: dict = Depends(get_current_user)):
+    canonical = to_canonical(symbol)
+    catalog = _local_market_catalog()
+    try:
+        reports = market_repository().get_fundamentals([canonical])
+    except Exception:
+        raise HTTPException(status_code=503, detail="财务数据正在更新或暂时无法读取，请稍后再试")
+    if reports.empty and canonical not in catalog.stats and canonical not in catalog.names:
+        raise HTTPException(status_code=404, detail="平台上没有这只股票")
+    return {"symbol": to_bare(canonical), "name": catalog.names.get(canonical, "名称待补充"),
+            **stock_financials(reports, today=daily_schedule.china_now().date())}
 
 
 @router.get("/data-center/market/{symbol}/bars", summary="单只股票日K线（前复权或不复权）")
