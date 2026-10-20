@@ -7,6 +7,7 @@ import JevStockReport from '../ui/JevStockReport.vue'
 import StockDataReport from '../ui/StockDataReport.vue'
 import { openResearch } from '../researchNavigation.js'
 import { setFocus } from '../chatFocus.js'
+import { encodePreset, statesFromFacts } from '../eventStudy.js'
 import {
   evidenceText, factGroups, laterText, modelText, pickSuggestion, pointSections, remainingText, signedPercent, TILT_NOTE, tiltLabel, tiltTone,
 } from '../aiPresentation.js'
@@ -44,6 +45,9 @@ async function refreshRecord() {
 
 const facts = computed(() => record.value?.facts || null)
 const groups = computed(() => factGroups(facts.value?.facts))
+// 这只股票现在的几个状态：每个都可以去事件研究里看全市场历史上的情况（这里不显示任何“之后涨跌”的数字）。
+const states = computed(() => statesFromFacts(facts.value?.facts))
+function studyState(state) { openResearch('event-study', { preset: encodePreset(state.conditions) }) }
 const brief = computed(() => record.value?.brief || null)
 const odds = computed(() => record.value?.odds || brief.value?.odds || null)
 const busy = computed(() => step.value !== '' || upgradingReport.value)
@@ -307,6 +311,14 @@ function moveTone(value) {
       <div v-else-if="record.ai_note" class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100">{{ record.ai_note }}</div>
 
       <StockDataReport v-if="facts.report?.version" :symbol="record.symbol" :report="facts.report" :previous="record.previous" :trade-date="record.trade_date" :refreshing="refreshing" @refresh="refreshRecord" />
+
+      <SectionCard v-if="states.length" title="这只股票现在的状态" hint="点一个状态，在事件研究里看全市场历史上出现这种情况以后通常怎么样；那是很多股票的统计，不是对这只股票的预测">
+        <div class="flex flex-wrap gap-2">
+          <button v-for="state in states" :key="state.text" type="button"
+            class="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 transition hover:border-indigo-400/40 hover:text-white"
+            @click="studyState(state)">{{ state.text }} <span class="text-xs text-indigo-300">看历史 →</span></button>
+        </div>
+      </SectionCard>
 
       <SectionCard :title="facts.report?.version ? '全部数据' : '数据摘要'" hint="全部来自本地数据，只用分析日当天及以前已知的信息；涨跌幅按复权价格计算">
         <details :open="!facts.report?.version">
