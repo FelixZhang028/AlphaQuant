@@ -221,6 +221,10 @@ export async function exportMyData() {
   return { blob: await res.blob(), name }
 }
 
+// 功能台首页：市场概况、我的股票池、最近的研究、新手任务、行业涨跌、数据日历，一个请求
+export function workspaceHome() {
+  return request('/api/v1/home', { auth: true })
+}
 // ---- AI 研究员 ----
 // AI 问答（右下角悬浮窗）：context 是正在看的页面、股票和回测。
 export function askAiChat({ message, chatId = '', context = {} }) {

@@ -44,6 +44,7 @@ METRICS: dict[str, tuple[str, Callable[[float], str], bool]] = {
     "pe_ttm": ("市盈率（TTM）", lambda x: f"{x:.1f}", False),
     "pb_mrq": ("市净率", lambda x: f"{x:.2f}", False),
     "ps_ttm": ("市销率（TTM）", lambda x: f"{x:.2f}", False),
+    "ret_1d": ("当日涨跌幅", _signed, False),
     "turnover_rate": ("当日换手率", lambda x: f"{x:.2f}%", False),
     "amount_20d": ("近 20 日平均成交额", _yi, False),
     "ret_20d": ("近 20 个交易日涨跌幅", _signed, False),
@@ -117,6 +118,15 @@ def build_snapshot(repository: Any, names: dict[str, str]) -> tuple[pd.Timestamp
     table["name"] = [names.get(symbol) or names.get(symbol.split(".")[0]) or symbol for symbol in symbols]
     table["close"] = pd.to_numeric(today["raw_close"], errors="coerce")
     table["is_st"] = today["is_st"].astype("boolean").fillna(False).astype(bool) if "is_st" in today else False
+    table["is_suspended"] = today["is_suspended"].astype("boolean").fillna(False).astype(bool) if "is_suspended" in today else False
+    # 当天涨跌按交易所的昨收算（除权除息日也对）；涨停跌停按当天的涨跌停价。
+    close = table["close"]
+    pre = pd.to_numeric(today["pre_close"], errors="coerce") if "pre_close" in today else pd.Series(float("nan"), index=symbols)
+    table["ret_1d"] = (close / pre - 1).where(pre > 0)
+    table["amount_today"] = pd.to_numeric(today["amount"], errors="coerce") if "amount" in today else float("nan")
+    for column, flag in (("up_limit", "at_up_limit"), ("down_limit", "at_down_limit")):
+        limit = pd.to_numeric(today[column], errors="coerce") if column in today else pd.Series(float("nan"), index=symbols)
+        table[flag] = ((close - limit).abs() < 0.005) & limit.notna() & ~table["is_suspended"]
     for days in (20, 60):
         table[f"ret_{days}d"] = (prices.iloc[-1] / prices.iloc[-days - 1] - 1).reindex(symbols) if len(prices) > days else float("nan")
     table["amount_20d"] = amounts.iloc[-20:].mean().where(amounts.iloc[-20:].count() >= 10).reindex(symbols)
