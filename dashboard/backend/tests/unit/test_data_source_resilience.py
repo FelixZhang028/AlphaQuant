@@ -160,3 +160,32 @@ def test_the_outcome_says_what_actually_happened():
                                    "created_at": at(TODAY, 9).isoformat(), "updated_at": at(TODAY, 9, 20).isoformat()}],
                                  now=at(TODAY, 10))["last"]
     assert last["data_date"] == "2026-10-15" and last["caught_up"] == "2026-10-15" and last["outcome"].startswith("当天的行情还没有发布，先补到")
+
+
+def test_a_blocked_attempt_ends_the_job_instead_of_retrying(tmp_path, monkeypatch):
+    # 2026-10-20：被拉黑以后，任务每 60 秒重试一次、每次都重新登录，拉黑一直解除不了。
+    from quant_platform.application import data_jobs
+
+    def blocked(folder, job, watchdog):
+        raise DataSourceBlocked("黑名单用户")
+
+    monkeypatch.setattr(data_jobs, "_attempt", blocked)
+    assert data_jobs.attempt(tmp_path, {}) == data_jobs.BLOCKED_EXIT
+
+    folder = tmp_path / "jobs" / "20261020212810-aaaa"
+    folder.mkdir(parents=True)
+    data_jobs.write_json(folder / "job.json", {"id": folder.name, "status": "STARTING", "cwd": str(tmp_path)})
+    started = []
+
+    class Child:
+        pid = 1
+
+        def wait(self):
+            started.append(1)
+            return data_jobs.BLOCKED_EXIT
+
+    monkeypatch.setattr(data_jobs.subprocess, "Popen", lambda *args, **kwargs: Child())
+    monkeypatch.setattr(data_jobs.time, "sleep", lambda seconds: None)
+    data_jobs.supervise(folder)
+    job = data_jobs.read_json(folder / "job.json")
+    assert len(started) == 1 and job["status"] == "FAILED" and job["blocked"] is True
