@@ -28,6 +28,8 @@ from quant_platform.data.normalizers import CANONICAL_BAR_COLUMNS
 
 _TABLE_KEYS: dict[str, list[str]] = {
     "daily_bars": ["symbol", "trade_date"],
+    # 指数行情：同一个指数同一天只留一条，新下载的覆盖旧的（以前没有这个键，错了的数据改不掉）。
+    "benchmark_bars": ["symbol", "trade_date"],
     INDICATOR_TABLE: ["symbol", "trade_date"],
     FUNDAMENTALS_TABLE: ["symbol", "stat_date"],
     "trade_calendar": ["cal_date"],
@@ -97,6 +99,15 @@ class ParquetMarketDataRepository(MarketDataRepository):
             self._save_partitioned(name, frame)
         else:
             self._save_flat(name, frame)
+
+    def replace_table(self, name: str, frame: pd.DataFrame) -> None:
+        """Write ``frame`` as the whole of a single-file table, so rows left out are removed.
+
+        For repairs that must delete rows (``save_table`` only adds and replaces)."""
+
+        if name in _PARTITIONED_TABLES:
+            raise ValueError(f"{name} 按年份分区保存，不能整张替换")
+        write_parquet_atomic(self._dedupe(frame.copy(), _TABLE_KEYS.get(name)), self._flat_path(name))
 
     def read_table(self, name: str) -> pd.DataFrame:
         """Read a canonical table or return an empty frame if absent."""

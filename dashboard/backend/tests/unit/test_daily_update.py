@@ -77,6 +77,10 @@ class Service:
         self.calls.append("actions")
         return {"changes": 2, "added": 1, "failed": {}}
 
+    def repair_benchmarks(self):
+        self.calls.append("repair_benchmarks")
+        return {"removed": 0, "detail": "", "errors": []}
+
     def update_benchmark(self, start, end, symbol):
         self.calls.append(f"benchmark:{symbol}")
         if symbol in self.failing_benchmarks:
@@ -115,7 +119,7 @@ def test_a_trading_day_updates_every_listed_stock_and_the_rest_in_order(tmp_path
     assert result["market"] == "updated" and result["errors"] == {}
     # 退市已久的、还没上市的、北交所的（BaoStock 没有）不下载；新上市的从头下载全部历史，其余的从各自最后一根 K 线接着下载。
     assert service.fetched == [(date(2015, 1, 5), ["E.SZ"]), (TODAY, ["A.SZ", "B.SZ"]), (TODAY, ["C.SZ", "D.SZ"])]
-    assert service.calls == ["security_master", "bars", "bars", "bars", "actions", "benchmark:000300.SH", "benchmark:000905.SH",
+    assert service.calls == ["security_master", "bars", "bars", "bars", "actions", "repair_benchmarks", "benchmark:000300.SH", "benchmark:000905.SH",
                              "index", "industry", "universe", "settlements"]
     assert len(locked) == 3                                  # 每批下载都和手动更新互斥
     assert len(beats) >= 5                                   # 每只股票都报一次平安
@@ -131,7 +135,7 @@ def test_a_failed_step_is_reported_the_rest_still_run_and_a_rerun_only_redoes_it
     service.calls.clear()
     service.failing_benchmarks.clear()
     second = DailyUpdate(service, state).run(TODAY)
-    assert second["errors"] == {} and service.calls == ["benchmark:000300.SH", "benchmark:000905.SH"]
+    assert second["errors"] == {} and service.calls == ["repair_benchmarks", "benchmark:000300.SH", "benchmark:000905.SH"]
 
 
 def test_a_rerun_skips_the_bar_batches_already_saved(tmp_path):
