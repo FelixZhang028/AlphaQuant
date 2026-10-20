@@ -80,3 +80,15 @@
 .workspace-shell table :is(th, td):last-child {
   padding-right: 0;
 }
+
+/* AI 问答按钮在“说话”：外圈的光晕扩散两次就停；系统设置了减少动画时不动。 */
+@keyframes fq-halo {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.fq-halo {
+  animation: fq-halo 1.4s ease-out 2 forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fq-halo { animation: none; opacity: 0; }
+}

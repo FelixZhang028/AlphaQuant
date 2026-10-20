@@ -4,6 +4,7 @@ import { listAuditRuns, localMarketList, runSymbolTrades, runTradedSymbols } fro
 import { TRADE_COLORS } from '../klineOverlays.js'
 import { formatVolume, quoteSummary } from '../klinePresentation.js'
 import { openResearch } from '../researchNavigation.js'
+import { setFocus } from '../chatFocus.js'
 import DataTable from '../ui/DataTable.vue'
 import EmptyState from '../ui/EmptyState.vue'
 import FormField from '../ui/FormField.vue'
@@ -209,6 +210,7 @@ watch(() => [props.routeContext.symbol, props.routeContext.run], ([nextSymbol, n
   if (nextRun && runReference(nextRun) !== run.value) run.value = runReference(nextRun)
 })
 watch(symbol, () => { data.value = null })
+watch(() => [symbol.value, data.value?.name], ([code, name]) => setFocus('market-chart', code ? { symbol: code, name } : null), { immediate: true })
 watch(run, loadTraded, { immediate: true })
 watch([run, symbol], loadTrades, { immediate: true })
 onActivated(() => {

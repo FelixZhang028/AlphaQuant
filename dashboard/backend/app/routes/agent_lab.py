@@ -5,6 +5,9 @@
 根据保存的这些数据写出倾向和要点，检查不通过的要点会被去掉。每次结果都保存，可以打开、
 继续追问，并对照之后实际的涨跌。
 
+AI 问答（功能台右下角的悬浮窗）不限于一只股票：模型先从固定的查询清单里选要查的本地数据，
+后端查好以后，模型只根据查到的数据回答；用到的数据和回答一起保存，页面上可以展开看。
+
 研究经验（先验知识）按用户隔离，存放于 data/runtime/agent_lab/user_{id}/。
 """
 
@@ -43,6 +46,7 @@ def _sanitize_detail(exc: Exception) -> str:
 
 from quant_platform.agents_bridge.llm_settings import LLMSettingsStore
 from quant_platform.agents_bridge.prior_knowledge import PriorKnowledgeStore
+from quant_platform.ai_research import chat as ai_chat_text
 from quant_platform.ai_research.brief import (
     BriefFormatError,
     ask_messages,
@@ -60,7 +64,7 @@ from quant_platform.ai_research.report import compare_facts, fill_pending_factor
 
 from ..database import get_conn
 from ..quant import factor_profiles  # noqa: F401 - 设置因子值的存放位置
-from ..quant import platform_ai
+from ..quant import ai_chat, platform_ai
 from ..quant.compute import computing
 from ..quant.runtime import BACKEND_ROOT, market_repository, security_names
 from ..quant.symbols import to_bare, to_canonical
@@ -126,7 +130,7 @@ def agent_status(user: dict = Depends(get_current_user)):
     return {
         "ai": {"available": model is not None, "model": model.label if model else None},
         "decision": {"available": decision is not None, "model": decision.model if decision else None},
-        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "decision")},
+        "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "decision", "chat")},
         "experience_count": len(_prior_store(user["id"]).list()),
         "latest_date": bounds[1].isoformat() if bounds else None,
     }
@@ -428,3 +432,101 @@ def brief_ask(brief_id: str, body: QuestionIn, user: dict = Depends(get_current_
         conn.execute("UPDATE stock_briefs SET questions = ? WHERE id = ? AND user_id = ?",
                      (json.dumps(questions, ensure_ascii=False), brief_id, user["id"]))
     return {"questions": questions, "usage": platform_ai.usage(user, "question")}
+
+
+# --------------------------------------------------------------------------- #
+# AI 问答
+# --------------------------------------------------------------------------- #
+
+# 一个对话最多这么多轮；再问就请用户新开一个，免得越来越慢、越来越贵。
+MAX_CHAT_TURNS = 30
+CHAT_LIST_LIMIT = 30
+CHAT_MODEL_NOTE = "平台还没有配置文本模型，暂时不能使用 AI 问答。"
+
+
+class ChatIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=500)
+    chat_id: str = Field("", max_length=32)
+    # 用户正在看的内容：页面名称、股票代码、回测编号（都可以没有）。
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+def _chat(row) -> dict[str, Any]:
+    return {"id": row["id"], "title": row["title"], "turns": json.loads(row["turns"] or "[]"),
+            "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+
+def _load_chat(chat_id: str, user: dict):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM ai_chats WHERE id = ? AND user_id = ?", (chat_id, user["id"])).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="没有找到这个对话")
+    return row
+
+
+@router.get("/chats", summary="AI 问答：以前的对话")
+def chat_list(user: dict = Depends(get_current_user)):
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id, title, turns, updated_at FROM ai_chats WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
+                            (user["id"], CHAT_LIST_LIMIT)).fetchall()
+    return {"items": [{"id": row["id"], "title": row["title"], "updated_at": row["updated_at"],
+                       "turns": len(json.loads(row["turns"] or "[]"))} for row in rows]}
+
+
+@router.get("/chats/{chat_id}", summary="AI 问答：打开一个对话")
+def chat_get(chat_id: str, user: dict = Depends(get_current_user)):
+    return _chat(_load_chat(chat_id, user))
+
+
+@router.delete("/chats/{chat_id}", status_code=status.HTTP_204_NO_CONTENT, summary="AI 问答：删除一个对话")
+def chat_delete(chat_id: str, user: dict = Depends(get_current_user)):
+    _load_chat(chat_id, user)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM ai_chats WHERE id = ? AND user_id = ?", (chat_id, user["id"]))
+
+
+@router.post("/chats", summary="AI 问答：提一个问题（先选要查的本地数据，再根据查到的数据回答）")
+def chat_ask(body: ChatIn, user: dict = Depends(get_current_user)):
+    question = body.message.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="请输入问题")
+    model = platform_ai.platform_model()
+    if model is None:
+        raise HTTPException(status_code=422, detail=CHAT_MODEL_NOTE)
+    turns: list[dict[str, Any]] = []
+    if body.chat_id:
+        turns = _chat(_load_chat(body.chat_id, user))["turns"]
+        if len(turns) >= MAX_CHAT_TURNS:
+            raise HTTPException(status_code=422, detail=f"这个对话已经有 {MAX_CHAT_TURNS} 轮了，请新开一个对话再问。")
+    context = ai_chat.describe_context(body.context, user)
+    context_line = ai_chat_text.context_text(context)
+    client = platform_ai.model_client(model)
+    today = datetime.now(platform_ai.CHINA).date()
+    try:
+        with platform_ai.quota_call(user, "chat"):
+            plan = client.chat(ai_chat_text.plan_messages(question, turns, context_line), temperature=0, max_tokens=400).text
+            lookups = ai_chat_text.parse_plan(plan)
+            with computing(user):
+                blocks = ai_chat.run_lookups(lookups, user, today)
+            answer = client.chat(ai_chat_text.answer_messages(question, turns, blocks, context_line),
+                                 temperature=0.3, max_tokens=800).text
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI chat failed: %s", exc)
+        raise HTTPException(status_code=422, detail=f"回答没有完成（{_ai_failure(exc)}），这次不计入次数。") from exc
+    turn = {"question": question, "answer": ai_chat_text.checked_answer(answer), "data": blocks,
+            "context": context, "model": model.label, "at": _now()}
+    now = _now()
+    with get_conn() as conn:
+        if body.chat_id:
+            conn.execute("UPDATE ai_chats SET turns = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                         (json.dumps([*turns, turn], ensure_ascii=False), now, body.chat_id, user["id"]))
+            chat_id = body.chat_id
+        else:
+            chat_id = secrets.token_hex(8)
+            conn.execute("INSERT INTO ai_chats (id, user_id, title, turns, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                         (chat_id, user["id"], question[:40], json.dumps([turn], ensure_ascii=False), now, now))
+    return {"chat": _chat(_load_chat(chat_id, user)), "usage": platform_ai.usage(user, "chat")}

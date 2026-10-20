@@ -3,6 +3,7 @@ import { computed, onActivated, reactive, ref, watch } from 'vue'
 import { getBacktestBenchmark, getBacktestCatalog, getBacktest, getPreferences, getRunAudit, listPackages, submitBacktest } from '../../api.js'
 import { REBALANCE_OPTIONS, backtestDefaults } from '../preferences.js'
 import { openResearch } from '../researchNavigation.js'
+import { setFocus } from '../chatFocus.js'
 import { backtestId, runTime, strategyName, validityLabel } from '../runRecords.js'
 import BacktestAiReview from '../ui/BacktestAiReview.vue'
 import RiskSettings from '../ui/RiskSettings.vue'
@@ -292,6 +293,7 @@ watch(() => props.routeContext.strategy, (value) => {
   chooseStrategy()
 })
 watch(() => props.routeContext.run, loadRouteRun)
+watch(selectedId, (id) => setFocus('backtest-review', id ? { backtest: id } : null), { immediate: true })
 // 第一次打开时，表单用设置页里的研究默认值；之后保留这次修改过的值。所选策略自带持仓数和调仓频率时以策略为准。
 let preferencesApplied = false
 async function applyPreferences() {

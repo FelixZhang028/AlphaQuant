@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import OnboardingTour from './OnboardingTour.vue'
 import ThemeToggle from './ThemeToggle.vue'
+import AiChatWidget from '../workspace/ui/AiChatWidget.vue'
 import { adminViews, allItems, contentLayout, itemLabel, navigationItem, overviewKey, resolveView, viewFor, views, visibleGroups } from '../workspace/modules.js'
 import { getLocalUser, logout, restoreSession } from '../api.js'
 import '../workspace/workspace.css'
@@ -300,5 +301,7 @@ function doLogout() {
     <div v-if="sidebarOpen && !loading" class="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false" />
 
     <OnboardingTour v-if="tourOpen && !loading" :user="user" @close="closeTour" />
+    <!-- 右下角的 AI 问答：每个页面都能用；新手引导出现时先隐藏 -->
+    <AiChatWidget v-if="user && !loading" :view="activeKey" :label="itemLabel(activeKey)" :hidden="tourOpen" />
   </div>
 </template>

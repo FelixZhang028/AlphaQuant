@@ -37,7 +37,7 @@ v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。�
 
 | 工作区 | 功能 |
 | --- | --- |
-| AI 智能投研 | AI研究员：用本地数据整理一只股票的走势、估值、财报和风险，再由平台的 AI 模型只根据这些数据写解读；保存每次分析，并对照之后的实际涨跌 |
+| AI 智能投研 | AI研究员：用本地数据整理一只股票的走势、估值、财报和风险，再由平台的 AI 模型只根据这些数据写解读；保存每次分析，并对照之后的实际涨跌。AI 问答（功能台右下角的悬浮窗）：可以跨股票提问（排序、比较、财报、自己的回测、因子说明、平台数据），模型先从固定的查询清单里选要查的本地数据，再只根据查到的数据回答，用到的数据可以展开看 |
 | 我的策略 | 规则策略列表；新建规则策略可以从模板开始、用一句话描述或自己填表单，不用写代码 |
 | 因子研究 | 因子库、单因子评估、组合研究；新建因子与高级合成评估保留页内入口 |
 | 回测与验证 | 策略回测、参数优化、样本外验证；风险设置在配置区、审计附于结果、成交核查收入高级工具。优化与滚动验证目前为模拟预览 |
@@ -93,7 +93,7 @@ npm run dev -- --host 127.0.0.1
 | `OPENROUTER_API_KEY` | 平台统一提供的 AI 模型（AI研究员、用一句话生成规则），也用于 Jev 决策服务；用户不需要自己填写密钥 |
 | `TYPESAFE_API_KEY` / `JEV_API_KEY` | TypeSafe 官方 Jev 密钥（前者优先）；配置后 Jev 独立于聊天模型，默认调用官方 `/v1/systemone`，未配置时使用 OpenRouter |
 | `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
-| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）次数（默认 5 / 20 / 10 / 10 / 10），管理员不限 |
+| `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` / `_CHATS` | 可选：每人每天的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）、AI 问答次数（默认 5 / 20 / 10 / 10 / 10 / 20），管理员不限。AI 问答每问一次算一次（内部调用两次模型） |
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_FUNDAMENTALS_UPDATE` | 财报季自动更新财务数据（默认开启）：1～4 月、7～8 月、10 月以及 5、9、11 月第一周的每个周六 10:00 以后，下载最近 5 个报告期里还没有的财报；填 `off` 关闭，管理员仍可以在管理后台手动更新 |

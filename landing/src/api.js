@@ -222,6 +222,19 @@ export async function exportMyData() {
 }
 
 // ---- AI 研究员 ----
+// AI 问答（右下角悬浮窗）：context 是正在看的页面、股票和回测。
+export function askAiChat({ message, chatId = '', context = {} }) {
+  return request('/api/v1/agent-lab/chats', { method: 'POST', body: { message, chat_id: chatId, context }, auth: true })
+}
+export function listAiChats() {
+  return request('/api/v1/agent-lab/chats', { auth: true })
+}
+export function getAiChat(id) {
+  return request(`/api/v1/agent-lab/chats/${encodeURIComponent(id)}`, { auth: true })
+}
+export function deleteAiChat(id) {
+  return request(`/api/v1/agent-lab/chats/${encodeURIComponent(id)}`, { method: 'DELETE', auth: true })
+}
 export function aiStatus() {
   return request('/api/v1/agent-lab/status', { auth: true })
 }

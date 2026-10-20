@@ -59,7 +59,7 @@ async function toggle(user) {
         <option v-for="o in orders" :key="o.value" :value="o.value" class="bg-ink">{{ o.label }}</option>
       </select>
     </div>
-    <p class="mt-2 text-xs text-slate-500">AI 次数包括 AI 解读、追问、生成规则、AI 评估和个股判断；某个人用得特别多时，可以先停用，查清楚再恢复。</p>
+    <p class="mt-2 text-xs text-slate-500">AI 次数包括 AI 解读、追问、AI 问答、生成规则、AI 评估和个股判断；某个人用得特别多时，可以先停用，查清楚再恢复。</p>
     <div class="mt-4 overflow-x-auto">
       <table class="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_td]:px-3 [&_th]:px-3 [&_td:first-child]:pl-0 [&_th:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th:last-child]:pr-0 w-full min-w-[900px] text-left text-sm">
         <thead>
