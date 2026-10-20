@@ -119,3 +119,28 @@ export function systemStatus() {
 export function backupNow() {
   return request('/api/v1/admin/backup', { method: 'POST', body: {}, auth: true })
 }
+
+// 系统设置：保存要再输一次管理员密码；测试可以用还没保存的值
+export function adminSettings() {
+  return request('/api/v1/admin/settings', { auth: true })
+}
+export function saveAdminSettings({ password, values = {}, clear = [] }) {
+  return request('/api/v1/admin/settings', { method: 'PUT', body: { password, values, clear }, auth: true })
+}
+export function testAdminSettings(target, values = {}) {
+  return request('/api/v1/admin/settings/test', { method: 'POST', body: { target, values }, auth: true })
+}
+export function weknoraSettings() {
+  return request('/api/v1/weknora/settings', { auth: true })
+}
+export function saveWeknoraSettings(payload) {
+  return request('/api/v1/weknora/settings', { method: 'POST', body: payload, auth: true })
+}
+
+// 操作记录、AI 用量
+export function adminAudit(kind = '', limit = 100) {
+  return request(`/api/v1/admin/audit?${new URLSearchParams({ kind, limit })}`, { auth: true })
+}
+export function adminAiUsage(days = 30) {
+  return request(`/api/v1/admin/ai-usage?${new URLSearchParams({ days })}`, { auth: true })
+}

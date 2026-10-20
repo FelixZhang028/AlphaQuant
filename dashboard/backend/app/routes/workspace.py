@@ -46,7 +46,7 @@ from ..quant.research_runs import (
     tunable_parameters,
     walk_forward_range,
 )
-from ..quant import daily_schedule
+from ..quant import audit, daily_schedule
 from ..quant.compute import cached, computing
 from ..quant.runtime import (
     BACKEND_ROOT,
@@ -1655,6 +1655,8 @@ def data_jobs_start(body: dict[str, Any], user: dict = Depends(require_admin)):
         job = _data_jobs().start(start, end, datasets, symbols=symbols)
     except (ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
+    audit.record(user, "data.start", f"启动了数据下载：{'、'.join(map(str, datasets))}，{start} 至 {end}"
+                 + ("（只下载股票池）" if symbols else ""), job=job.get("id"), datasets=datasets)
     job["status_label"] = _DATA_JOB_STATUS_LABELS.get(job.get("status", ""), job.get("status", ""))
     return job
 
@@ -1665,6 +1667,7 @@ def data_jobs_stop(job_id: str, user: dict = Depends(require_admin)):
         _data_jobs().stop(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=_sanitize_detail(exc))
+    audit.record(user, "data.stop", f"停止了数据任务 {job_id}", job=job_id)
     return {"stopped": job_id}
 
 
@@ -1700,6 +1703,7 @@ def daily_update_run(user: dict = Depends(require_admin)):
         job = _data_jobs().start(today, today, [daily_schedule.DATASET], trigger="admin")
     except (ValueError, RuntimeError, OSError) as exc:
         raise HTTPException(status_code=409, detail=_sanitize_detail(exc))
+    audit.record(user, "data.daily", f"手动运行了 {today} 的每日更新", job=job.get("id"))
     return job
 
 
@@ -2261,6 +2265,7 @@ def weknora_settings_save(body: WeKnoraSettingsIn, user: dict = Depends(require_
     if not base_url:
         raise HTTPException(status_code=422, detail="WeKnora 服务地址不能为空")
     store.save("weknora", base_url=base_url, api_key=api_key)
+    audit.record(user, "settings.weknora", f"修改了知识库 WeKnora 的配置（地址 {base_url}）", base_url=base_url)
     return {"ok": True, "message": "WeKnora 配置已保存，对整个平台生效"}
 
 

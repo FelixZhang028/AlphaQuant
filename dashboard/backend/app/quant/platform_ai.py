@@ -11,6 +11,7 @@ only when the model answered.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -54,33 +55,66 @@ class QuotaExceeded(RuntimeError):
     """The user has used up today's calls of one kind."""
 
 
-def platform_model() -> PlatformModel | None:
-    key = os.getenv("FELLOWQUANT_AI_API_KEY", "").strip() or os.getenv("OPENROUTER_API_KEY", "").strip()
+def _value(config: Mapping[str, str] | None, name: str) -> str:
+    """A setting from ``config`` (the admin page's unsaved values when testing) or the environment."""
+
+    return str((os.environ if config is None else config).get(name, "") or "").strip()
+
+
+def platform_model(config: Mapping[str, str] | None = None) -> PlatformModel | None:
+    key = _value(config, "FELLOWQUANT_AI_API_KEY") or _value(config, "OPENROUTER_API_KEY")
     if not key:
         return None
     return PlatformModel(
-        base_url=os.getenv("FELLOWQUANT_AI_BASE_URL", "").strip() or DEFAULT_BASE_URL,
-        model=os.getenv("FELLOWQUANT_AI_MODEL", "").strip() or DEFAULT_MODEL,
+        base_url=_value(config, "FELLOWQUANT_AI_BASE_URL") or DEFAULT_BASE_URL,
+        model=_value(config, "FELLOWQUANT_AI_MODEL") or DEFAULT_MODEL,
         api_key=key,
     )
 
 
-def model_client(model: PlatformModel) -> OpenAICompatClient:
-    return OpenAICompatClient(model=model.model, base_url=model.base_url, api_key=model.api_key)
+class CountingClient:
+    """The text-model client, recording each call's tokens per day (when the service reports them)."""
+
+    def __init__(self, client: OpenAICompatClient) -> None:
+        self._client = client
+
+    def chat(self, *args, **kwargs):
+        response = self._client.chat(*args, **kwargs)
+        record_tokens(response.prompt_tokens, response.completion_tokens)
+        return response
+
+    def __getattr__(self, name: str):
+        return getattr(self._client, name)
 
 
-def decision_client() -> JevClient | None:
+def model_client(model: PlatformModel) -> CountingClient:
+    return CountingClient(OpenAICompatClient(model=model.model, base_url=model.base_url, api_key=model.api_key))
+
+
+def record_tokens(prompt: int, completion: int) -> None:
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO ai_tokens (day, calls, prompt, completion) VALUES (?, 1, ?, ?) ON CONFLICT(day) DO UPDATE SET "
+                "calls = calls + 1, prompt = prompt + excluded.prompt, completion = completion + excluded.completion",
+                (_today(), max(0, int(prompt or 0)), max(0, int(completion or 0))),
+            )
+    except Exception:  # noqa: BLE001 - 记不下用量也不能影响回答
+        pass
+
+
+def decision_client(config: Mapping[str, str] | None = None) -> JevClient | None:
     """Select the endpoint and model for the configured key's provider."""
 
-    key = os.getenv("TYPESAFE_API_KEY", "").strip() or os.getenv("JEV_API_KEY", "").strip()
+    key = _value(config, "TYPESAFE_API_KEY") or _value(config, "JEV_API_KEY")
     url, model = TYPESAFE_DECISIONS_URL, DEFAULT_JEV_MODEL
     if not key:
-        key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        key = _value(config, "OPENROUTER_API_KEY")
         url, model = OPENROUTER_DECISIONS_URL, OPENROUTER_MODEL
     if not key:
         return None
-    return JevClient(api_key=key, base_url=os.getenv("FELLOWQUANT_JEV_URL", "").strip() or url,
-                     model=os.getenv("FELLOWQUANT_JEV_MODEL", "").strip() or model)
+    return JevClient(api_key=key, base_url=_value(config, "FELLOWQUANT_JEV_URL") or url,
+                     model=_value(config, "FELLOWQUANT_JEV_MODEL") or model)
 
 
 def _today() -> str:
@@ -134,6 +168,36 @@ def record_use(user: dict, kind: str) -> None:
             "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
             (user["id"], _today(), kind),
         )
+
+
+def usage_history(days: int = 30) -> dict:
+    """The last ``days`` days (China time), oldest first: calls per kind and tokens per day, and the
+    heaviest users over the period. Only what was recorded: tokens are there when the service reports them."""
+
+    end = datetime.now(CHINA).date()
+    start = end - timedelta(days=days - 1)
+    span = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+    with get_conn() as conn:
+        counts = conn.execute("SELECT day, kind, SUM(count) AS n FROM ai_usage WHERE day >= ? GROUP BY day, kind",
+                              (start.isoformat(),)).fetchall()
+        tokens = {row["day"]: row for row in conn.execute("SELECT * FROM ai_tokens WHERE day >= ?", (start.isoformat(),)).fetchall()}
+        top = conn.execute(
+            "SELECT u.id, u.name, u.email, u.is_admin, SUM(a.count) AS n FROM ai_usage a JOIN users u ON u.id = a.user_id "
+            "WHERE a.day >= ? GROUP BY u.id ORDER BY n DESC LIMIT 10", (start.isoformat(),)).fetchall()
+    by_day = {day: {kind: 0 for kind in LIMITS} for day in span}
+    for row in counts:
+        if row["day"] in by_day and row["kind"] in LIMITS:
+            by_day[row["day"]][row["kind"]] = int(row["n"] or 0)
+    rows = []
+    for day in span:
+        token = tokens.get(day)
+        rows.append({"day": day, "kinds": by_day[day], "total": sum(by_day[day].values()),
+                     "tokens": (int(token["prompt"]) + int(token["completion"])) if token else 0,
+                     "model_calls": int(token["calls"]) if token else 0})
+    return {"days": rows, "labels": {kind: word for kind, (_, _, word) in LIMITS.items()},
+            "top_users": [{"id": row["id"], "name": row["name"], "email": row["email"], "is_admin": bool(row["is_admin"]),
+                           "count": int(row["n"] or 0)} for row in top],
+            "total": sum(row["total"] for row in rows), "tokens": sum(row["tokens"] for row in rows)}
 
 
 @contextmanager

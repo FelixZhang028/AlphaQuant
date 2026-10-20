@@ -12,3 +12,5 @@ baostock>=0.9.3
 requests
 
 python-dotenv>=1.0,<2.0
+# 管理后台保存的 AI 密钥、邮箱密码加密后再存进数据库
+cryptography>=42

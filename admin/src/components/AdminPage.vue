@@ -1,18 +1,24 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { SITE_BASE, adminStats, adminUsers, dailyUpdateStatus, systemStatus } from '../api.js'
+import { SITE_BASE, adminAiUsage, adminStats, adminUsers, dailyUpdateStatus, systemStatus } from '../api.js'
 import { bytes } from '../format.js'
+import { barHeights, tokensText } from '../settings.js'
+import AuditPanel from './AuditPanel.vue'
 import DataPanel from './DataPanel.vue'
 import InvitesPanel from './InvitesPanel.vue'
+import SettingsPanel from './SettingsPanel.vue'
 import UsersPanel from './UsersPanel.vue'
 
-// 管理后台只显示平台的真实数字，并提供几项管理操作：停用账户、注册方式和邀请码、数据更新。
+// 管理后台只显示平台的真实数字，并提供几项管理操作：停用账户、注册方式和邀请码、数据更新、
+// 系统设置（AI 密钥、次数、数据更新、邮件服务）和操作记录。
 const emit = defineEmits(['logout'])
 const tabs = [
   { key: 'overview', label: '概览' },
   { key: 'users', label: '用户' },
   { key: 'invites', label: '注册与邀请码' },
   { key: 'data', label: '数据更新' },
+  { key: 'settings', label: '系统设置' },
+  { key: 'audit', label: '操作记录' },
 ]
 const initial = window.location.hash.slice(1)
 const tab = ref(tabs.some((t) => t.key === initial) ? initial : 'overview')
@@ -26,6 +32,7 @@ const stats = ref(null)
 const users = ref([])
 const market = ref(null)
 const system = ref(null)
+const usage = ref(null)
 const error = ref('')
 const loading = ref(false)
 const toast = ref('')
@@ -40,12 +47,13 @@ function notify(message) {
 async function load() {
   loading.value = true
   error.value = ''
-  const [s, u, m, sys] = await Promise.allSettled([adminStats(), adminUsers(), dailyUpdateStatus(), systemStatus()])
+  const [s, u, m, sys, ai] = await Promise.allSettled([adminStats(), adminUsers(), dailyUpdateStatus(), systemStatus(), adminAiUsage(30)])
   if (s.status === 'fulfilled') stats.value = s.value
   else error.value = s.reason?.message || '统计加载失败'
   if (u.status === 'fulfilled') users.value = u.value
   if (m.status === 'fulfilled') market.value = m.value
   if (sys.status === 'fulfilled') system.value = sys.value
+  if (ai.status === 'fulfilled') usage.value = ai.value
   loading.value = false
 }
 onMounted(load)
@@ -69,6 +77,18 @@ const aiShare = computed(() => {
   return Math.min(100, Math.round((ai.used / ai.limit) * 100))
 })
 const topUsers = computed(() => [...users.value].filter((u) => u.ai_today).sort((a, b) => b.ai_today - a.ai_today).slice(0, 5))
+
+// 最近 30 天的 AI 用量：每天一根柱子，鼠标移上去看那天各类的次数。
+const usageBars = computed(() => {
+  const days = usage.value?.days || []
+  const heights = barHeights(days)
+  const labels = usage.value?.labels || {}
+  return days.map((d, i) => ({
+    day: d.day, height: heights[i], total: d.total,
+    title: `${d.day}：共 ${d.total} 次${d.tokens ? `，token ${d.tokens}` : ''}` +
+      Object.entries(d.kinds).filter(([, n]) => n).map(([k, n]) => `\n${labels[k] || k} ${n}`).join(''),
+  }))
+})
 
 const modeText = { open: '开放注册', invite: '凭邀请码注册', closed: '暂停注册' }
 const backupText = computed(() => {
@@ -123,7 +143,7 @@ const marketText = computed(() => {
           <div v-if="aiShare != null" class="mt-3 h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
             <div class="h-full rounded-full" :class="aiShare >= 90 ? 'bg-rose-400' : aiShare >= 70 ? 'bg-amber-400' : 'bg-indigo-400'" :style="{ width: `${aiShare}%` }" />
           </div>
-          <p class="mt-2 text-xs text-slate-500">全站每天的上限（FELLOWQUANT_AI_DAILY_TOTAL），用完以后当天所有用户暂停 AI 功能；管理员的调用也计入，但不受限制。</p>
+          <p class="mt-2 text-xs text-slate-500">全站每天的上限，用完以后当天所有用户暂停 AI 功能；管理员的调用也计入，但不受限制。上限和每人每天的次数可以在<button type="button" class="text-indigo-300 hover:text-indigo-200" @click="openTab('settings')">系统设置</button>里改。</p>
           <ul v-if="stats.ai.by_kind.length" class="mt-4 space-y-1.5 text-sm">
             <li v-for="k in stats.ai.by_kind" :key="k.kind" class="flex justify-between text-slate-300"><span>{{ k.label }}</span><span class="text-white">{{ number(k.count) }}</span></li>
           </ul>
@@ -154,6 +174,37 @@ const marketText = computed(() => {
         </div>
       </section>
 
+      <section v-if="usage" class="glass rounded-2xl p-5" aria-label="最近 30 天的 AI 用量">
+        <div class="flex flex-wrap items-baseline gap-3">
+          <h2 class="text-sm font-semibold text-white">最近 30 天的 AI 用量</h2>
+          <p class="text-xs text-slate-400">共 {{ number(usage.total) }} 次 · 文本模型 token {{ tokensText(usage.tokens) }}</p>
+        </div>
+        <div class="mt-4 flex h-28 items-end gap-1" role="img" :aria-label="`最近 30 天共 ${usage.total} 次`">
+          <div v-for="bar in usageBars" :key="bar.day" class="flex h-full flex-1 items-end" :title="bar.title">
+            <div class="w-full rounded-t bg-indigo-400/70" :class="bar.total ? '' : 'bg-white/10'" :style="{ height: `${Math.max(bar.height, bar.total ? 4 : 2)}%` }" />
+          </div>
+        </div>
+        <div class="mt-1 flex justify-between text-[10px] text-slate-500"><span>{{ usageBars[0]?.day }}</span><span>{{ usageBars[usageBars.length - 1]?.day }}</span></div>
+        <div class="mt-4 grid gap-5 md:grid-cols-2">
+          <div>
+            <p class="text-xs text-slate-400">各类 AI 功能</p>
+            <ul class="mt-2 space-y-1.5 text-sm">
+              <li v-for="(label, key) in usage.labels" :key="key" class="flex justify-between text-slate-300"><span>{{ label }}</span>
+                <span class="text-white">{{ number(usage.days.reduce((sum, d) => sum + (d.kinds[key] || 0), 0)) }}</span></li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400">30 天里用得最多的人</p>
+            <ul v-if="usage.top_users.length" class="mt-2 space-y-1.5 text-sm">
+              <li v-for="u in usage.top_users.slice(0, 6)" :key="u.id" class="flex justify-between gap-3 text-slate-300">
+                <span class="min-w-0 truncate">{{ u.name }} <span class="text-xs text-slate-500">{{ u.email }}{{ u.is_admin ? ' · 管理员' : '' }}</span></span><span class="text-white">{{ number(u.count) }}</span></li>
+            </ul>
+            <p v-else class="mt-2 text-sm text-slate-500">还没有人用过 AI。</p>
+          </div>
+        </div>
+        <p class="mt-3 text-[11px] text-slate-500">token 只在服务商返回了用量时才有记录（决策模型 Jev 不返回），可以用来估算费用。</p>
+      </section>
+
       <section class="glass rounded-2xl p-5" aria-label="数据与备份">
         <h2 class="text-sm font-semibold text-white">数据与备份</h2>
         <p v-if="system?.disk?.warning" role="alert" class="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-200">磁盘只剩 {{ bytes(system.disk.free) }}，空间不够时每日更新和备份会失败。</p>
@@ -170,6 +221,8 @@ const marketText = computed(() => {
     <UsersPanel v-else-if="tab === 'users'" :users="users" @changed="load" @notify="notify" />
     <InvitesPanel v-else-if="tab === 'invites'" @changed="load" @notify="notify" />
     <DataPanel v-else-if="tab === 'data'" :site-base="SITE_BASE" @notify="notify" />
+    <SettingsPanel v-else-if="tab === 'settings'" @notify="notify" />
+    <AuditPanel v-else-if="tab === 'audit'" />
 
     <transition enter-active-class="transition duration-200" enter-from-class="opacity-0 translate-y-2" leave-active-class="transition duration-200" leave-to-class="opacity-0">
       <p v-if="toast" role="status" class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/15 bg-ink/90 px-5 py-2.5 text-sm text-white shadow-lg">{{ toast }}</p>
