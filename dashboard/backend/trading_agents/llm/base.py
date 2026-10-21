@@ -131,10 +131,13 @@ class OpenAICompatClient(LLMClient):
     default_base_url: str = "https://api.openai.com/v1"
     requires_key: bool = True
 
-    def __init__(self, model: str, base_url: str | None = None, api_key: str = "") -> None:
+    def __init__(self, model: str, base_url: str | None = None, api_key: str = "",
+                 extra_body: dict | None = None) -> None:
         self.model = model
         self.base_url = (base_url or self.default_base_url).rstrip("/")
         self.api_key = api_key
+        # 某个服务商需要的额外参数（例如 DeepSeek 关闭思考模式），原样放进请求里。
+        self.extra_body = dict(extra_body or {})
 
     def chat(
         self,
@@ -152,6 +155,7 @@ class OpenAICompatClient(LLMClient):
             "messages": list(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
+            **self.extra_body,
         }
         resp = requests.post(
             f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=120

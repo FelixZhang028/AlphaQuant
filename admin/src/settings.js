@@ -3,7 +3,8 @@
 // 选一个服务商，自动填好接口地址和常用的模型名称（还要点保存才生效）。
 export const PROVIDERS = [
   { key: 'openrouter', label: 'OpenRouter', base: '', model: 'deepseek/deepseek-v4-pro', note: '填上面的 OpenRouter 密钥即可，文本模型和 Jev 共用。' },
-  { key: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', note: '在“文本模型密钥”里填 DeepSeek 的密钥。' },
+  // deepseek-chat / deepseek-reasoner 这两个旧名字 2026 年 7 月起停用了；想省钱可以改成 deepseek-v4-flash。
+  { key: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-v4-pro', note: '在“文本模型密钥”里填 DeepSeek 的密钥；想省钱可以把模型名称改成 deepseek-v4-flash。平台会关闭 DeepSeek 的思考模式：回答更快、更省，也不会因为想太久没写完。' },
   { key: 'qwen', label: '通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', note: '在“文本模型密钥”里填阿里云百炼的密钥。' },
   { key: 'custom', label: '其他 OpenAI 兼容服务', base: null, model: null, note: '自己填接口地址、模型名称和密钥。' },
 ]
