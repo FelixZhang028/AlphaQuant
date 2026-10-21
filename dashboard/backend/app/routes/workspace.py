@@ -1733,7 +1733,10 @@ def _industry_names() -> list[str]:
 def event_study_options(user: dict = Depends(get_current_user)):
     from quant_platform.research import event_study
 
-    bounds = market_repository().daily_bar_bounds()
+    repository = market_repository()
+    bounds = repository.daily_bar_bounds()
+    if bounds:
+        event_study.warm_later(repository, security_names())     # 在后台先把常见问题算好
     return {**event_study.options(), "industries": _industry_names(),
             "bounds": {"start": bounds[0].isoformat(), "end": bounds[1].isoformat()} if bounds else None,
             "default_start": (bounds[0] + timedelta(days=event_study.LOOKBACK_CALENDAR_DAYS)).isoformat() if bounds else None}

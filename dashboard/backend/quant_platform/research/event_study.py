@@ -24,17 +24,21 @@ The result describes history. It is not a forecast for any stock and not advice 
 
 from __future__ import annotations
 
+import copy
+import json
+import logging
 import math
 import threading
-import warnings
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from quant_platform.data.fundamentals import point_in_time
+from quant_platform.data.fundamentals import FUNDAMENTALS_TABLE, point_in_time
 from quant_platform.data.index_constituents import INDEX_UNIVERSES, membership
 from quant_platform.data.industry import EXPOSURES_TABLE
 
@@ -51,6 +55,25 @@ BINS = [-math.inf, -0.3, -0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.3, math.inf]
 BIN_LABELS = ["跌 30% 以上", "跌 20～30%", "跌 10～20%", "跌 5～10%", "跌 0～5%", "涨 0～5%", "涨 5～10%",
               "涨 10～20%", "涨 20～30%", "涨 30% 以上"]
 SCOPES = {"all": "全市场", **{key: label for _, (label, key) in INDEX_UNIVERSES.items()}, "pool": "我的股票池"}
+# 走势图上画的点：出现以后第几个交易日（必须包含 HORIZONS，这几天用精确值）。
+PATH_DAYS = (*range(1, 11), 12, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60)
+PATH_SAMPLE = 300_000          # “平时”的走势抽这么多个股票交易日，误差远小于 0.1%
+MARKET_CELLS = 3_000_000       # “同一天全部股票”的走势：有事件的日子 × 股票，最多看这么多格
+CACHE_SIZE = 64
+
+logger = logging.getLogger(__name__)
+
+# 页面上的“常见问题”：点一下就用默认设置（全市场、默认日期、冷却 20 天）统计。
+PRESETS = (
+    ("drop", "大跌之后会反弹吗？", "近 20 个交易日跌了 20% 以上", [{"type": "ret", "days": 20, "op": "<=", "value": -20}]),
+    ("limit_up", "涨停以后呢？", "当天涨停", [{"type": "limit", "direction": "up"}]),
+    ("limit_down", "跌停以后呢？", "当天跌停", [{"type": "limit", "direction": "down"}]),
+    ("cross_up", "站上 60 日均线以后", "收盘价从下往上穿过 60 日均线", [{"type": "ma_cross", "days": 60, "direction": "up"}]),
+    ("cross_down", "跌破 60 日均线以后", "收盘价从上往下穿过 60 日均线", [{"type": "ma_cross", "days": 60, "direction": "down"}]),
+    ("volume", "突然放量以后", "成交额是近 20 日平均的 3 倍以上", [{"type": "amount_ratio", "op": ">=", "value": 3}]),
+    ("half", "离一年高点跌了一半", "比近一年最高价低 50% 以上", [{"type": "from_high", "op": "<=", "value": -50}]),
+    ("cheap", "市盈率很低的时候", "市盈率不到 10（只算盈利的公司）", [{"type": "pe", "op": "<=", "value": 10}]),
+)
 
 
 class EventStudyError(ValueError):
@@ -149,6 +172,8 @@ def options() -> dict[str, Any]:
         "scopes": [{"value": key, "label": label} for key, label in SCOPES.items()],
         "horizons": list(HORIZONS), "main_horizon": MAIN_HORIZON, "cooldowns": list(COOLDOWNS),
         "max_conditions": MAX_CONDITIONS,
+        "presets": [{"key": key, "question": question, "hint": hint, "conditions": conditions}
+                    for key, question, hint, conditions in PRESETS],
     }
 
 
@@ -173,6 +198,7 @@ class Panel:
 
 
 _PANELS: dict[str, tuple[str, Panel]] = {}
+# 建面板要十几秒、占不少内存：同一时间只建一份，别的请求等它建好直接用。
 _PANEL_LOCK = threading.Lock()
 
 
@@ -208,23 +234,58 @@ def build_panel(repository: Any, start: date | None = None) -> Panel:
 
 
 def panel(repository: Any) -> Panel:
-    """The panel for the current data version (rebuilt when a data file changes)."""
+    """The panel for the current version of the daily bars (rebuilt when a daily-bar file changes)."""
 
     root = getattr(repository, "root", None)
     if root is None:
         return build_panel(repository)
-    from quant_platform.ai_research.report import _data_stamp
-
-    stamp = _data_stamp(root)
+    # 面板只用日线：下载估值、财报时不用重建（那些数据每次统计时现读）。
+    stamp = _stamp(repository)[1]
     with _PANEL_LOCK:
         cached = _PANELS.get(str(root))
         if cached and cached[0] == stamp:
             return cached[1]
-    built = build_panel(repository)
-    with _PANEL_LOCK:
-        _PANELS.clear()                 # 只留一份，面板比较大
+        _PANELS.clear()                 # 只留一份，面板比较大：先放掉旧的再建
+        built = build_panel(repository)
         _PANELS[str(root)] = (stamp, built)
-    return built
+        return built
+
+
+def _stamp(repository: Any, tables: tuple[str, ...] = ()) -> tuple[str, str] | None:
+    """The version of the daily bars and of ``tables``: changes when one of their files is written.
+
+    Only the tables a question uses count, so a download of other data (which writes files all the
+    time) does not throw away the panel and the remembered results."""
+
+    root = getattr(repository, "root", None)
+    if root is None:
+        return None
+    from quant_platform.ai_research.report import _data_stamp
+
+    parts = []
+    for table in ("daily_bars", *sorted(set(tables))):
+        folder, file = Path(root) / table, Path(root) / f"{table}.parquet"
+        if folder.is_dir():
+            parts.append(_data_stamp(folder))
+        elif file.exists():
+            parts.append(f"{file.stat().st_mtime_ns}:{file.stat().st_size}")
+        elif table == "daily_bars":
+            parts.append(_data_stamp(root))          # 不认识的存放方式：退回看整个数据目录
+        else:
+            parts.append("-")
+    return str(root), "|".join(parts)
+
+
+def _tables(conditions: list[dict[str, Any]], scope: str, industries: list[str]) -> tuple[str, ...]:
+    """Besides the daily bars, the tables a question reads."""
+
+    tables = {"daily_indicators" if c["source"] == "indicator" else FUNDAMENTALS_TABLE
+              for c in conditions if c["source"] != "price"}
+    if scope not in ("all", "pool"):
+        tables.add("index_constituents")
+    if industries:
+        tables.add(EXPOSURES_TABLE)
+    return tuple(sorted(tables))
 
 
 # --------------------------------------------------------------------------- #
@@ -377,6 +438,102 @@ def _histogram(values: np.ndarray) -> list[float]:
     return [round(float(c) / len(values), 4) for c in counts]
 
 
+def _row_mean(values: np.ndarray) -> np.ndarray:
+    """Mean of each row ignoring NaN; NaN for a row with no numbers (the last days of the data).
+
+    Not ``np.nanmean`` inside ``warnings.catch_warnings``: that is not safe with two threads
+    (the common questions are worked out in the background while users ask their own)."""
+
+    known = np.isfinite(values)
+    counts = known.sum(axis=1)
+    sums = np.where(known, values, 0).sum(axis=1, dtype=np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
+
+
+def _mean(values: np.ndarray) -> float | None:
+    values = values[np.isfinite(values)]
+    return round(float(values.mean()), 5) if len(values) else None
+
+
+def _path(close: np.ndarray, base: np.ndarray, rows: np.ndarray, cols: np.ndarray, last: np.ndarray,
+          horizons: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    """Average change from the event day to each of the next ``PATH_DAYS`` trading days.
+
+    ``events``: the events themselves (exact). ``market``: all stocks on the same days as the events,
+    weighted like the events. ``all``: all eligible stock-days (a fixed sample). On ``HORIZONS`` the
+    exact numbers of the summary are used, so the chart and the numbers above it agree."""
+
+    n = len(close)
+    rng = np.random.default_rng(0)
+    base_rows, base_cols = np.nonzero(base)
+    if len(base_rows) > PATH_SAMPLE:
+        pick = rng.choice(len(base_rows), PATH_SAMPLE, replace=False)
+        base_rows, base_cols = base_rows[pick], base_cols[pick]
+    days, where = np.unique(rows, return_inverse=True)
+    columns = np.arange(close.shape[1])
+    if len(days) and len(days) * len(columns) > MARKET_CELLS:
+        columns = np.sort(rng.choice(len(columns), max(1, MARKET_CELLS // len(days)), replace=False))
+    day_close = close[np.ix_(days, columns)]
+    day_base = base[np.ix_(days, columns)]
+
+    def change(r: np.ndarray, c: np.ndarray, k: int) -> np.ndarray:
+        values = close[np.minimum(r + k, n - 1), c] / close[r, c] - 1
+        return np.where((r + k < n) & (r + k <= last[c]), values, np.nan)
+
+    out: dict[str, list[float | None]] = {"days": [0], "events": [0.0], "market": [0.0], "all": [0.0]}
+    for k in PATH_DAYS:
+        out["days"].append(k)
+        events = change(rows, cols, k)
+        if k in horizons:
+            summary = horizons[k]
+            mean, excess = summary["events"].get("mean"), summary["excess"].get("mean")
+            out["events"].append(mean)
+            out["market"].append(None if mean is None or excess is None else round(mean - excess, 5))
+            out["all"].append(summary["all"].get("mean"))
+            continue
+        out["events"].append(_mean(events))
+        out["all"].append(_mean(change(base_rows, base_cols, k)))
+        if not len(days):
+            out["market"].append(None)
+            continue
+        ahead = close[np.ix_(np.minimum(days + k, n - 1), columns)] / day_close - 1
+        usable = day_base & (days[:, None] + k < n) & (days[:, None] + k <= last[columns][None, :])
+        day_mean = _row_mean(np.where(usable, ahead, np.nan))
+        out["market"].append(_mean(np.where(np.isfinite(events), day_mean[where], np.nan)))
+    for key in ("events", "market", "all"):
+        out[key] = [None if v is None or not math.isfinite(v) else round(float(v), 5) for v in out[key]]
+    return out
+
+
+PRESET_TABLES = ("daily_indicators",)        # 常见问题里有市盈率
+_RESULTS: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
+_RESULTS_LOCK = threading.Lock()
+_WARMED: set[tuple[str, str]] = set()
+
+
+def warm(repository: Any, names: dict[str, str]) -> None:
+    """Work out the common questions once per data version, so clicking one answers at once."""
+
+    stamp = _stamp(repository, PRESET_TABLES)
+    with _RESULTS_LOCK:
+        if stamp is None or stamp in _WARMED:
+            return
+        _WARMED.add(stamp)
+    for _key, _question, _hint, conditions in PRESETS:
+        try:
+            run(repository, {"conditions": conditions}, pool=[], names=names)
+        except Exception:  # noqa: BLE001 - 预先算不出来，用户点的时候再算
+            logger.exception("event study preset %s failed", _key)
+
+
+def warm_later(repository: Any, names: dict[str, str]) -> None:
+    stamp = _stamp(repository, PRESET_TABLES)
+    if stamp is None or stamp in _WARMED:
+        return
+    threading.Thread(target=warm, args=(repository, names), name="event-study-warm", daemon=True).start()
+
+
 def run(repository: Any, request: dict[str, Any], *, pool: list[str], names: dict[str, str]) -> dict[str, Any]:
     conditions = [clean_condition(raw) for raw in (request.get("conditions") or [])]
     if not conditions:
@@ -406,6 +563,28 @@ def run(repository: Any, request: dict[str, Any], *, pool: list[str], names: dic
     if start >= end:
         raise EventStudyError("开始日期要早于结束日期")
 
+    # 同一份数据、同样的问题，结果一样：记住最近的几十个（常见问题预先算好就是放在这里）。
+    stamp = _stamp(repository, _tables(conditions, scope, industries))
+    key = None if stamp is None else (stamp, json.dumps(
+        {"conditions": [{k: v for k, v in c.items() if k != "label"} for c in conditions], "scope": scope,
+         "cooldown": cooldown, "industries": industries, "keep_st": keep_st, "start": start.isoformat(),
+         "end": end.isoformat(), "pool": sorted(pool) if scope == "pool" else []}, sort_keys=True, ensure_ascii=False))
+    if key is not None:
+        with _RESULTS_LOCK:
+            if key in _RESULTS:
+                _RESULTS.move_to_end(key)
+                return copy.deepcopy(_RESULTS[key])
+    result = _compute(repository, conditions, scope, pool, industries, cooldown, keep_st, start, end, names)
+    if key is not None:
+        with _RESULTS_LOCK:
+            _RESULTS[key] = result
+            while len(_RESULTS) > CACHE_SIZE:
+                _RESULTS.popitem(last=False)
+    return copy.deepcopy(result)
+
+
+def _compute(repository: Any, conditions: list[dict[str, Any]], scope: str, pool: list[str], industries: list[str],
+             cooldown: int, keep_st: bool, start: date, end: date, names: dict[str, str]) -> dict[str, Any]:
     p = panel(repository)
     in_range = pd.Series((p.dates >= pd.Timestamp(start)) & (p.dates <= pd.Timestamp(end)), index=p.dates)
     base = p.trading & p.listed
@@ -440,9 +619,7 @@ def run(repository: Any, request: dict[str, Any], *, pool: list[str], names: dic
         ended = positions + h > last                    # 之后退市（或停牌到数据结束）
         not_yet = positions + h >= len(p.dates)         # 还没到 h 个交易日
         change[ended | not_yet] = np.nan
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)        # 没有可比股票的日子（数据最后几天）
-            market = np.nanmean(np.where(base_np, change, np.nan), axis=1, keepdims=True)
+        market = _row_mean(np.where(base_np, change, np.nan))[:, None]
         event_values = change[events]
         horizons[h] = {
             "events": _summary(event_values), "all": _summary(change[base_np]),
@@ -486,5 +663,6 @@ def run(repository: Any, request: dict[str, Any], *, pool: list[str], names: dic
         "eligible_days": int(base_np.sum()),
         "horizons": {str(h): value for h, value in horizons.items()}, "main_horizon": MAIN_HORIZON,
         "histogram": {"labels": BIN_LABELS, "events": _histogram(main_change[events]), "all": _histogram(main_change[base_np])},
+        "path": _path(close, base_np, rows, cols, p.last_position.to_numpy(), horizons) if total else None,
         "by_year": by_year, "recent": recent, "coverage": coverage, "notes": notes,
     }
