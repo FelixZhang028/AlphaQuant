@@ -61,7 +61,8 @@ def test_requests_are_spaced_out(monkeypatch):
     provider = BaoStockDataProvider(client=Client())
     for _ in range(3):
         provider.get_trade_calendar(date(2026, 10, 1), date(2026, 10, 19))
-    assert len(slept) >= 2 and all(0 < s <= 0.05 for s in slept)
+    # 机器开机很久时 time.monotonic() 很大，相减会有一点浮点误差（例如 0.05000000004）
+    assert len(slept) >= 2 and all(0 < s <= 0.05 + 1e-6 for s in slept)
     monkeypatch.setenv("FELLOWQUANT_BAOSTOCK_INTERVAL", "oops")
     assert baostock_provider.request_interval() == baostock_provider.DEFAULT_INTERVAL
 
