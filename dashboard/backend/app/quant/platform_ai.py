@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from quant_platform.jev import JevClient
 from quant_platform.jev.client import DEFAULT_MODEL as DEFAULT_JEV_MODEL
@@ -87,8 +88,21 @@ class CountingClient:
         return getattr(self._client, name)
 
 
+def extra_body(base_url: str) -> dict:
+    """Extra request fields a service needs.
+
+    DeepSeek's own API thinks before answering by default (V4 models). The thinking counts against
+    ``max_tokens``, so a JSON answer can be cut off before it is written ("没有找到 JSON 对象"), and
+    it costs about three times as many tokens. Our prompts ask for short, structured answers built
+    from the data given, so thinking is turned off there."""
+
+    host = (urlparse(base_url).hostname or "").lower()
+    return {"thinking": {"type": "disabled"}} if host == "api.deepseek.com" else {}
+
+
 def model_client(model: PlatformModel) -> CountingClient:
-    return CountingClient(OpenAICompatClient(model=model.model, base_url=model.base_url, api_key=model.api_key))
+    return CountingClient(OpenAICompatClient(model=model.model, base_url=model.base_url, api_key=model.api_key,
+                                             extra_body=extra_body(model.base_url)))
 
 
 def record_tokens(prompt: int, completion: int) -> None:
