@@ -88,6 +88,51 @@ def test_events_are_measured_against_all_days(repository):
     assert every_day["events"] > result["events"]
 
 
+def test_the_average_path_after_the_event(repository):
+    result = es.run(repository, {"conditions": [FALL], "start": "2024-04-01"}, pool=[], names={})
+    curve = result["path"]
+    assert curve["days"][:3] == [0, 1, 2] and curve["days"][-1] == 60 and curve["events"][0] == 0
+    for h in es.HORIZONS:                       # 和上面的数字一致
+        i = curve["days"].index(h)
+        assert curve["events"][i] == pytest.approx(result["horizons"][str(h)]["events"]["mean"], abs=1e-5)
+        assert curve["all"][i] == pytest.approx(result["horizons"][str(h)]["all"]["mean"], abs=1e-5)
+    # 两次事件（下跌股票和之后退市的那只）同一天、走势一样；同一天能比的 12 只股票里另外 10 只不涨不跌
+    first = DAYS.get_loc(pd.Timestamp(result["recent"][0]["date"]))
+    i7 = curve["days"].index(7)
+    change = path("drop")[first + 7] / path("drop")[first] - 1
+    assert curve["events"][i7] == pytest.approx(change, abs=1e-5)
+    assert curve["market"][i7] == pytest.approx(change / 6, abs=1e-5)
+    assert abs(curve["all"][i7]) < 0.01
+
+
+def test_the_same_question_is_answered_from_memory(repository, monkeypatch):
+    calls = []
+    compute = es._compute
+    monkeypatch.setattr(es, "_compute", lambda *args: calls.append(args[1]) or compute(*args))
+    es.warm(repository, {})
+    assert len(calls) == len(es.PRESETS)
+    es.warm(repository, {})                                         # 同一份数据只预先算一次
+    answer = es.run(repository, {"conditions": es.PRESETS[0][3]}, pool=[], names={})
+    assert len(calls) == len(es.PRESETS)
+    answer["events"] = -1                                           # 改返回值不影响记住的结果
+    assert es.run(repository, {"conditions": es.PRESETS[0][3]}, pool=[], names={})["events"] != -1
+    es.run(repository, {"conditions": es.PRESETS[0][3], "cooldown": 5}, pool=[], names={})
+    assert len(calls) == len(es.PRESETS) + 1                        # 换了设置就重新算
+
+
+def test_downloading_other_data_keeps_the_answers_that_do_not_use_it(repository, monkeypatch):
+    calls = []
+    compute = es._compute
+    monkeypatch.setattr(es, "_compute", lambda *args: calls.append(args[1][0]["type"]) or compute(*args))
+    cheap = {"type": "pe", "op": "<=", "value": 10}
+    for conditions in ([FALL], [cheap]):
+        es.run(repository, {"conditions": conditions, "cooldown": 60}, pool=[], names={})
+    repository.save_table("daily_indicators", pd.DataFrame({"symbol": ["600000.SH"], "trade_date": [DAYS[-1]], "pe_ttm": [8.0]}))
+    for conditions in ([FALL], [cheap]):
+        es.run(repository, {"conditions": conditions, "cooldown": 60}, pool=[], names={})
+    assert calls == ["ret", "pe", "pe"]                 # 只有用到估值数据的问题重新算
+
+
 def test_the_pool_scope_and_bad_requests(repository):
     only_flat = es.run(repository, {"conditions": [FALL], "scope": "pool"}, pool=["600100.SH"], names={})
     assert only_flat["events"] == 0 and only_flat["scope"] == "我的股票池"
@@ -104,6 +149,8 @@ def test_the_routes(repository, monkeypatch):
     monkeypatch.setattr(workspace, "market_repository", lambda: repository)
     monkeypatch.setattr(workspace, "security_names", lambda: {})
     monkeypatch.setattr(workspace, "_load_universe_symbols", lambda user_id: ["600000"])
+    warmed = []
+    monkeypatch.setattr(es, "warm_later", lambda repo, names: warmed.append(repo))
     app = FastAPI()
     app.include_router(workspace.router)
     app.dependency_overrides[get_current_user] = lambda: {"id": 1, "is_admin": False}
@@ -111,6 +158,9 @@ def test_the_routes(repository, monkeypatch):
     options = client.get("/api/v1/event-study/options").json()
     assert {c["type"] for c in options["conditions"]} >= {"ret", "from_high", "pe", "profit_yoy"}
     assert options["bounds"]["end"] == DAYS[-1].date().isoformat() and options["horizons"] == [5, 20, 60]
+    assert options["presets"][0]["question"] == "大跌之后会反弹吗？" and warmed == [repository]
+    for preset in options["presets"]:                               # 常见问题的条件都合法
+        assert all(es.clean_condition(c) for c in preset["conditions"])
     body = client.post("/api/v1/event-study", json={"conditions": [FALL], "scope": "pool"}).json()
     assert body["events"] == 1 and body["conditions"] == ["近 20 个交易日涨跌幅 ≤ -20%"]
     assert client.post("/api/v1/event-study", json={"conditions": [{"type": "nope"}]}).status_code == 422
