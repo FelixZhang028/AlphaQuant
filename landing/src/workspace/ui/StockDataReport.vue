@@ -4,9 +4,11 @@
 import { computed, ref } from 'vue'
 import { openResearch } from '../researchNavigation.js'
 import {
-  CHECK_LABELS, EVENT_LABELS, FINANCE_ROWS, PEER_COLUMNS, checkCounts, directionWord, eventMarkers, factorGroups,
-  priceSeries, shareText, signedPct, sortedChecks, trendSeries, trendTone, valuationSeries,
+  CHECK_LABELS, EVENT_LABELS, FINANCE_ROWS, PEER_COLUMNS, checkCounts, eventMarkers,
+  priceSeries, signedPct, sortedChecks, trendSeries, trendTone, valuationSeries,
 } from '../researchReport.js'
+import { aspectSummary, aspectsFrom } from '../factorProfile.js'
+import FactorProfile from './FactorProfile.vue'
 import ReportChart from './ReportChart.vue'
 import SectionCard from './SectionCard.vue'
 
@@ -33,7 +35,11 @@ const trend = computed(() => props.report.financial_trend)
 const trendChart = computed(() => trendSeries(trend.value))
 const peers = computed(() => props.report.peers)
 const factors = computed(() => props.report.factors)
-const factorGroupList = computed(() => factorGroups(factors.value?.items))
+// 因子画像那一句换成按方面说的人话（旧的写法列的是因子名字，看不懂）。
+const summaries = computed(() => {
+  const text = aspectSummary(aspectsFrom(factors.value?.items || []))
+  return (props.report.summaries || []).map((item) => (item.key === 'factors' && text ? { ...item, text } : item))
+})
 const changes = computed(() => props.previous?.changes || [])
 // 上一次是同一天的数据、关键数字也没变时，不显示这一块。
 const showPrevious = computed(() => Boolean(props.previous) && (changes.value.length > 0 || props.previous.trade_date !== props.tradeDate))
@@ -50,7 +56,7 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
     <!-- 每节一句话 -->
     <SectionCard title="数据小结" hint="按固定规则从本地数据整理，只描述数据，不代表买卖判断">
       <dl class="space-y-2.5">
-        <div v-for="item in report.summaries" :key="item.key" class="grid gap-1 sm:grid-cols-[6rem_1fr]">
+        <div v-for="item in summaries" :key="item.key" class="grid gap-1 sm:grid-cols-[6rem_1fr]">
           <dt class="text-xs font-semibold text-slate-400 sm:pt-0.5">{{ item.title }}</dt>
           <dd class="text-sm leading-relaxed text-slate-200">{{ item.text }}</dd>
         </div>
@@ -167,32 +173,15 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
     </SectionCard>
 
     <!-- 因子画像 -->
-    <SectionCard v-if="factors" title="因子画像" hint="内置因子当天在全市场和同行业里的位置；条越长数值越大。正向因子数值越大越好，反向因子越小越好">
+    <SectionCard v-if="factors" title="因子画像" hint="这只股票当天在全市场和同行业里处在什么位置，分成几个方面说；点一个方面看具体每一项">
       <p v-if="factors.unavailable" class="text-sm text-slate-400">{{ factors.unavailable }}</p>
       <div v-else-if="factors.pending" class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
         <span>正在计算这一天全市场的因子值（第一次大约半分钟），算好后点刷新就能看到。</span>
         <button type="button" :disabled="refreshing" class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300 hover:text-white disabled:opacity-50" @click="emit('refresh')">{{ refreshing ? '刷新中…' : '刷新' }}</button>
       </div>
       <template v-else>
-        <div class="grid gap-5 md:grid-cols-2">
-          <section v-for="group in factorGroupList" :key="group.category">
-            <h4 class="text-xs font-semibold text-slate-400">{{ group.category }}</h4>
-            <ul class="mt-2 space-y-2">
-              <li v-for="item in group.items" :key="item.name" class="text-sm">
-                <div class="flex items-baseline justify-between gap-2">
-                  <button type="button" class="truncate text-left text-slate-200 hover:text-indigo-200" :title="`在因子研究里查看 ${item.name}`" @click="openResearch('factor-lab')">{{ item.display_name }}</button>
-                  <span class="shrink-0 text-xs" :class="item.direction === 1 ? 'text-emerald-300' : 'text-rose-300'">{{ directionWord(item.direction) }}</span>
-                </div>
-                <div class="relative mt-1 h-2 rounded-full bg-white/10" :title="shareText(item.market_share)">
-                  <div class="h-full rounded-full bg-indigo-400/70" :style="{ width: `${Math.round((item.market_share ?? 0) * 100)}%` }" />
-                  <span v-if="item.industry_share != null" class="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-amber-300" :style="{ left: `${Math.round(item.industry_share * 100)}%` }" :title="shareText(item.industry_share, '同行业')" />
-                </div>
-                <p class="mt-0.5 text-xs text-slate-500">{{ shareText(item.market_share) }}<template v-if="item.industry_share != null"> · {{ shareText(item.industry_share, '同行业') }}</template></p>
-              </li>
-            </ul>
-          </section>
-        </div>
-        <p class="mt-3 text-xs text-slate-500">黄色竖线是在同行业里的位置。<template v-if="factors.missing?.length">没有数据、所以没算的因子：{{ factors.missing.join('、') }}。</template></p>
+        <FactorProfile :items="factors.items" />
+        <p v-if="factors.missing?.length" class="mt-2 text-xs text-slate-500">没有数据、所以没算的因子：{{ factors.missing.join('、') }}。</p>
       </template>
     </SectionCard>
   </div>

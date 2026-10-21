@@ -1,11 +1,11 @@
-// AI 研究员的数据报告（不用 AI）：数字格式、留意清单、财务趋势、同行对比、因子画像和图表的显示规则。
+// AI 研究员的数据报告（不用 AI）：数字格式、留意清单、财务趋势、同行对比和图表的显示规则。
+// 因子画像的显示规则在 factorProfile.js。
 
 export const ok = (value) => typeof value === 'number' && Number.isFinite(value)
 export const pct = (value, digits = 1) => (ok(value) ? `${(value * 100).toFixed(digits)}%` : '—')
 export const signedPct = (value, digits = 1) => (ok(value) ? `${value >= 0 ? '+' : ''}${(value * 100).toFixed(digits)}%` : '—')
 export const num = (value, digits = 2) => (ok(value) ? value.toFixed(digits) : '—')
 export const yi = (value) => (ok(value) ? `${(value / 1e8).toLocaleString('zh-CN', { maximumFractionDigits: value >= 1e10 ? 0 : 1 })} 亿` : '—')
-export const shareText = (share, scope = '全市场') => (ok(share) ? `高于${scope} ${Math.round(share * 100)}% 的股票` : '—')
 
 // 留意清单：需要留意的排在前面，然后是数据不足的，最后是没有发现问题的。
 const CHECK_ORDER = { warn: 0, unknown: 1, ok: 2 }
@@ -40,20 +40,6 @@ export const PEER_COLUMNS = [
   { key: 'debt_ratio', label: '资产负债率', format: pct },
   { key: 'ret_60d', label: '近 60 日涨跌', format: signedPct },
 ]
-
-// 因子画像：按类别分组，类别顺序固定。
-const FACTOR_ORDER = ['动量', '反转', '波动', '量价', '换手', '估值', '质量', '成长', '规模']
-export function factorGroups(items = []) {
-  const groups = []
-  for (const item of items) {
-    let group = groups.find((g) => g.category === item.category)
-    if (!group) groups.push((group = { category: item.category, items: [] }))
-    group.items.push(item)
-  }
-  const rank = (category) => (FACTOR_ORDER.includes(category) ? FACTOR_ORDER.indexOf(category) : FACTOR_ORDER.length)
-  return groups.sort((a, b) => rank(a.category) - rank(b.category))
-}
-export const directionWord = (direction) => (direction === 1 ? '正向' : direction === -1 ? '反向' : '')
 
 // 图表：日期、各条线的数值；事件放到对应的日期上。
 export function priceSeries(prices = []) {
