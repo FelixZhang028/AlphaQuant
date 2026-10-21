@@ -124,7 +124,8 @@ function hover(event) {
 }
 
 const field = 'rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400/40'
-const inline = 'mx-0.5 max-w-full cursor-pointer rounded-md border-0 border-b-2 border-indigo-400/50 bg-transparent px-1 py-0.5 text-base text-indigo-200 outline-none hover:bg-white/5 focus:border-indigo-300'
+// 句子里的下拉框和输入框：文字居中（下拉框的宽度按最长的选项定，选短的时候文字不会挤在左边）。
+const inline = 'mx-0.5 max-w-full cursor-pointer rounded-md border-0 border-b-2 border-indigo-400/50 bg-transparent px-1 py-0.5 text-center text-base text-indigo-200 outline-none [text-align-last:center] hover:bg-white/5 focus:border-indigo-300'
 </script>
 
 <template>
