@@ -1,6 +1,6 @@
 <script setup>
 // AI 研究员的数据报告：不用 AI，全部来自分析日当天及以前的本地数据。
-// 依次是：每节一句话小结、需要留意的清单、和上次分析对比、价格走势、估值位置、财务趋势、同行对比、因子画像。
+// 依次是：每节一句话小结、短期分析 / 长期分析、需要留意的清单、和上次分析对比、价格走势、估值位置、财务趋势、同行对比、因子画像。
 import { computed, ref } from 'vue'
 import { openResearch } from '../researchNavigation.js'
 import {
@@ -10,6 +10,7 @@ import {
 import { aspectSummary, aspectsFrom } from '../factorProfile.js'
 import FactorProfile from './FactorProfile.vue'
 import ReportChart from './ReportChart.vue'
+import StockAnalysis from './StockAnalysis.vue'
 import SectionCard from './SectionCard.vue'
 
 const props = defineProps({
@@ -18,6 +19,7 @@ const props = defineProps({
   previous: { type: Object, default: null },
   tradeDate: { type: String, default: '' },
   refreshing: { type: Boolean, default: false },
+  facts: { type: Array, default: () => [] },        // 全部数据（短期分析用它推出“现在的状态”）
 })
 const emit = defineEmits(['refresh'])
 
@@ -63,8 +65,11 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
       </dl>
     </SectionCard>
 
+    <!-- 短期分析 / 长期分析 -->
+    <StockAnalysis :report="report" :facts="facts" :trade-date="tradeDate" />
+
     <!-- 需要留意 -->
-    <SectionCard title="需要留意的地方" :hint="`逐条按规则检查：需要留意 ${counts.warn || 0} 项 · 数据不足 ${counts.unknown || 0} 项 · 没有发现 ${counts.ok || 0} 项`">
+    <SectionCard id="report-checks" class="scroll-mt-20" title="需要留意的地方" :hint="`逐条按规则检查：需要留意 ${counts.warn || 0} 项 · 数据不足 ${counts.unknown || 0} 项 · 没有发现 ${counts.ok || 0} 项`">
       <ul class="grid gap-2 md:grid-cols-2">
         <li v-for="item in shownChecks" :key="item.key" class="flex gap-3 rounded-xl border p-3 text-sm" :class="stateTone[item.state]">
           <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-bold" :aria-label="CHECK_LABELS[item.state]">{{ stateMark[item.state] }}</span>
@@ -109,7 +114,7 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
     </SectionCard>
 
     <!-- 估值位置 -->
-    <SectionCard v-if="report.charts?.valuation" title="估值的位置" :hint="`${report.charts.valuation.start || ''} 以来（最多近 3 年）的估值走势，虚线是这段时间的 20% 分位、中位数和 80% 分位`">
+    <SectionCard v-if="report.charts?.valuation" id="report-valuation" class="scroll-mt-20" title="估值的位置" :hint="`${report.charts.valuation.start || ''} 以来（最多近 3 年）的估值走势，虚线是这段时间的 20% 分位、中位数和 80% 分位`">
       <div class="mb-3 flex gap-2" role="group" aria-label="估值指标">
         <button v-for="k in [{ key: 'pe_ttm', label: '市盈率' }, { key: 'pb_mrq', label: '市净率' }]" :key="k.key" type="button"
           class="rounded-full border px-3 py-1 text-xs" :aria-pressed="valuationKey === k.key"
@@ -121,7 +126,7 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
     </SectionCard>
 
     <!-- 财务趋势 -->
-    <SectionCard v-if="trend" title="最近几个季度的财务" hint="按财报公布日期，只包括分析日以前已经公布的；“走向”看最近四份">
+    <SectionCard v-if="trend" id="report-trend" class="scroll-mt-20" title="最近几个季度的财务" hint="按财报公布日期，只包括分析日以前已经公布的；“走向”看最近四份">
       <ReportChart :labels="trendChart.labels" :series="trendChart.series" :format="growthFormat" :height="150" zero-line />
       <div class="mt-4 overflow-x-auto">
         <table class="w-full min-w-[720px] text-left text-sm">
@@ -173,7 +178,7 @@ const stateMark = { warn: '!', unknown: '?', ok: '✓' }
     </SectionCard>
 
     <!-- 因子画像 -->
-    <SectionCard v-if="factors" title="因子画像" hint="这只股票当天在全市场和同行业里处在什么位置，分成几个方面说；点一个方面看具体每一项">
+    <SectionCard v-if="factors" id="report-factors" class="scroll-mt-20" title="因子画像" hint="这只股票当天在全市场和同行业里处在什么位置，分成几个方面说；点一个方面看具体每一项">
       <p v-if="factors.unavailable" class="text-sm text-slate-400">{{ factors.unavailable }}</p>
       <div v-else-if="factors.pending" class="flex flex-wrap items-center gap-3 text-sm text-slate-300">
         <span>正在计算这一天全市场的因子值（第一次大约半分钟），算好后点刷新就能看到。</span>
