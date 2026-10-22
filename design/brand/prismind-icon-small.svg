@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Prismind 镜思</title>
+  <!-- 小尺寸版（16～48 像素）：和大图同一个构图，去掉地面、背景图表和细的光晕；棱镜更大、线条更粗，光谱只留五条宽色带 -->
+  <defs>
+    <linearGradient id="ps-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1546" />
+      <stop offset=".55" stop-color="#18205e" />
+      <stop offset="1" stop-color="#2d1b6e" />
+    </linearGradient>
+    <linearGradient id="ps-face" x1="150" y1="100" x2="380" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".30" />
+      <stop offset="1" stop-color="#a5b4fc" stop-opacity=".12" />
+    </linearGradient>
+    <linearGradient id="ps-edge" x1="100" y1="90" x2="420" y2="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#c5f6fa" />
+    </linearGradient>
+    <linearGradient id="ps-beam" x1="0" y1="0" x2="180" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".75" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+    <clipPath id="ps-tile"><rect width="512" height="512" rx="116" /></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#ps-bg)" />
+  <g clip-path="url(#ps-tile)">
+    <!-- 光谱：从棱镜右侧面散开，红在上、紫在下 -->
+    <polygon points="330,252 540,262 540,318 336,268" fill="#ff5470" />
+    <polygon points="336,268 540,318 540,374 342,284" fill="#fcc419" />
+    <polygon points="342,284 540,374 540,430 348,300" fill="#40c057" />
+    <polygon points="348,300 540,430 540,486 354,316" fill="#22b8cf" />
+    <polygon points="354,316 540,486 540,560 360,332" fill="#7c5cff" />
+    <!-- 射入的白光 -->
+    <polygon points="-20,338 168,262 176,292 -20,378" fill="url(#ps-beam)" />
+  </g>
+  <!-- 圆角棱镜 -->
+  <path d="M 214.6 132.8 C 236.2 92.6 275.8 92.6 297.4 132.8 L 418.4 357.6 C 438.8 395.6 421.6 420 378.4 420 L 133.6 420 C 90.4 420 73.2 395.6 93.6 357.6 Z"
+        fill="url(#ps-face)" stroke="url(#ps-edge)" stroke-width="26" stroke-linejoin="round" />
+  <!-- 棱镜里的光 -->
+  <polygon points="172,262 336,262 342,292 178,292" fill="#ffffff" fill-opacity=".9" />
+</svg>

@@ -1,4 +1,4 @@
-name: FellowQuant checks
+name: Prismind checks
 on:
   push:
     branches: [main, fellowquant_v4, fq-v5]

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="landing/public/fellowquant-logo.png" alt="FellowQuant logo" width="88" />
+  <img src="landing/public/brand/prismind-icon-512.png" alt="Prismind logo" width="96" />
 </p>
 
-<h1 align="center">FellowQuant · Quant Research Workbench</h1>
+<h1 align="center">Prismind · Data Research Workbench</h1>
 
 <p align="center">Turn investment ideas into research you can verify.</p>
 
@@ -23,7 +23,7 @@ These screenshots show the running application with an isolated demo account. Re
 
 **Brand homepage**
 
-![FellowQuant homepage](docs/images/homepage.png)
+![Prismind homepage](docs/images/homepage.png)
 
 **Workspace: simplified navigation and strategy tools**
 
@@ -35,7 +35,7 @@ These screenshots show the running application with an isolated demo account. Re
 
 ## 📖 About
 
-FellowQuant v4 is a research workbench for Chinese A-share markets, built with **Vue 3 and FastAPI**. It brings data updates, strategy creation, factor evaluation, backtesting, validation, and AI-assisted research into a single workflow.
+Prismind (v4) is a research workbench for Chinese A-share markets, built with **Vue 3 and FastAPI**. It brings data updates, strategy creation, factor evaluation, backtesting, validation, and AI-assisted research into a single workflow.
 
 v4 carries forward AlphaQuant's research capabilities with a separate frontend and backend. Strategy research has four primary navigation entries, with related tools available inside each page.
 
@@ -56,8 +56,8 @@ v4 carries forward AlphaQuant's research capabilities with a separate frontend a
 Install Python 3.11+, Node.js 18+, and Git.
 
 ```bash
-git clone --branch fellowquant_v4 https://github.com/FelixZhang028/AlphaQuant.git
-cd AlphaQuant
+git clone https://github.com/FelixZhang028/Prismind.git
+cd Prismind
 ```
 
 **Windows:** Run `start.bat` from the project root. It checks and installs required dependencies, then opens `http://127.0.0.1:5273`. Press any key in its console to stop the services it started.
@@ -134,7 +134,7 @@ Run `npm ci` and `npm run build` separately in `landing/` and `admin/`. Regressi
 
 ## 🤝 Contributing
 
-Report bugs or propose improvements through [Issues](https://github.com/FelixZhang028/AlphaQuant/issues), or open a Pull Request. Include steps to reproduce, expected behavior, and actual behavior.
+Report bugs or propose improvements through [Issues](https://github.com/FelixZhang028/Prismind/issues), or open a Pull Request. Include steps to reproduce, expected behavior, and actual behavior.
 
 Thanks to AlphaQuant for the research foundation, and to [WeKnora](https://github.com/Tencent/WeKnora) and [OpenRouter](https://openrouter.ai/) for their integration capabilities.
 

@@ -1,6 +1,6 @@
-# FellowQuant · 首页与功能台（Landing）
+# 镜思 Prismind · 首页与功能台（Landing）
 
-FellowQuant A 股量化研究工具的官网首页 + 登录/功能台（聚合了 FellowQuant 工作台的全部功能模块）。深色奢华风格，Vue 3 + Vite + Tailwind CSS v3。
+镜思 Prismind（A 股数据研究工作台）的官网首页 + 登录/功能台（聚合了工作台的全部功能模块）。深色奢华风格，Vue 3 + Vite + Tailwind CSS v3。
 
 ## 技术栈
 

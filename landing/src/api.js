@@ -217,7 +217,7 @@ export async function exportMyData() {
     err.status = res.status
     throw err
   }
-  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'fellowquant-export.json'
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || 'prismind-export.json'
   return { blob: await res.blob(), name }
 }
 

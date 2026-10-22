@@ -107,9 +107,9 @@ const marketText = computed(() => {
 <template>
   <div class="mx-auto max-w-6xl px-5 pb-16 lg:px-8">
     <header class="flex flex-wrap items-center gap-3 py-6">
-      <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-lg shadow-indigo-500/40">F</span>
+      <img src="/brand/prismind-icon-small.svg" alt="" aria-hidden="true" class="h-9 w-9 shrink-0 rounded-xl shadow-lg shadow-indigo-500/40" />
       <div class="leading-tight">
-        <p class="text-sm font-semibold text-white">FellowQuant</p>
+        <p class="text-sm font-semibold text-white">Prismind <span class="text-xs font-medium tracking-[0.3em] text-slate-400">镜思</span></p>
         <p class="text-xs text-slate-500">管理后台</p>
       </div>
       <div class="ml-auto flex items-center gap-2">

@@ -17,7 +17,7 @@ onMounted(async () => {
   } catch (err) {
     // WebGL 不可用时隐藏画布，页面以 CSS 渐变兜底背景运行
     canvasRef.value.style.display = 'none'
-    console.warn('[FellowQuant] WebGL 初始化失败，页面将以降级背景运行：', err)
+    console.warn('[Prismind] WebGL 初始化失败，页面将以降级背景运行：', err)
   }
 })
 

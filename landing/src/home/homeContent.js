@@ -3,7 +3,7 @@ export const CONTENT = {
   zh: {
     nav: { home: '首页', belief: '理念', features: '功能', about: '关于', login: '登录' },
     hero: {
-      eyebrow: 'A-Share Quant Research Workbench',
+      eyebrow: 'A-Share Data Research Workbench',
       sub: '用数据检验每一个想法',
       tagLine1: '数据准备 → 策略规则 → 历史回测 → 参数验证 → 风险与成本分析',
       tagLine2: '让研究有据可查，判断始终由你作出',
@@ -15,7 +15,7 @@ export const CONTENT = {
       title: 'Approach · 我们的理念',
       headline: '好的研究，<br />先要经得起检验。',
       p1: '市场没有确定的答案。我们做的，是把一个想法放进历史数据里反复检验：数据全不全，有没有用到当时还不知道的信息，成本算够了没有，换一段时间还成不成立。',
-      p2Prefix: 'FellowQuant 提供研究工具和数据，',
+      p2Prefix: '镜思 Prismind 提供研究工具和数据，',
       p2Gold: '结论供你参考，决定由你作出',
       p2Suffix: '。',
     },
@@ -40,7 +40,7 @@ export const CONTENT = {
     about: {
       title: 'About · 关于',
       headline: '让数据说话，<br />把判断留给你。',
-      p1: 'FellowQuant 是一个 A 股量化研究工具，从数据准备、编写规则、历史回测，到参数验证和因子研究，帮你系统地检验自己的想法。',
+      p1: '镜思 Prismind 是一个 A 股数据研究工作台，从数据准备、编写规则、历史回测，到参数验证和因子研究，帮你系统地检验自己的想法。',
       p2: '每次回测都会做六个维度的可信度审计，并说明结论的适用范围。平台的所有分析结果仅供研究参考。',
       links: [
         { label: '开始研究', href: '/auth.html' },
@@ -59,14 +59,14 @@ export const CONTENT = {
         { label: '风险提示', href: '/legal.html#risk' },
       ],
       disclaimer: '平台提供的数据、回测与分析结果仅供研究参考，不构成任何投资建议；历史表现不代表未来。',
-      copyright: (y) => `© ${y} FellowQuant · 保留所有权利`,
+      copyright: (y) => `© ${y} 镜思 Prismind · 保留所有权利`,
     },
     a11y: { toLight: '切换为浅色模式', toDark: '切换为深色模式', toEn: 'Switch to English', toZh: '切换为中文' },
   },
   en: {
     nav: { home: 'Home', belief: 'Approach', features: 'Features', about: 'About', login: 'Sign in' },
     hero: {
-      eyebrow: 'A-Share Quant Research Workbench',
+      eyebrow: 'A-Share Data Research Workbench',
       sub: 'Test every idea against the data',
       tagLine1: 'Data refresh → strategy rules → historical backtest → parameter checks → risk & cost analysis',
       tagLine2: 'Research you can trace; the decisions stay yours',
@@ -78,7 +78,7 @@ export const CONTENT = {
       title: 'Approach · How We Work',
       headline: 'Good research<br />has to stand up to testing.',
       p1: 'Markets have no certain answers. What we do is put an idea through historical data again and again: is the data complete, does it use anything not yet known at the time, are the costs counted in full, does it still hold in another period.',
-      p2Prefix: 'FellowQuant provides the tools and the data; ',
+      p2Prefix: 'Prismind provides the tools and the data; ',
       p2Gold: 'the conclusions are for your reference, the decisions are yours',
       p2Suffix: '.',
     },
@@ -101,9 +101,9 @@ export const CONTENT = {
       ],
     },
     about: {
-      title: 'About · FellowQuant',
+      title: 'About · Prismind',
       headline: 'Let the data speak,<br />and leave the judgement to you.',
-      p1: 'FellowQuant is an A-share quant research tool. From data refresh and writing rules to historical backtests, parameter checks and factor research, it helps you test your own ideas systematically.',
+      p1: 'Prismind is an A-share data research workbench. From data refresh and writing rules to historical backtests, parameter checks and factor research, it helps you test your own ideas systematically.',
       p2: 'Every backtest goes through a six-dimension credibility audit that also states where its conclusions apply. All analysis on the platform is for research reference only.',
       links: [
         { label: 'Start Researching', href: '/auth.html' },
@@ -122,7 +122,7 @@ export const CONTENT = {
         { label: 'Risk Notice (Chinese)', href: '/legal.html#risk' },
       ],
       disclaimer: 'All data, backtests and analysis are for research reference only and do not constitute investment advice. Past performance does not indicate future results.',
-      copyright: (y) => `© ${y} FellowQuant · All rights reserved`,
+      copyright: (y) => `© ${y} Prismind · All rights reserved`,
     },
     a11y: { toLight: 'Switch to light mode', toDark: 'Switch to dark mode', toEn: 'Switch to English', toZh: '切换为中文' },
   },

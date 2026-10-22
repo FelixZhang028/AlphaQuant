@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title FellowQuant Launcher
+title Prismind Launcher
 cd /d "%~dp0"
 
 rem This file is intentionally ASCII-only.

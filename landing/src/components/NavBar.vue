@@ -52,22 +52,8 @@ onBeforeUnmount(() => {
     <div class="ds-header-bar" :class="{ 'is-scrolled': scrolled }">
       <!-- 左：Logo -->
       <a class="flex shrink-0 items-center gap-2 no-underline" href="/index.html">
-        <svg width="27" height="27" viewBox="0 0 27 27" fill="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="fq-logo-grad" x1="0" y1="0" x2="27" y2="27" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#4d6bfe" />
-              <stop offset="1" stop-color="#2e609f" />
-            </linearGradient>
-          </defs>
-          <rect width="27" height="27" rx="8" fill="url(#fq-logo-grad)" />
-          <path d="M7.4 17.6V11.4" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="5.9" y="12.4" width="3" height="3.7" rx="0.9" fill="#fff" />
-          <path d="M13.5 15.2V7.9" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="12" y="9" width="3" height="4.5" rx="0.9" fill="#fff" />
-          <path d="M19.6 12.7V5.6" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="18.1" y="6.8" width="3" height="4.9" rx="0.9" fill="#fff" />
-        </svg>
-        <span class="ds-logo-wordmark">FellowQuant</span>
+        <img src="/brand/prismind-icon-small.svg" width="27" height="27" alt="" aria-hidden="true" class="shrink-0" />
+        <span class="ds-logo-wordmark">Prismind</span><span class="ds-logo-sub">镜思</span>
       </a>
 
       <!-- 中：导航链接（≥768px） -->
@@ -99,16 +85,8 @@ onBeforeUnmount(() => {
   <div class="ds-mobile-menu" :class="{ 'is-open': menuOpen }">
     <div class="ds-mobile-menu-header">
       <a class="flex items-center gap-2 no-underline" href="/index.html" @click="closeMenu">
-        <svg width="27" height="27" viewBox="0 0 27 27" fill="none" aria-hidden="true">
-          <rect width="27" height="27" rx="8" fill="url(#fq-logo-grad)" />
-          <path d="M7.4 17.6V11.4" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="5.9" y="12.4" width="3" height="3.7" rx="0.9" fill="#fff" />
-          <path d="M13.5 15.2V7.9" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="12" y="9" width="3" height="4.5" rx="0.9" fill="#fff" />
-          <path d="M19.6 12.7V5.6" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="18.1" y="6.8" width="3" height="4.9" rx="0.9" fill="#fff" />
-        </svg>
-        <span class="ds-logo-wordmark">FellowQuant</span>
+        <img src="/brand/prismind-icon-small.svg" width="27" height="27" alt="" aria-hidden="true" class="shrink-0" />
+        <span class="ds-logo-wordmark">Prismind</span><span class="ds-logo-sub">镜思</span>
       </a>
       <button
         type="button"

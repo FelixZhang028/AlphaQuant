@@ -20,7 +20,7 @@ const activeSection = computed(() => navigationItem(activeKey.value))
 function isItemActive(item) { return activeSection.value?.key === item.key }
 const toast = ref('')
 const tourOpen = ref(false)
-const githubUrl = 'https://github.com/FelixZhang028/AlphaQuant'
+const githubUrl = 'https://github.com/FelixZhang028/Prismind'
 
 function navigate(destination) {
   const key = viewFor(typeof destination === 'string' ? destination : destination?.view, !!user.value?.is_admin)
@@ -193,9 +193,9 @@ function doLogout() {
         ]"
       >
         <a href="/" class="flex items-center gap-2.5">
-          <img src="/fellowquant-logo.png" alt="FellowQuant" class="h-11 w-11 shrink-0 rounded-xl object-contain" />
+          <img src="/brand/prismind-icon-small.svg" alt="镜思 Prismind" class="h-11 w-11 shrink-0 rounded-xl object-contain" />
           <div class="leading-tight">
-            <p class="text-sm font-semibold text-white">FellowQuant</p>
+            <p class="text-sm font-semibold text-white">Prismind <span class="text-xs font-medium tracking-[0.3em] text-slate-400">镜思</span></p>
             <p class="text-[10px] text-slate-500">功能台</p>
           </div>
         </a>
@@ -231,8 +231,8 @@ function doLogout() {
         </nav>
 
         <div class="mt-4 shrink-0 space-y-3 border-t border-white/10 pt-3">
-          <section class="rounded-xl border border-white/10 bg-white/5 p-3" aria-label="支持 FellowQuant">
-            <p class="text-sm font-semibold text-white">支持 FellowQuant</p>
+          <section class="rounded-xl border border-white/10 bg-white/5 p-3" aria-label="支持镜思 Prismind">
+            <p class="text-sm font-semibold text-white">支持镜思 Prismind</p>
             <p class="mt-2 text-[11px] leading-5 text-slate-400">您的<span class="text-indigo-300">意见</span>，都帮助我们持续改进。<br />您的<span class="text-amber-300">Star</span>，都是对我们最大的鼓励。</p>
             <div class="mt-3 flex gap-2">
               <a :href="`${githubUrl}/issues/new/choose`" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-white/10 px-2 py-2 text-center text-xs text-slate-300 hover:bg-white/10">提交 Issue</a>

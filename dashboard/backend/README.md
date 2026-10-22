@@ -1,4 +1,4 @@
-# FellowQuant · 后端（FastAPI）
+# 镜思 Prismind · 后端（FastAPI）
 
 官网、功能台和管理后台共用的后端：账户与登录、行情数据、策略与回测、因子研究、AI 研究员和管理后台的统计。
 
