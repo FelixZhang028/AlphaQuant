@@ -11,6 +11,10 @@
 - ai_chats       AI 问答的对话（每一轮的问题、回答和用到的数据）
 - admin_audit    管理员做过的操作（改设置、停用用户、启动数据任务……；不记录密钥本身）
 - ai_tokens      每天调用文本模型用掉的 token（服务商返回了用量时）
+- point_lots / point_ledger  积分：每一批（有效期）和每一次增加、扣除
+- redeem_codes / redeem_uses 兑换码和谁用过
+- point_checkins 每日打卡（每人每天一行，含补签）
+- point_makeup_cards 补签卡
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -237,6 +241,70 @@ def init_db() -> None:
                 day   TEXT PRIMARY KEY,
                 count INTEGER NOT NULL DEFAULT 0
             );
+            -- 积分：每一笔进账是一批（注册赠送、管理员发放、兑换码……），各有有效期；用的时候先用快过期的
+            CREATE TABLE IF NOT EXISTS point_lots (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                source     TEXT    NOT NULL,                -- signup / admin / redeem / purchase
+                amount     INTEGER NOT NULL,
+                remaining  INTEGER NOT NULL,
+                expires_at TEXT    NOT NULL,                -- UTC
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_point_lots_user ON point_lots(user_id, expires_at);
+            -- 积分明细：每一次增加（正数）和扣除（负数）；调用失败退回时这一笔会删掉
+            CREATE TABLE IF NOT EXISTS point_ledger (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                delta      INTEGER NOT NULL,
+                kind       TEXT    NOT NULL,                -- signup / admin / redeem / purchase / spend
+                feature    TEXT    NOT NULL DEFAULT '',     -- 用在哪个功能（brief / chat ……）
+                note       TEXT    NOT NULL DEFAULT '',
+                detail     TEXT    NOT NULL DEFAULT '{}',   -- JSON：扣的时候从哪几批里扣了多少
+                created_at TEXT    NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_point_ledger_user ON point_ledger(user_id, id);
+            -- 兑换码：每个码多少积分、兑换后多少天有效、能给几个账户用、多久以内能兑换
+            -- 每日打卡：每人每天（北京时间）一行，主键保证一天只能打一次
+            CREATE TABLE IF NOT EXISTS point_checkins (
+                user_id    INTEGER NOT NULL,
+                day        TEXT    NOT NULL,                -- 北京时间的日期 YYYY-MM-DD
+                points     INTEGER NOT NULL,                -- 这天送了多少（补签的是 0）
+                makeup     INTEGER NOT NULL DEFAULT 0,      -- 1：用补签卡补的
+                created_at TEXT    NOT NULL,
+                PRIMARY KEY (user_id, day),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            -- 补签卡：累计打卡送的，不过期；用掉以后记下补的是哪一天
+            CREATE TABLE IF NOT EXISTS point_makeup_cards (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id   INTEGER NOT NULL,
+                earned_at TEXT    NOT NULL,
+                used_day  TEXT,
+                used_at   TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_makeup_cards_user ON point_makeup_cards(user_id, used_day);
+            CREATE TABLE IF NOT EXISTS redeem_codes (
+                code       TEXT    PRIMARY KEY,
+                points     INTEGER NOT NULL,
+                valid_days INTEGER NOT NULL,
+                max_uses   INTEGER,                         -- 空表示不限
+                used       INTEGER NOT NULL DEFAULT 0,
+                expires_at TEXT,                            -- 空表示一直能兑换
+                active     INTEGER NOT NULL DEFAULT 1,
+                note       TEXT    NOT NULL DEFAULT '',
+                created_at TEXT    NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS redeem_uses (
+                code    TEXT    NOT NULL,
+                user_id INTEGER NOT NULL,
+                used_at TEXT    NOT NULL,
+                PRIMARY KEY (code, user_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         # 旧库迁移：补 is_admin 列（已存在则忽略）
@@ -249,6 +317,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
         if "last_seen_at" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
+        if "makeup" not in {row["name"] for row in conn.execute("PRAGMA table_info(point_checkins)")}:
+            conn.execute("ALTER TABLE point_checkins ADD COLUMN makeup INTEGER NOT NULL DEFAULT 0")
 
     # No public default credentials. Bootstrap only when explicitly configured.
     email = os.getenv("FELLOWQUANT_ADMIN_EMAIL", "").strip().lower()

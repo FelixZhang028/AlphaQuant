@@ -89,6 +89,20 @@ export function setInviteActive(code, active) {
   return request(`/api/v1/admin/invites/${encodeURIComponent(code)}/active`, { method: 'POST', body: { active }, auth: true })
 }
 
+// 积分与兑换码
+export function adminPoints(days = 30) {
+  return request(`/api/v1/admin/points?days=${days}`, { auth: true })
+}
+export function adjustUserPoints(id, { amount, days = 30, note }) {
+  return request(`/api/v1/admin/users/${id}/points`, { method: 'POST', body: { amount, days, note }, auth: true })
+}
+export function createRedeemCodes(payload) {
+  return request('/api/v1/admin/redeem-codes', { method: 'POST', body: payload, auth: true })
+}
+export function setRedeemCodeActive(code, active) {
+  return request(`/api/v1/admin/redeem-codes/${encodeURIComponent(code)}/active`, { method: 'POST', body: { active }, auth: true })
+}
+
 // 数据更新（和功能台“数据更新”页用同一组接口）
 export function dailyUpdateStatus() {
   return request('/api/v1/data-center/daily-update', { auth: true })

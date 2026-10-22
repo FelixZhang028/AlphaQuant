@@ -1,5 +1,5 @@
 <script setup>
-// 设置：外观、研究默认值、今天的 AI 次数、我的数据（含导出）、账户、关于；管理员另外能配置平台的知识库服务。
+// 设置：外观、研究默认值、今天的免费 AI 次数、我的数据（含导出）、账户、关于；管理员另外能配置平台的知识库服务。
 import { computed, onActivated, reactive, ref } from 'vue'
 import { exportMyData, getPreferences, getRisk, getUniverse, savePreferences, todayUsage } from '../../api.js'
 import { useTheme } from '../../theme.js'
@@ -149,15 +149,19 @@ const pill = (active) => active ? 'border-indigo-400/50 bg-indigo-500/15 text-wh
       </form>
     </SectionCard>
 
-    <SectionCard title="今天的 AI 次数" :hint="usage?.unlimited ? '管理员不限次数' : '每天北京时间 0 点重置'">
+    <SectionCard title="今天的免费次数" :hint="usage?.unlimited ? '管理员不限次数' : '每天北京时间 0 点重置；用完以后每次扣积分'">
       <ul v-if="usage" class="grid gap-3 sm:grid-cols-2">
         <li v-for="item in usage.items" :key="item.kind" class="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
           <span class="text-slate-300">{{ item.label }}</span>
           <span v-if="item.limit == null" class="text-slate-400">已用 {{ item.used }} · 不限</span>
-          <span v-else :class="item.remaining ? 'text-white' : 'text-amber-300'">还剩 {{ item.remaining }} / {{ item.limit }}</span>
+          <span v-else-if="item.remaining" class="text-white">还剩 {{ item.remaining }} / {{ item.limit }}</span>
+          <span v-else class="text-amber-300">已用完 · 每次 {{ item.cost }} 积分</span>
         </li>
       </ul>
       <p v-else class="text-sm text-slate-500">加载中…</p>
+      <button v-if="usage && !usage.unlimited" type="button" class="mt-3 text-xs text-indigo-300 hover:text-indigo-200" @click="navigate('points')">
+        我的积分{{ usage.items[0]?.points != null ? `：${usage.items[0].points}` : '' }} →
+      </button>
     </SectionCard>
 
     <SectionCard title="我的数据">

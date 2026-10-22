@@ -32,6 +32,7 @@ from quant_platform.data.providers.baostock_provider import DEFAULT_INTERVAL
 
 from ..database import get_conn
 from ..security import SECRET_KEY
+from . import points
 from .daily_schedule import DEFAULT_TIME
 from .platform_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, LIMITS, TOTAL_DEFAULT
 
@@ -53,7 +54,8 @@ class Setting:
 
 GROUPS = {
     "ai": "AI 模型",
-    "limits": "AI 次数",
+    "limits": "每天免费次数",
+    "points": "积分",
     "data": "数据更新",
     "mail": "邮件服务（找回密码）",
 }
@@ -72,10 +74,28 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("FELLOWQUANT_JEV_MODEL", "ai", "Jev 模型名称", "text", "一般留空，用默认的版本。"),
     Setting("FELLOWQUANT_JEV_URL", "ai", "Jev 接口地址", "url", "一般留空，用默认的地址。"),
 
-    *(Setting(variable, "limits", f"{word}（每人每天）", "int", default=str(default), minimum=0, maximum=10000)
+    *(Setting(variable, "limits", f"{word}（每人每天免费）", "int", "免费次数用完以后每次扣积分。",
+              default=str(default), minimum=0, maximum=10000)
       for variable, default, word in LIMITS.values()),
     Setting("FELLOWQUANT_AI_DAILY_TOTAL", "limits", "全站每天最多（所有人加起来）", "int",
             "所有用户、所有种类加起来；管理员的调用计入但不受限制。0 表示不限。", default=str(TOTAL_DEFAULT), minimum=0, maximum=1000000),
+
+    Setting(points.SIGNUP[0], "points", "新用户赠送积分", "int",
+            "每个账户只送一次；以前注册的账户第一次打开时补上。0 表示不送。", default=str(points.SIGNUP[1]), minimum=0, maximum=100000),
+    Setting(points.GIFT_DAYS[0], "points", "赠送的积分多少天有效", "int", default=str(points.GIFT_DAYS[1]), minimum=1, maximum=3650),
+    Setting(points.CHECKIN[0], "points", "每日打卡：第 1 天送多少积分", "int",
+            "每个账户每天（北京时间）打一次卡，断了从第 1 天重新开始。0 表示关闭打卡。", default=str(points.CHECKIN[1]), minimum=0, maximum=10000),
+    Setting(points.CHECKIN_STEP[0], "points", "连续打卡每多一天多送几分", "int", default=str(points.CHECKIN_STEP[1]), minimum=0, maximum=10000),
+    Setting(points.CHECKIN_MAX[0], "points", "打卡每天最多送几分", "int", "到了以后连续打卡每天都送这么多。",
+            default=str(points.CHECKIN_MAX[1]), minimum=0, maximum=10000),
+    Setting(points.CHECKIN_DAYS[0], "points", "打卡的积分多少天有效", "int", default=str(points.CHECKIN_DAYS[1]), minimum=1, maximum=3650),
+    Setting(points.MAKEUP_EVERY[0], "points", "累计打卡几天送一张补签卡", "int",
+            "只算真正打卡的日子，补签的不算；补签卡不过期。0 表示没有补签卡。", default=str(points.MAKEUP_EVERY[1]), minimum=0, maximum=3650),
+    Setting(points.MAKEUP_WINDOW[0], "points", "补签卡最多补几天以内的", "int", default=str(points.MAKEUP_WINDOW[1]), minimum=1, maximum=365),
+    Setting(points.DAILY_CAP[0], "points", "每人每天最多用几次 AI（免费的加积分的）", "int",
+            "防止一个账户一直调用。0 表示不限。", default=str(points.DAILY_CAP[1]), minimum=0, maximum=100000),
+    *(Setting(variable, "points", f"{LIMITS[kind][2]}：每次多少积分", "int", default=str(default), minimum=1, maximum=10000)
+      for kind, (variable, default) in points.COSTS.items()),
 
     Setting("FELLOWQUANT_DAILY_UPDATE", "data", "每个交易日自动更新", "switch", default="on", options=("on", "off")),
     Setting("FELLOWQUANT_DAILY_UPDATE_TIME", "data", "自动更新的时间（北京时间）", "time",

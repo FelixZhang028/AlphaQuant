@@ -56,7 +56,7 @@ def save(client, values=None, clear=None, password=PASSWORD):
 def test_a_saved_key_is_encrypted_masked_and_used_at_once(api):
     client, _ = api
     body = client.get("/api/v1/admin/settings").json()
-    assert [group["label"] for group in body["groups"]] == ["AI 模型", "AI 次数", "数据更新", "邮件服务（找回密码）"]
+    assert [group["label"] for group in body["groups"]] == ["AI 模型", "每天免费次数", "积分", "数据更新", "邮件服务（找回密码）"]
     assert item(body, "FELLOWQUANT_AI_MODEL")["source"] == "env" and item(body, "OPENROUTER_API_KEY")["source"] == "default"
     assert platform_ai.platform_model() is None
     assert save(client, {"OPENROUTER_API_KEY": KEY, "FELLOWQUANT_AI_DAILY_CHATS": "50"}).status_code == 200

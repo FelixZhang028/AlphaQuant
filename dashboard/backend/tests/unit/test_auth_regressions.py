@@ -109,7 +109,7 @@ def test_nl_generation_uses_the_platform_model_and_counts_it(tmp_path, monkeypat
         second = workspace.nl_generate(workspace.NlGenerateIn(description='动量策略'), user)
         assert builder.call_args.args[0].name == 'mock'
         assert second['model'] is None and '用完' in second['note']
-    assert workspace.nl_status(user)['usage'] == {'limit': 1, 'used': 1, 'remaining': 0}
+    assert workspace.nl_status(user)['usage'] == {'limit': 1, 'used': 1, 'remaining': 0, 'cost': 2, 'points': 0}
 
 
 def test_nl_generation_without_a_platform_model_is_offline(monkeypatch):

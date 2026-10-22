@@ -4,8 +4,9 @@ Keys live only in the server's environment; users never see or enter one. The ch
 ``OPENROUTER_API_KEY`` (or ``FELLOWQUANT_AI_API_KEY`` for another OpenAI-compatible service). The
 decision model Jev uses ``TYPESAFE_API_KEY`` (or ``JEV_API_KEY``) for TypeSafe's official API,
 with ``OPENROUTER_API_KEY`` as a fallback for OpenRouter. Each kind of call
-has a daily limit per user, counted in China time; administrators have none. A call is counted
-only when the model answered.
+has free uses per user per day, counted in China time; after those each use costs points
+(``points.py``). Administrators have no limit and pay no points. A call is counted (and its points
+kept) only when the model answered.
 """
 
 from __future__ import annotations
@@ -24,19 +25,20 @@ from quant_platform.jev.client import OPENROUTER_MODEL, TYPESAFE_DECISIONS_URL
 from trading_agents.llm.base import OpenAICompatClient
 
 from ..database import get_conn
+from . import points
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4-pro"
-# 种类 -> (环境变量, 默认每天次数, 页面上的说法)
+# 种类 -> (环境变量, 默认每天免费次数, 页面上的说法)；免费次数用完以后每次扣积分（points.COSTS）。
 LIMITS = {
-    "brief": ("FELLOWQUANT_AI_DAILY_BRIEFS", 5, "AI 解读"),
-    "question": ("FELLOWQUANT_AI_DAILY_QUESTIONS", 20, "追问"),
-    "strategy": ("FELLOWQUANT_AI_DAILY_STRATEGIES", 10, "用一句话生成规则"),
-    "review": ("FELLOWQUANT_AI_DAILY_REVIEWS", 10, "AI 评估"),
+    "brief": ("FELLOWQUANT_AI_DAILY_BRIEFS", 3, "AI 解读"),
+    "question": ("FELLOWQUANT_AI_DAILY_QUESTIONS", 10, "追问"),
+    "strategy": ("FELLOWQUANT_AI_DAILY_STRATEGIES", 5, "用一句话生成规则"),
+    "review": ("FELLOWQUANT_AI_DAILY_REVIEWS", 3, "AI 评估"),
     # AI 研究员里用 Jev 判断一只股票：单独计数，不占回测 AI 评估的次数。
-    "decision": ("FELLOWQUANT_AI_DAILY_DECISIONS", 10, "个股判断"),
+    "decision": ("FELLOWQUANT_AI_DAILY_DECISIONS", 3, "个股判断"),
     # AI 问答：每问一次算一次（内部要调用两次模型：先选数据，再回答）。
-    "chat": ("FELLOWQUANT_AI_DAILY_CHATS", 20, "AI 问答"),
+    "chat": ("FELLOWQUANT_AI_DAILY_CHATS", 10, "AI 问答"),
 }
 CHINA = timezone(timedelta(hours=8))
 
@@ -156,32 +158,27 @@ def daily_limit(kind: str) -> int:
 
 
 def usage(user: dict, kind: str) -> dict:
-    """Today's limit, use and what is left; ``limit`` is None for administrators."""
+    """Today's free uses (limit, used, left), the points one more use costs after that, and the balance.
+    ``limit`` and ``points`` are None for administrators (no limit, no points)."""
 
     with get_conn() as conn:
         row = conn.execute("SELECT count FROM ai_usage WHERE user_id = ? AND day = ? AND kind = ?",
                            (user["id"], _today(), kind)).fetchone()
+        have = None
+        if not user.get("is_admin"):
+            points.ensure_signup(conn, user["id"])      # 有积分以前注册的账户，第一次看到时补上注册赠送
+            have = points.balance(conn, user["id"])
     used = int(row["count"]) if row else 0
     if user.get("is_admin"):
-        return {"limit": None, "used": used, "remaining": None}
+        return {"limit": None, "used": used, "remaining": None, "cost": 0, "points": None}
     limit = daily_limit(kind)
-    return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
+    return {"limit": limit, "used": used, "remaining": max(0, limit - used), "cost": points.cost(kind), "points": have}
 
 
-def require_quota(user: dict, kind: str) -> None:
-    left = usage(user, kind)["remaining"]
-    if left is not None and left <= 0:
-        word = LIMITS[kind][2]
-        raise QuotaExceeded(f"今天的{' ' if word[0].isascii() else ''}{word}次数已经用完（每天 {daily_limit(kind)} 次），明天再来。")
-
-
-def record_use(user: dict, kind: str) -> None:
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO ai_usage (user_id, day, kind, count) VALUES (?, ?, ?, 1) "
-            "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
-            (user["id"], _today(), kind),
-        )
+def _short_text(kind: str, need: int, have: int) -> str:
+    word = LIMITS[kind][2]
+    return (f"今天的免费{word}次数已经用完（每天 {daily_limit(kind)} 次）。再用一次要 {need} 积分，"
+            f"你现在有 {have} 积分；可以在“积分”页面用兑换码兑换积分。")
 
 
 def usage_history(days: int = 30) -> dict:
@@ -216,22 +213,36 @@ def usage_history(days: int = 30) -> dict:
 
 @contextmanager
 def quota_call(user: dict, kind: str):
-    """Reserve a daily call atomically; failed calls release the reservation.
+    """Reserve one use atomically: a free use of the day if any is left, otherwise the points it costs.
+    A failed call gives back the use (and the points).
 
     The transaction ends before the network request. Concurrent requests cannot all
-    pass the same last remaining slot. Keep the reservation's day even across midnight.
+    pass the same last remaining slot or spend the same points. Keep the reservation's day even across midnight.
     """
     day = _today()
+    spent = None
+    if not user.get("is_admin"):
+        with get_conn() as conn:
+            points.ensure_signup(conn, user["id"])      # 单独提交：后面被拒绝时也不会把注册赠送一起撤销
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT count FROM ai_usage WHERE user_id = ? AND day = ? AND kind = ?",
                            (user["id"], day, kind)).fetchone()
-        if not user.get("is_admin") and (int(row["count"]) if row else 0) >= daily_limit(kind):
-            word = LIMITS[kind][2]
-            raise QuotaExceeded(f"今天的{' ' if word[0].isascii() else ''}{word}次数已经用完（每天 {daily_limit(kind)} 次），明天再来。")
-        total = conn.execute("SELECT count FROM ai_usage_total WHERE day = ?", (day,)).fetchone()
-        if not user.get("is_admin") and daily_total_limit() and (int(total["count"]) if total else 0) >= daily_total_limit():
-            raise QuotaExceeded("平台今天的 AI 次数已经用完，明天再来。")
+        if not user.get("is_admin"):
+            total = conn.execute("SELECT count FROM ai_usage_total WHERE day = ?", (day,)).fetchone()
+            if daily_total_limit() and (int(total["count"]) if total else 0) >= daily_total_limit():
+                raise QuotaExceeded("平台今天的 AI 次数已经用完，明天再来。")
+            cap = points.daily_cap()
+            mine = conn.execute("SELECT COALESCE(SUM(count), 0) AS n FROM ai_usage WHERE user_id = ? AND day = ?",
+                                (user["id"], day)).fetchone()
+            if cap and int(mine["n"]) >= cap:
+                raise QuotaExceeded(f"今天已经用了 {int(mine['n'])} 次 AI，达到每人每天的上限（{cap} 次），明天再来。")
+            if (int(row["count"]) if row else 0) >= daily_limit(kind):
+                need = points.cost(kind)
+                try:
+                    spent = points.spend(conn, user["id"], need, kind)
+                except points.PointsShort as short:
+                    raise QuotaExceeded(_short_text(kind, need, int(short.args[0]))) from None
         conn.execute(
             "INSERT INTO ai_usage (user_id, day, kind, count) VALUES (?, ?, ?, 1) "
             "ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1",
@@ -245,4 +256,6 @@ def quota_call(user: dict, kind: str):
             conn.execute("UPDATE ai_usage SET count = MAX(0, count - 1) WHERE user_id = ? AND day = ? AND kind = ?",
                          (user["id"], day, kind))
             conn.execute("UPDATE ai_usage_total SET count = MAX(0, count - 1) WHERE day = ?", (day,))
+        if spent is not None:
+            points.refund(spent)
         raise

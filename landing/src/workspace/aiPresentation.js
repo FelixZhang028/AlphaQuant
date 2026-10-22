@@ -28,9 +28,12 @@ export function tiltTone(tilt) {
   return TILT_LABELS[tilt] ? 'border-indigo-300/30 bg-indigo-500/10 text-indigo-100' : 'border-white/15 bg-white/5 text-slate-200'
 }
 
+// 今天的免费次数；用完以后说明再用一次要多少积分、现在有多少。
 export function remainingText(usage, word) {
   if (!usage || usage.remaining == null) return ''
-  return usage.remaining > 0 ? `今天还可以${word} ${usage.remaining} 次` : `今天的${word}次数已用完`
+  if (usage.remaining > 0) return `今天还可以免费${word} ${usage.remaining} 次`
+  if (usage.cost && usage.points != null) return `今天的免费${word}次数已用完，再用每次 ${usage.cost} 积分（现有 ${usage.points}）`
+  return `今天的免费${word}次数已用完`
 }
 
 export function modelText(status) {

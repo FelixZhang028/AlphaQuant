@@ -1,8 +1,12 @@
 """
 管理员接口，挂载在 /api/v1/admin 下（仅 is_admin=1 可访问）。
 
-- GET  /users                 全部用户：最后访问、今天和累计的 AI 次数、回测数、是否停用
+- GET  /users                 全部用户：最后访问、今天和累计的 AI 次数、回测数、积分、是否停用
 - POST /users/{id}/active     停用或恢复一个账户（管理员账户不能停用）
+- POST /users/{id}/points     给一个用户加或扣积分（要写原因）
+- GET  /points                积分概况：还有效的积分、最近发放和使用的积分、最近的明细、全部兑换码
+- POST /redeem-codes          生成兑换码（一次可以生成多个）
+- POST /redeem-codes/{code}/active 停用或恢复兑换码
 - GET  /stats                 平台的真实数字：用户、研究、AI 用量、邀请码、注册方式、备份
 - GET  /registration          注册方式和全部邀请码
 - PUT  /registration          改注册方式：open 开放 / invite 凭邀请码 / closed 暂停
@@ -25,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..database import get_conn
-from ..quant import audit, backup, fundamentals_schedule, mailer, platform_ai, rate_limit, registration, site_config
+from ..quant import audit, backup, fundamentals_schedule, mailer, platform_ai, points, rate_limit, registration, site_config
 from ..quant.runtime import MARKET_ROOT, RUNTIME_ROOT
 from ..routes.auth import get_current_user
 from ..security import verify_password
@@ -53,6 +57,21 @@ class InviteIn(BaseModel):
     note: str = Field("", max_length=60, description="备注，例如发给谁")
 
 
+class PointsIn(BaseModel):
+    amount: int = Field(..., ge=-100000, le=100000, description="正数加积分，负数扣积分")
+    days: int = Field(30, ge=1, le=3650, description="加的积分多少天有效")
+    note: str = Field(..., min_length=1, max_length=60, description="原因，用户在明细里能看到")
+
+
+class RedeemCodesIn(BaseModel):
+    count: int = Field(1, ge=1, le=200, description="生成几个")
+    points: int = Field(..., ge=1, le=100000, description="每个码兑换多少积分")
+    valid_days: int = Field(30, ge=1, le=3650, description="兑换后的积分多少天有效")
+    max_uses: int | None = Field(1, ge=1, le=100000, description="每个码最多几个账户兑换，留空不限")
+    expires_days: int | None = Field(None, ge=1, le=3650, description="码本身多少天内可以兑换，留空不限")
+    note: str = Field("", max_length=60, description="备注，例如发给谁")
+
+
 @router.get("/users", dependencies=[Depends(require_admin)])
 def list_users():
     with get_conn() as conn:
@@ -61,10 +80,12 @@ def list_users():
             SELECT u.id, u.name, u.email, u.created_at, u.is_admin, u.is_active, u.last_seen_at,
                    (SELECT COALESCE(SUM(a.count), 0) FROM ai_usage a WHERE a.user_id = u.id AND a.day = ?) AS ai_today,
                    (SELECT COALESCE(SUM(a.count), 0) FROM ai_usage a WHERE a.user_id = u.id) AS ai_total,
-                   (SELECT COUNT(*) FROM backtests b WHERE b.user_id = u.id) AS backtests
+                   (SELECT COUNT(*) FROM backtests b WHERE b.user_id = u.id) AS backtests,
+                   (SELECT COALESCE(SUM(p.remaining), 0) FROM point_lots p
+                     WHERE p.user_id = u.id AND p.remaining > 0 AND p.expires_at > ?) AS points
             FROM users u ORDER BY u.id DESC
             """,
-            (platform_ai._today(),),
+            (platform_ai._today(), datetime.now(timezone.utc).isoformat()),
         ).fetchall()
     return [
         {
@@ -78,6 +99,7 @@ def list_users():
             "ai_today": int(r["ai_today"]),
             "ai_total": int(r["ai_total"]),
             "backtests": int(r["backtests"]),
+            "points": None if r["is_admin"] else int(r["points"]),
         }
         for r in rows
     ]
@@ -98,6 +120,49 @@ def set_user_active(uid: int, body: ActiveIn, admin: dict = Depends(require_admi
     audit.record(admin, "user.enable" if body.active else "user.disable",
                  f"{'恢复' if body.active else '停用'}了账户 {row['email']}", user_id=uid)
     return {"id": uid, "is_active": body.active}
+
+
+@router.post("/users/{uid}/points")
+def adjust_user_points(uid: int, body: PointsIn, admin: dict = Depends(require_admin)):
+    """加积分：新的一批，``days`` 天有效；扣积分：从快过期的开始扣，最多扣到 0。用户在明细里能看到原因。"""
+
+    if body.amount == 0:
+        raise HTTPException(status_code=400, detail="积分不能是 0")
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT is_admin, email FROM users WHERE id = ?", (uid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="没有这个用户")
+        if row["is_admin"]:
+            raise HTTPException(status_code=400, detail="管理员不用积分")
+        points.ensure_signup(conn, uid)
+        points.adjust(conn, uid, body.amount, body.note.strip(), body.days)
+        have = points.balance(conn, uid)
+    word = f"加了 {body.amount} 积分（{body.days} 天有效）" if body.amount > 0 else f"扣了 {-body.amount} 积分"
+    audit.record(admin, "points.adjust", f"给 {row['email']} {word}：{body.note.strip()}",
+                 user_id=uid, amount=body.amount, days=body.days)
+    return {"id": uid, "points": have}
+
+
+@router.get("/points", dependencies=[Depends(require_admin)])
+def points_overview(days: int = Query(30, ge=1, le=365)):
+    labels = {kind: word for kind, (_variable, _default, word) in platform_ai.LIMITS.items()}
+    return {**points.overview(days), "codes": points.all_codes(), "labels": labels, "sources": points.SOURCES}
+
+
+@router.post("/redeem-codes", status_code=status.HTTP_201_CREATED)
+def create_redeem_codes(body: RedeemCodesIn, admin: dict = Depends(require_admin)):
+    codes = points.create_codes(body.count, body.points, body.valid_days, body.max_uses, body.expires_days, body.note)
+    audit.record(admin, "points.codes", f"生成了 {len(codes)} 个兑换码，每个 {body.points} 积分（{body.valid_days} 天有效）",
+                 count=len(codes), points=body.points, note=body.note)
+    return {"created": codes, **points_overview(30)}
+
+
+@router.post("/redeem-codes/{code}/active")
+def set_redeem_code_active(code: str, body: ActiveIn, admin: dict = Depends(require_admin)):
+    points.set_code_active(code, body.active)
+    audit.record(admin, "points.code_active", f"{'恢复' if body.active else '停用'}了兑换码 {code}", code=code)
+    return points_overview(30)
 
 
 @router.get("/registration", dependencies=[Depends(require_admin)])

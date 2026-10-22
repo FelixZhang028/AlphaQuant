@@ -16,9 +16,11 @@ test('数据按组排列，保持后端给的顺序', () => {
 test('没有模型、次数和管理员的说明', () => {
   assert.equal(modelText({ ai: { available: false } }), '平台还没有配置 AI 模型：分析时只显示数据，不会有 AI 解读。')
   assert.equal(modelText({ ai: { available: true, model: 'deepseek-v4-pro' }, usage: { brief: { limit: 5, used: 1, remaining: 4 } } }),
-    'AI 模型 deepseek-v4-pro · 今天还可以分析 4 次')
+    'AI 模型 deepseek-v4-pro · 今天还可以免费分析 4 次')
   assert.equal(modelText({ ai: { available: true, model: 'm' }, usage: { brief: { limit: null, used: 9, remaining: null } } }), 'AI 模型 m')
-  assert.equal(remainingText({ remaining: 0 }, '追问'), '今天的追问次数已用完')
+  assert.equal(remainingText({ remaining: 0 }, '追问'), '今天的免费追问次数已用完')
+  assert.equal(remainingText({ remaining: 0, cost: 1, points: 40 }, '追问'), '今天的免费追问次数已用完，再用每次 1 积分（现有 40）')
+  assert.equal(remainingText({ remaining: 0, cost: 1, points: null }, '追问'), '今天的免费追问次数已用完')
 })
 
 test('依据只在日期不同时写日期，倾向换成对数据的说法，不用红绿色', () => {

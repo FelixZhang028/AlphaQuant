@@ -207,6 +207,19 @@ export function savePreferences(preferences) {
 export function todayUsage() {
   return request('/api/v1/settings/usage', { auth: true })
 }
+// ---- 积分 ----
+export function getPoints() {
+  return request('/api/v1/points', { auth: true })
+}
+export function checkIn() {
+  return request('/api/v1/points/checkin', { method: 'POST', auth: true })
+}
+export function makeupCheckin() {
+  return request('/api/v1/points/makeup', { method: 'POST', auth: true })
+}
+export function redeemPoints(code) {
+  return request('/api/v1/points/redeem', { method: 'POST', body: { code }, auth: true })
+}
 // 导出我的数据：下载成一个 JSON 文件。
 export async function exportMyData() {
   const res = await fetch(`${API_BASE}/api/v1/settings/export`, { headers: { Authorization: `Bearer ${getToken()}` } })

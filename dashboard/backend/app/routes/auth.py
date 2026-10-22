@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..database import get_conn
-from ..quant import mailer, rate_limit, registration
+from ..quant import mailer, points, rate_limit, registration
 from ..security import (
     create_token,
     decode_token,
@@ -166,6 +166,7 @@ def register(body: RegisterIn, request: Request):
                 (body.name.strip(), body.email.strip().lower(), pwd_hash, salt, now),
             )
             uid = cur.lastrowid
+            points.ensure_signup(conn, uid)               # 注册赠送的积分，和账户一起生效
             row = conn.execute(
                 "SELECT id, name, email, created_at, is_admin FROM users WHERE id = ?", (uid,)
             ).fetchone()

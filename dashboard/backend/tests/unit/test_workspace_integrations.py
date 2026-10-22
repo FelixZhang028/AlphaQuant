@@ -157,7 +157,7 @@ def test_decisions_use_the_platform_key_and_count_uses(api, tmp_path, monkeypatc
         conn.execute("INSERT INTO users (id, name, email, password_hash, salt, created_at) VALUES (1, 'u', 'u@example.test', 'h', 's', 'now')")
     monkeypatch.setenv('OPENROUTER_API_KEY', 'platform-key')
     monkeypatch.setenv('FELLOWQUANT_AI_DAILY_REVIEWS', '1')
-    assert client.get('/api/v1/jev/status').json() == {'available': True, 'model': 'jev-1.13', 'usage': {'limit': 1, 'used': 0, 'remaining': 0 + 1}}
+    assert client.get('/api/v1/jev/status').json() == {'available': True, 'model': 'jev-1.13', 'usage': {'limit': 1, 'used': 0, 'remaining': 0 + 1, 'cost': 2, 'points': 0}}
     assert client.post('/api/v1/jev/decide', json={'type': 'choice', 'options': ['A']}).status_code == 422
     assert client.post('/api/v1/jev/decide', json={'type': 'score', 'question': 'Q', 'levels': ['L', 'L']}).status_code == 422
     with patch.object(JevClient, '_post', return_value={'answers': {'decision': {

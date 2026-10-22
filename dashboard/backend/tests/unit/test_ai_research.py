@@ -273,7 +273,7 @@ def test_brief_retries_a_bad_answer_counts_use_and_stops_at_the_limit(api, monke
     assert len(model.calls) == 2  # 已经解读过：不再调用，也不再计数
     assert "数据表" in model.calls[0][1]["content"] and "ret_20d" in model.calls[0][1]["content"]
     status = client.get("/api/v1/agent-lab/status").json()
-    assert status["usage"]["brief"] == {"limit": 1, "used": 1, "remaining": 0}
+    assert status["usage"]["brief"] == {"limit": 1, "used": 1, "remaining": 0, "cost": 3, "points": 0}
     again = analyse(client, "600000.SH")
     assert again["brief"] is None and "用完" in again["ai_note"] and again["facts"]["facts"]
     items = client.get("/api/v1/agent-lab/briefs").json()["items"]

@@ -28,6 +28,7 @@ export const groups = [
     { key: 'data-update', label: '数据运维', admin: true },
   ] },
   { label: '系统', items: [
+    { key: 'points', label: '积分' },
     { key: 'account', label: '个人中心' },
     { key: 'settings', label: '设置' },
   ] },
@@ -86,7 +87,7 @@ const wideViews = new Set([
   'factor-lab', 'backtest-review', 'research', 'audit-report',
   'strategy-forensics', 'strategy-studio', 'run-library',
 ])
-const compactViews = new Set(['account', 'settings'])
+const compactViews = new Set(['account', 'settings', 'points'])
 
 export function contentLayout(key) {
   if (compactViews.has(key)) return 'compact'
@@ -117,4 +118,5 @@ export const views = {
   universe: defineAsyncComponent(() => import('./views/UniverseView.vue')),
   settings: defineAsyncComponent(() => import('./views/SettingsView.vue')),
   account: defineAsyncComponent(() => import('./views/AccountView.vue')),
+  points: defineAsyncComponent(() => import('./views/PointsView.vue')),
 }
