@@ -167,6 +167,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
         <div class="fq-hero-inner">
           <p class="fq-eyebrow fq-reveal" :style="{ transitionDelay: '0.15s' }">{{ c.hero.eyebrow }}</p>
           <h1 class="fq-hero-title" aria-label="镜思 Prismind">
+            <span class="fq-hero-halo fq-reveal" :style="{ transitionDelay: '0.27s' }" aria-hidden="true"></span>
             <span class="fq-hero-word fq-reveal" :style="{ transitionDelay: '0.27s' }" aria-hidden="true">Prismind</span><span
               class="fq-hero-cn fq-reveal"
               :style="{ transitionDelay: '0.39s' }"
@@ -537,9 +538,9 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   color: var(--fq-accent);
 }
 
-/* 首页大标题：沿用以前首页标题的蓝到青渐变，光泽缓慢地从左往右扫过 */
+/* 首页大标题：青 → 紫 → 玫红的“霓虹极光”渐变，颜色缓慢地来回流动 */
 .fq-hero-word {
-  --fq-title-gradient: linear-gradient(92deg, #7ea8ff 0%, #a9c3ff 28%, #6fd6e8 50%, #a9c3ff 72%, #7ea8ff 100%);
+  --fq-title-gradient: linear-gradient(92deg, #6fd6e8 0%, #8b5cf6 34%, #ec4899 56%, #8b5cf6 78%, #6fd6e8 100%);
   display: inline-block;
   padding: 0 0.04em 0.08em;                 /* 留出 g、d 这类字母的笔画，渐变不被切掉 */
   background: var(--fq-title-gradient);
@@ -547,13 +548,46 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 28px rgba(111, 160, 255, 0.28));
+  filter: drop-shadow(0 0 26px rgba(139, 92, 246, 0.3));
   animation: fq-title-sheen 9s ease-in-out infinite alternate;
 }
 
+.fq-site.fq-light .fq-hero-sub::before,
+.fq-site.fq-light .fq-hero-sub::after {
+  color: #be185d;
+}
+
 .fq-site.fq-light .fq-hero-word {
-  --fq-title-gradient: linear-gradient(92deg, #2e609f 0%, #4d6bfe 28%, #1d8fa8 50%, #4d6bfe 72%, #2e609f 100%);
+  --fq-title-gradient: linear-gradient(92deg, #0e8fa8 0%, #6d28d9 34%, #be185d 56%, #6d28d9 78%, #0e8fa8 100%);
   filter: none;
+}
+
+/* 标题后面一团同色的柔光，标题像在发光 */
+.fq-hero-title {
+  isolation: isolate;
+}
+
+.fq-hero-halo {
+  position: absolute;
+  inset: 8% -10% 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: linear-gradient(90deg, #6fd6e8, #8b5cf6 45%, #ec4899);
+  filter: blur(64px);
+  pointer-events: none;
+}
+
+/* 比入场动画的 opacity: 1 优先：柔光只要淡淡一层 */
+.fq-hero-title .fq-hero-halo {
+  opacity: 0;
+}
+
+.fq-hero-title .fq-hero-halo.is-visible {
+  opacity: 0.26;
+}
+
+.fq-site.fq-light .fq-hero-title .fq-hero-halo.is-visible {
+  opacity: 0.14;
 }
 
 @keyframes fq-title-sheen {
@@ -588,7 +622,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 .fq-hero-sub::before,
 .fq-hero-sub::after {
   content: '·';
-  color: var(--fq-gold);
+  color: #ec4899;
   margin: 0 12px;
 }
 
@@ -631,14 +665,14 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 }
 
 .fq-btn-solid {
-  background: linear-gradient(135deg, rgba(77, 107, 254, 0.92), rgba(46, 96, 159, 0.92));
+  background: linear-gradient(120deg, #0e8fa8, #6d28d9 52%, #be185d);
   border-color: transparent;
   color: #fff;
 }
 
 .fq-btn-solid:hover {
-  background: linear-gradient(135deg, #5d7bfe, #3a6db5);
-  box-shadow: 0 8px 32px rgba(77, 107, 254, 0.45);
+  background: linear-gradient(120deg, #14a3bd, #7c3aed 52%, #db2777);
+  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.45);
 }
 
 .fq-scroll-hint {
