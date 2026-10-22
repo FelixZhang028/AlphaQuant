@@ -46,7 +46,7 @@ from ..quant.research_runs import (
     tunable_parameters,
     walk_forward_range,
 )
-from ..quant import audit, daily_schedule, home
+from ..quant import audit, daily_schedule, home, rate_limit
 from ..quant.compute import cached, computing
 from ..quant.runtime import (
     BACKEND_ROOT,
@@ -345,6 +345,61 @@ def preflight_package(body: PackageIn, user: dict = Depends(get_current_user)):
     warnings = list(StrategyStudioService.preflight(package, available_days=available_days))
     return {"warnings": warnings, "minimum_history_days": package.definition.minimum_history_days,
             "description": package.definition.describe(top_n=body.top_n, rebalance=body.rebalance)}
+
+
+class ScreenIn(BaseModel):
+    definition: DefinitionIn
+    scope: Literal["pool", "market"] = "pool"
+    exclude_st: bool = True
+    limit: int = Field(100, ge=1, le=300)
+
+
+SCREEN_LIMIT = (60, 60 * 60)          # 全市场一次要读一年多的行情：每人每小时最多 60 次
+
+
+@router.post("/packages/screen", summary="今天符合条件的股票")
+def screen_package(body: ScreenIn, user: dict = Depends(get_current_user)):
+    """按页面上的选股条件和排序，在本地最新一个交易日筛出符合条件的股票。
+
+    条件和回测用的是同一套计算，所以这里列出的股票就是策略在那一天会考虑的股票。
+    只描述数据：条件是用户自己设的，不是推荐。停牌的股票当天没有可比的数据，不参与。
+    """
+
+    from quant_platform.strategies.screen import screen
+
+    rate_limit.check(f"screen:{user['id']}", *SCREEN_LIMIT, "筛选太频繁，请稍后再试")
+    definition = body.definition.model_dump()
+    definition["name"] = definition.get("name") or "未命名策略"     # 筛选不用名字；还没起名也能筛
+    try:
+        package = _package_from_definition(definition, 5, "weekly", "visual_builder")
+    except ConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+    bounds = local_data_bounds()
+    if not bounds:
+        raise HTTPException(status_code=409, detail="平台还没有行情数据，管理员更新后就能筛选")
+    day = bounds[1]
+    rule = package.definition
+    # 需要的交易日换成自然日：一年大约 244 个交易日，多读一些留余量
+    start = day - timedelta(days=int(rule.minimum_history_days * 1.5) + 20)
+    symbols = None
+    if body.scope == "pool":
+        symbols = [to_canonical(str(code)) for code in _load_universe_symbols(user["id"])]
+        if not symbols:
+            raise HTTPException(status_code=409, detail="股票池是空的，请先在股票池管理里添加股票，或者改成筛选全市场")
+    bars = market_repository().get_daily_bars(symbols, start, day)
+    result = screen(rule, bars, day, exclude_st=body.exclude_st)
+    names = security_names()
+    items = [{**item, "symbol": to_bare(item["symbol"]), "name": names.get(item["symbol"], "")}
+             for item in result["items"][: body.limit]]
+    return {
+        "trade_date": day.isoformat(), "scope": body.scope, "checked": result["checked"], "matched": result["matched"],
+        "items": items, "shown": len(items),
+        "conditions": [item.describe() for item in rule.entry_rules],
+        "condition_indicators": [{"left": item.left.name, "right": item.right.name if item.right else None}
+                                 for item in rule.entry_rules],
+        "logic": rule.entry_logic, "ranking": rule.ranking.describe(), "ranking_indicator": rule.ranking.indicator.name,
+        "ranking_label": rule.ranking.indicator.describe(),
+    }
 
 
 @router.post("/packages/{package_id}/backtest", status_code=status.HTTP_201_CREATED, summary="运行策略包回测")

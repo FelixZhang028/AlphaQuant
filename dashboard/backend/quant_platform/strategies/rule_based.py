@@ -70,15 +70,9 @@ class RuleBasedStrategy(Strategy):
             group[["adjusted_close", "amount"]] = group[
                 ["adjusted_close", "amount"]
             ].apply(pd.to_numeric, errors="coerce")
-            outcomes = [_evaluate_rule(group, rule) for rule in definition.entry_rules]
-            eligible = all(outcomes) if definition.entry_logic == "all" else any(outcomes)
-            if not eligible:
+            score = rank_score(group, definition)
+            if score is None:
                 continue
-            score = _indicator_value(group, definition.ranking.indicator)
-            if score is None or not isfinite(score):
-                continue
-            if definition.ranking.direction == "ascending":
-                score = -score
             signals.append(
                 Signal(
                     strategy_id=self.strategy_id,
@@ -90,6 +84,31 @@ class RuleBasedStrategy(Strategy):
                 )
             )
         return sorted(signals, key=lambda signal: (-signal.score, signal.symbol))
+
+
+def passes(group: pd.DataFrame, definition: RuleStrategyDefinition) -> bool:
+    """Whether one stock (its history up to the day, oldest first) meets the entry conditions."""
+
+    outcomes = [_evaluate_rule(group, rule) for rule in definition.entry_rules]
+    return all(outcomes) if definition.entry_logic == "all" else any(outcomes)
+
+
+def rank_score(group: pd.DataFrame, definition: RuleStrategyDefinition) -> float | None:
+    """The stock's score for the top-N pick (higher is picked first), or None when it does not
+    pass or has no ranking value. The backtest and the screen of today's stocks both use this."""
+
+    if not passes(group, definition):
+        return None
+    score = _indicator_value(group, definition.ranking.indicator)
+    if score is None or not isfinite(score):
+        return None
+    return -score if definition.ranking.direction == "ascending" else score
+
+
+def indicator_value(group: pd.DataFrame, indicator: IndicatorSpec | None) -> float | None:
+    """One indicator on the stock's last day (None when there is not enough history)."""
+
+    return _indicator_value(group, indicator)
 
 
 def _evaluate_rule(group: pd.DataFrame, rule: RuleSpec) -> bool:

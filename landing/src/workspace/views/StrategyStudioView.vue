@@ -7,6 +7,7 @@ import { blankForm, blankRule, chooseIndicator, formFromDefinition, packagePaylo
 import FormField from '../ui/FormField.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import StrategySaved from '../ui/StrategySaved.vue'
+import TodayScreen from '../ui/TodayScreen.vue'
 
 const props = defineProps({
   routeContext: { type: Object, default: () => ({}) },
@@ -274,6 +275,8 @@ onMounted(async () => {
           <span class="text-xs text-slate-400">保存不会运行回测。</span>
         </div>
       </SectionCard>
+
+      <TodayScreen :form="form" :disabled="!!check.error" :notify="notify" />
 
       <StrategySaved v-if="savedAsset" :asset="savedAsset" />
     </template>
