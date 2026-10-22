@@ -19,19 +19,15 @@
 
 ## 🖥️ Screenshots
 
-These screenshots show the running application with an isolated demo account. Results from unconfigured integrations are explicitly labeled as demonstrations.
+These screenshots show the running application (2026-10-22).
 
 **Brand homepage**
 
 ![Prismind homepage](docs/images/homepage.png)
 
-**Workspace: simplified navigation and strategy tools**
+**Workspace home: market overview, your stock pool and the data calendar**
 
-![Strategy workspace](docs/images/workspace.png)
-
-**Structured decisions with Jev**
-
-![Jev decision center](docs/images/decision-center.png)
+![Workspace home](docs/images/workspace.png)
 
 ## 📖 About
 
