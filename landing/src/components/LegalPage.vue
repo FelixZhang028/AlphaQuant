@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import NavBar from './NavBar.vue'
 import FooterBar from './FooterBar.vue'
 import DynamicBackground from './DynamicBackground.vue'
+import LegalDocument from './LegalDocument.vue'
 import { documents, EFFECTIVE_DATE } from '../legal/legalContent.js'
 
 // 一个页面放三份文件，用地址里的 #terms / #privacy / #risk 跳到对应的一份。
@@ -40,11 +41,7 @@ onMounted(() => {
 
       <article v-for="doc in documents" :id="doc.id" :key="doc.id" class="glass mt-6 scroll-mt-28 rounded-2xl p-8">
         <h2 class="text-xl font-bold text-white">{{ doc.title }}</h2>
-        <p class="mt-3 text-sm leading-relaxed text-slate-300">{{ doc.intro }}</p>
-        <section v-for="section in doc.sections" :key="section.heading" class="mt-6">
-          <h3 class="text-base font-semibold text-white">{{ section.heading }}</h3>
-          <p v-for="(text, i) in section.paragraphs" :key="i" class="mt-2 text-sm leading-relaxed text-slate-300">{{ text }}</p>
-        </section>
+        <LegalDocument :doc="doc" class="mt-3" />
       </article>
     </main>
 

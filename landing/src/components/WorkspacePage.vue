@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
+import LegalDialog from './LegalDialog.vue'
 import OnboardingTour from './OnboardingTour.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import AiChatWidget from '../workspace/ui/AiChatWidget.vue'
@@ -178,6 +179,7 @@ function doLogout() {
 <template>
   <div class="workspace-shell relative min-h-screen text-slate-200">
     <DynamicBackground />
+    <LegalDialog />
 
     <!-- 全局提示 -->
     <transition

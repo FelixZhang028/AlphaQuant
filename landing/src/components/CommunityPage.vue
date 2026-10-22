@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import NavBar from './NavBar.vue'
 import FooterBar from './FooterBar.vue'
 import DynamicBackground from './DynamicBackground.vue'
+import LegalDialog from './LegalDialog.vue'
 import { getLocalUser } from '../api.js'
 
 // ------------------------------------------------------------------
@@ -141,6 +142,7 @@ onMounted(loadPosts)
 <template>
   <div class="min-h-screen text-slate-200">
     <DynamicBackground />
+    <LegalDialog />
     <NavBar />
 
     <main class="mx-auto max-w-5xl px-5 pb-20 pt-28 lg:px-8">
