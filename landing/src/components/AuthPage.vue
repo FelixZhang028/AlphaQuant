@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
+import LegalDialog from './LegalDialog.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import { getToken, login, register, registrationMode, setSession, forgotRequest, forgotReset, restoreSession } from '../api.js'
 
@@ -227,6 +228,7 @@ const features = [
 <template>
   <div class="relative flex min-h-screen items-center justify-center px-4 py-10 text-slate-200">
     <DynamicBackground />
+    <LegalDialog />
 
     <!-- 顶部返回首页 -->
     <a

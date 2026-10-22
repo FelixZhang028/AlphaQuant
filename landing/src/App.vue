@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import QuantBackground from './components/QuantBackground.vue'
+import LegalDialog from './components/LegalDialog.vue'
 import { useScrollState } from './home/useScrollState'
 import { CONTENT } from './home/homeContent'
 import { useTheme } from './theme'
@@ -102,6 +103,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 </script>
 
 <template>
+  <LegalDialog />
   <div class="fq-site" :class="theme === 'light' ? 'fq-light' : 'fq-dark'">
     <!-- WebGL 失败时的 CSS 兜底背景 -->
     <div class="fq-fallback" aria-hidden="true"></div>
