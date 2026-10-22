@@ -170,9 +170,8 @@ def computed(bars, number):
 
 
 def test_every_formula_has_a_reference_and_the_library_lists_them_all():
-    assert sorted({**REFERENCE, **REFERENCE_SECOND, **REFERENCE_THIRD}) == [item.number for item in FORMULAS]
-    assert len(FORMULAS) == 100 == len({item.number for item in FORMULAS})
-    assert 56 not in {item.number for item in FORMULAS}
+    assert sorted({**REFERENCE, **REFERENCE_SECOND, **REFERENCE_THIRD, **REFERENCE_CAP}) == [item.number for item in FORMULAS]
+    assert [item.number for item in FORMULAS] == list(range(1, 102))
     registered = {f.name: f for f in default_registry().list() if f.source == "Alpha101"}
     assert sorted(registered) == [f"alpha101_{item.number:03d}" for item in FORMULAS]
     assert all(f.direction == 1 and f.source_url.endswith("1601.00991") and f.formula for f in registered.values())
@@ -269,6 +268,11 @@ def test_a_vwap_outside_the_days_range_is_rejected_as_a_unit_mismatch():
 # --------------------------------------------------------------------------- #
 
 
+# 总股本：每只股票不同；S2、S5 第 30 天公告了新一期财报，总股本从那天起变了。
+def shares(s, t):
+    return 1e8 * (s + 1) * (1.5 if s in (2, 5) and t >= 30 else 1.0)
+
+
 # 行业：S0-S4 同一大类（5 只，够在大类内比较）；S5、S6 另一大类（只有 2 只，和整个门类 C 比较）；
 # S7-S9 在门类 J（只有 3 只，没有值）。
 INDUSTRY = {0: "C13", 1: "C13", 2: "C13", 3: "C13", 4: "C13", 5: "C27", 6: "C27", 7: "J66", 8: "J66", 9: "J66"}
@@ -288,7 +292,7 @@ def make_lively_bars(days, stocks=10, seed=3):
             vwap = low + rng.uniform(0.2, 0.8) * (high - low)
             rows.append({"symbol": f"S{s}", "trade_date": day, "raw_open": open_, "raw_high": high, "raw_low": low,
                          "raw_close": close[t], "volume": volume, "amount": vwap * volume, "adj_factor": 1.0, "adjusted_close": close[t],
-                         "industry": INDUSTRY[s], "sector": INDUSTRY[s][0]})
+                         "industry": INDUSTRY[s], "sector": INDUSTRY[s][0], "total_shares": shares(s, t)})
     return pd.DataFrame(rows)
 
 
@@ -377,6 +381,7 @@ class Market:
         self.r = np.full(self.c.shape, NAN)
         self.r[1:] = adjusted[1:] / adjusted[:-1] - 1
         self.hl2 = (self.h + self.l) / 2
+        self.cap = self.c * wide("total_shares")
         first = bars.drop_duplicates("symbol").set_index("symbol").sort_index()
         self.industry, self.sector = first["industry"].tolist(), first["sector"].tolist()
 
@@ -585,7 +590,11 @@ REFERENCE_THIRD = {
                                          15.7152), 6.71659)) * -1,
     100: ref100,
 }
-LIVELY = {**REFERENCE_SECOND, **REFERENCE_THIRD}
+# 需要市值的 1 个公式（cap = 当天收盘价 × 当天已公告的总股本）。
+REFERENCE_CAP = {
+    56: lambda m: 0 - (1 * (r_rank(inf_to_nan(r_sum(m.r, 10) / r_sum(r_sum(m.r, 2), 3))) * r_rank(m.r * m.cap))),
+}
+LIVELY = {**REFERENCE_SECOND, **REFERENCE_THIRD, **REFERENCE_CAP}
 
 # 在随机行情上几乎没有值的公式：内层是很短的相关系数，一边常常几天不变（相关系数没有定义）。
 SPARSE = {96, 97}
@@ -712,3 +721,19 @@ def test_each_formula_needs_only_the_columns_it_declares(item):
     narrow = factor.compute(bars[list(dict.fromkeys(columns))])
     full = factor.compute(bars)
     pd.testing.assert_frame_equal(narrow, full)
+
+
+def test_market_cap_uses_the_shares_known_that_day_and_says_when_reports_are_missing():
+    bars = make_lively_bars(40)
+    p = Panel(bars)
+    assert p.cap.loc[p.cap.index[29], "S2"] == pytest.approx(p.close.loc[p.close.index[29], "S2"] * 3e8)
+    assert p.cap.loc[p.cap.index[30], "S2"] == pytest.approx(p.close.loc[p.close.index[30], "S2"] * 4.5e8)
+    factor = next(f for f in alpha101_factors() if f.name == "alpha101_056")
+    assert "total_shares" in factor.required_fields
+    # 一只股票还没有财报：它没有值，其他股票照常排名。
+    bars.loc[bars["symbol"].eq("S4"), "total_shares"] = np.nan
+    values = factor.compute(bars)
+    assert "S4" not in set(values["symbol"]) and values["symbol"].nunique() == 9
+    # 平台还没有下载财务数据时，这一列取回来是空的。
+    with pytest.raises(ValueError, match="财务数据"):
+        factor.compute(bars.assign(total_shares=np.nan))
