@@ -166,11 +166,13 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
       <section id="home" class="fq-section fq-hero">
         <div class="fq-hero-inner">
           <p class="fq-eyebrow fq-reveal" :style="{ transitionDelay: '0.15s' }">{{ c.hero.eyebrow }}</p>
-          <h1 class="fq-hero-title">
-            <span class="fq-reveal" :style="{ transitionDelay: '0.27s' }">Fellow</span><span
-              class="fq-accent fq-reveal"
+          <h1 class="fq-hero-title" aria-label="镜思 Prismind">
+            <span class="fq-hero-halo fq-reveal" :style="{ transitionDelay: '0.27s' }" aria-hidden="true"></span>
+            <span class="fq-hero-word fq-reveal" :style="{ transitionDelay: '0.27s' }" aria-hidden="true">Prismind</span><span
+              class="fq-hero-cn fq-reveal"
               :style="{ transitionDelay: '0.39s' }"
-            >Quant</span>
+              aria-hidden="true"
+            >镜思</span>
           </h1>
           <p class="fq-hero-sub fq-reveal" :style="{ transitionDelay: '0.51s' }">{{ c.hero.sub }}</p>
           <p class="fq-hero-tag fq-reveal" :style="{ transitionDelay: '0.63s' }">
@@ -524,6 +526,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 }
 
 .fq-hero-title {
+  position: relative;                       /* 中文名挂在英文名右边，英文名保持正中 */
   font-size: clamp(56px, 10vw, 124px);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -533,6 +536,76 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 
 .fq-accent {
   color: var(--fq-accent);
+}
+
+/* 首页大标题：蓝 → 紫 → 粉的“棱镜光谱”渐变，像白光穿过棱镜，颜色缓慢地来回流动 */
+.fq-hero-word {
+  --fq-title-gradient: linear-gradient(92deg, #7ea8ff 0%, #a78bfa 30%, #f0abfc 52%, #a78bfa 74%, #7ea8ff 100%);
+  display: inline-block;
+  padding: 0 0.04em 0.08em;                 /* 留出 g、d 这类字母的笔画，渐变不被切掉 */
+  background: var(--fq-title-gradient);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 26px rgba(167, 139, 250, 0.3));
+  animation: fq-title-sheen 9s ease-in-out infinite alternate;
+}
+
+.fq-site.fq-light .fq-hero-sub::before,
+.fq-site.fq-light .fq-hero-sub::after {
+  color: #db2777;
+}
+
+.fq-site.fq-light .fq-hero-word {
+  --fq-title-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
+  filter: none;
+}
+
+/* 标题后面一团同色的柔光，标题像在发光 */
+.fq-hero-title {
+  isolation: isolate;
+}
+
+.fq-hero-halo {
+  position: absolute;
+  inset: 8% -10% 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: linear-gradient(90deg, #7ea8ff, #a78bfa 45%, #f0abfc);
+  filter: blur(64px);
+  pointer-events: none;
+}
+
+/* 比入场动画的 opacity: 1 优先：柔光只要淡淡一层 */
+.fq-hero-title .fq-hero-halo {
+  opacity: 0;
+}
+
+.fq-hero-title .fq-hero-halo.is-visible {
+  opacity: 0.26;
+}
+
+.fq-site.fq-light .fq-hero-title .fq-hero-halo.is-visible {
+  opacity: 0.14;
+}
+
+@keyframes fq-title-sheen {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+
+/* 英文名后面的中文名：小一号、拉开字距，和顶栏的标志一致；不占位置，英文名保持正中 */
+.fq-hero-cn {
+  position: absolute;
+  left: 100%;
+  top: 0.32em;
+  margin-left: 0.12em;
+  font-size: 0.24em;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  white-space: nowrap;
+  color: var(--fq-ink-dim);
 }
 
 .fq-gold {
@@ -549,7 +622,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 .fq-hero-sub::before,
 .fq-hero-sub::after {
   content: '·';
-  color: var(--fq-gold);
+  color: #f0abfc;
   margin: 0 12px;
 }
 
@@ -591,15 +664,37 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   transform: translateY(-2px);
 }
 
-.fq-btn-solid {
-  background: linear-gradient(135deg, rgba(77, 107, 254, 0.92), rgba(46, 96, 159, 0.92));
+/* 主按钮：和大标题同一条渐变，颜色跟着标题一起流动；标题颜色浅，深色主题里按钮用深紫色的字 */
+.fq-site .fq-btn-solid {
+  --fq-button-gradient: linear-gradient(92deg, #7ea8ff 0%, #a78bfa 30%, #f0abfc 52%, #a78bfa 74%, #7ea8ff 100%);
+  background: var(--fq-button-gradient);
+  background-size: 200% 100%;
   border-color: transparent;
+  color: #1e1036;
+  font-weight: 700;
+  animation: fq-title-sheen 9s ease-in-out infinite alternate;
+  transition: box-shadow 0.3s ease, filter 0.3s ease, transform 0.5s var(--fq-ease);
+}
+
+/* 普通按钮悬停时会换背景，主按钮要保留渐变；前面加 .fq-site，比“链接沿用文字颜色”的规则优先 */
+.fq-site .fq-btn-solid:hover {
+  background: var(--fq-button-gradient);
+  background-size: 200% 100%;
+  border-color: transparent;
+  filter: brightness(1.08);
+  box-shadow: 0 8px 32px rgba(167, 139, 250, 0.5);
+}
+
+/* 浅色主题：标题用深一些的颜色，按钮跟着用，字换成白色（分开写：构建时合并逗号选择器会丢掉前缀） */
+.fq-site.fq-light .fq-btn-solid {
+  --fq-button-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
   color: #fff;
 }
 
-.fq-btn-solid:hover {
-  background: linear-gradient(135deg, #5d7bfe, #3a6db5);
-  box-shadow: 0 8px 32px rgba(77, 107, 254, 0.45);
+.fq-site.fq-light .fq-btn-solid:hover {
+  --fq-button-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(124, 58, 237, 0.35);
 }
 
 .fq-scroll-hint {
@@ -825,6 +920,14 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
     padding: 7px 16px;
   }
 
+  /* 手机上英文小标题字距收紧，不被屏幕两边切掉 */
+  .fq-eyebrow {
+    max-width: calc(100vw - 32px);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-align: center;
+  }
+
   .fq-row {
     gap: 16px;
     padding: 16px 0;
@@ -858,7 +961,9 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
     transform: none;
   }
 
-  .fq-dot {
+  .fq-dot,
+  .fq-hero-word,
+  .fq-btn-solid {
     animation: none;
   }
 }
