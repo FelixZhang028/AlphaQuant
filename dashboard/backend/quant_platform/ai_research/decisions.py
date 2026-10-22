@@ -2,7 +2,7 @@
 
 Jev answers typed questions with probabilities instead of text. Two uses:
 
-- AI researcher: the lean of one stock (偏多 / 中性 / 偏空) as probabilities, from the same facts
+- AI researcher: which side of one stock's data is larger (利好较多 / 大致相当 / 风险较多), from the same facts
   table the chat model read, so the page can show a second, independent estimate.
 - Backtest review: how risky the strategy is (five levels) and how likely the result is to fail on
   new data (overfitting or luck), from the run's own numbers and validity warnings.
@@ -17,12 +17,14 @@ from typing import Any
 from quant_platform.ai_research.facts import Fact, StockFacts
 from quant_platform.jev import choice_question, noul_question, score_question
 
+# 只描述现在的数据：利好因素和风险因素哪边更多，不问以后的价格会怎样。
 TILT_QUESTION = choice_question(
-    "只根据 state 里的数据，这只股票接下来一段时间的整体倾向是什么？不要考虑 state 以外的任何信息。",
+    "只根据 state 里的数据，现在这只股票的利好因素和风险因素相比，哪一边更多？"
+    "只描述已有的数据，不要预测以后的价格，也不要考虑 state 以外的任何信息。",
     {
-        "偏多": "数据里支持上涨的因素明显多于风险",
-        "中性": "支持上涨的因素和风险大致相当，或者数据不足以判断",
-        "偏空": "数据里的风险明显多于支持上涨的因素",
+        "利好较多": "数据里的利好因素明显多于风险因素",
+        "大致相当": "利好因素和风险因素大致相当，或者数据不足以判断",
+        "风险较多": "数据里的风险因素明显多于利好因素",
     },
 )
 RISK_LEVELS = ["低风险", "中低风险", "中等风险", "中高风险", "高风险"]

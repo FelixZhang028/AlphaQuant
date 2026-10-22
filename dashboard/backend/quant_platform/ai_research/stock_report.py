@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from .decisions import RISK_LEVELS, TILT_QUESTION, model_name, stock_state
+from .tilts import normalize
 from .facts import StockFacts
 from quant_platform.jev import choice_question, score_question
 
@@ -104,10 +105,10 @@ def stock_report(client: Any, stock: StockFacts) -> dict[str, Any]:
     unavailable = [item["title"] for item in dimensions if item["status"] == "insufficient"]
     risk = answers.get("risk")
     headline = {
-        "偏多": "数据里的利好因素多于风险，仍需结合风险与数据缺口理解。",
-        "中性": "利好和风险因素大致相当，尚未形成明确的一边。",
-        "偏空": "数据里的风险因素多于利好，优先关注不利线索与风险。",
-    }[tilt["choice"]]
+        "利好较多": "数据里的利好因素多于风险，仍需结合风险与数据缺口理解。",
+        "大致相当": "利好和风险因素大致相当，尚未形成明确的一边。",
+        "风险较多": "数据里的风险因素多于利好，优先关注不利线索与风险。",
+    }[normalize(tilt["choice"])]
     followups = []
     if unavailable:
         followups.append({"title": "补全判断依据", "text": "、".join(unavailable) + "暂无法判断，平台补齐对应的历史、对照或财报后再分析。", "action": "data-update"})

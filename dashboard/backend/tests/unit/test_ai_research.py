@@ -268,7 +268,7 @@ def test_brief_retries_a_bad_answer_counts_use_and_stops_at_the_limit(api, monke
     data = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000.SH"}).json()
     assert data["brief"] is None and data["ai_note"] == "" and not model.calls  # 第一步只整理数据
     result = client.post(f"/api/v1/agent-lab/briefs/{data['id']}/reading").json()
-    assert result["brief"]["tilt"] == "偏多" and result["model"] == "deepseek-v4-pro" and len(model.calls) == 2
+    assert result["brief"]["tilt"] == "利好较多" and result["model"] == "deepseek-v4-pro" and len(model.calls) == 2
     assert client.post(f"/api/v1/agent-lab/briefs/{data['id']}/reading").json()["brief"] == result["brief"]
     assert len(model.calls) == 2  # 已经解读过：不再调用，也不再计数
     assert "数据表" in model.calls[0][1]["content"] and "ret_20d" in model.calls[0][1]["content"]
@@ -277,7 +277,7 @@ def test_brief_retries_a_bad_answer_counts_use_and_stops_at_the_limit(api, monke
     again = analyse(client, "600000.SH")
     assert again["brief"] is None and "用完" in again["ai_note"] and again["facts"]["facts"]
     items = client.get("/api/v1/agent-lab/briefs").json()["items"]
-    assert [item["tilt"] for item in items] == [None, "偏多"]
+    assert [item["tilt"] for item in items] == [None, "利好较多"]
 
 
 def test_a_failed_call_is_not_counted(api, monkeypatch):
@@ -297,7 +297,7 @@ def test_questions_use_the_saved_data_and_stay_private(api, monkeypatch):
     brief = analyse(client, "600000.SH")
     first = client.post(f"/api/v1/agent-lab/briefs/{brief['id']}/questions", json={"message": "走势怎样？"}).json()
     assert first["questions"][-1]["answer"] == "近 20 个交易日走势平稳。"
-    assert "ret_20d" in model.calls[1][1]["content"] and "倾向偏多" in model.calls[1][1]["content"]
+    assert "ret_20d" in model.calls[1][1]["content"] and "数据里利好较多" in model.calls[1][1]["content"]
     second = client.post(f"/api/v1/agent-lab/briefs/{brief['id']}/questions", json={"message": "要买吗？"}).json()
     assert second["questions"][-1]["answer"] == REFUSAL and second["usage"]["used"] == 2
     assert model.calls[2][3]["content"] == "走势怎样？"  # 之前的追问也带上
@@ -355,12 +355,13 @@ class FakeJev:
             raise requests.Timeout()
         answers = {}
         for name, question in questions.items():
-            if question["type"] == "choice":
+            if question["type"] == "choice" and "利好较多" in question["criteria"]:
+                answers[name] = {"type": "choice", "choice": "大致相当", "confidence": 0.5,
+                                 "probabilities": {"利好较多": 0.3, "大致相当": 0.5, "风险较多": 0.2}}
+            elif question["type"] == "choice":
                 answers[name] = {"type": "choice", "choice": "中性", "confidence": 0.5,
-                                 "probabilities": {"偏多": 0.3, "中性": 0.5, "偏空": 0.2}}
-                if "偏多" not in question["criteria"]:
-                    answers[name]["probabilities"] = {key: .5 if key == "中性" else .5 / (len(question["criteria"]) - 1)
-                                                       for key in question["criteria"]}
+                                 "probabilities": {key: .5 if key == "中性" else .5 / (len(question["criteria"]) - 1)
+                                                   for key in question["criteria"]}}
             elif question["type"] == "noul":
                 answers[name] = {"type": "noul", "probability": 0.7}
             else:
@@ -376,13 +377,13 @@ def test_reading_adds_the_decision_model_odds_and_survives_its_failure(api, monk
     jev = FakeJev()
     monkeypatch.setattr(platform_ai, "decision_client", lambda: jev)
     result = analyse(client, "600000.SH")
-    assert result["brief"]["odds"] == {"choice": "中性", "probabilities": {"偏多": 0.3, "中性": 0.5, "偏空": 0.2},
+    assert result["brief"]["odds"] == {"choice": "大致相当", "probabilities": {"利好较多": 0.3, "大致相当": 0.5, "风险较多": 0.2},
                                        "confidence": 0.5, "model": "jev-1.13"}
     state = jev.calls[0][0]
     assert state["数据"]["近 20 个交易日涨跌幅"].startswith(by_key(stock)["ret_20d"].text)  # 和页面上的数据相同
     monkeypatch.setattr(platform_ai, "decision_client", lambda: FakeJev(fail=True))
     again = analyse(client, "600000.SH")
-    assert again["brief"]["tilt"] == "偏多" and again["brief"]["odds"] is None
+    assert again["brief"]["tilt"] == "利好较多" and again["brief"]["odds"] is None
 
 
 def test_jev_alone_can_analyse_saved_data_and_reuse_it_privately(api, monkeypatch):
@@ -394,7 +395,7 @@ def test_jev_alone_can_analyse_saved_data_and_reuse_it_privately(api, monkeypatc
     created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
     result = client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision")
     assert result.status_code == 200, result.text
-    assert result.json()['brief'] is None and result.json()['odds']['choice'] == '中性'
+    assert result.json()['brief'] is None and result.json()['odds']['choice'] == '大致相当'
     assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 1
     # 个股判断单独计数：回测的 AI 评估次数一次也没用。
     assert platform_ai.usage(current['user'], 'review')['used'] == 0
@@ -425,7 +426,8 @@ def test_legacy_report_requires_explicit_upgrade_and_upgrades_only_once(api, mon
     with database.get_conn() as conn:
         conn.execute('UPDATE stock_briefs SET brief=? WHERE id=?', (json.dumps({'odds': legacy}), created['id']))
     path = f"/api/v1/agent-lab/briefs/{created['id']}/decision"
-    assert client.post(path).json()['odds'] == legacy and not jev.calls
+    shown = {**legacy, 'choice': '大致相当', 'probabilities': {'利好较多': .12, '大致相当': .85, '风险较多': .03}}
+    assert client.post(path).json()['odds'] == shown and not jev.calls      # 以前保存的说法换成现在的
     upgraded = client.post(path + '?upgrade=true')
     assert upgraded.status_code == 200, upgraded.text
     assert upgraded.json()['odds']['report_version'] == 2
@@ -444,7 +446,8 @@ def test_failed_upgrade_preserves_old_report_and_refunds_quota(api, monkeypatch)
         conn.execute('UPDATE stock_briefs SET brief=? WHERE id=?', (json.dumps({'odds': legacy}), created['id']))
     path = f"/api/v1/agent-lab/briefs/{created['id']}"
     assert client.post(path + '/decision?upgrade=true').status_code == 502
-    assert client.get(path).json()['odds'] == legacy
+    assert client.get(path).json()['odds'] == {**legacy, 'choice': '大致相当',
+                                               'probabilities': {'利好较多': .12, '大致相当': .85, '风险较多': .03}}
     assert client.get('/api/v1/agent-lab/status').json()['usage']['decision']['used'] == 0
 
 
@@ -505,3 +508,17 @@ def test_backtest_review_is_saved_counted_once_and_private(tmp_path, monkeypatch
     current["user"] = {"id": 2, "is_admin": False}
     assert client.get("/api/v1/backtests/7/ai-review").json()["review"] is None
     assert client.post("/api/v1/backtests/7/ai-review").status_code == 404
+
+
+def test_the_lean_describes_the_data_and_never_the_price():
+    from quant_platform.ai_research.decisions import TILT_QUESTION
+    from quant_platform.ai_research.tilts import normalize, normalize_odds
+
+    assert list(TILT_QUESTION["criteria"]) == ["利好较多", "大致相当", "风险较多"]
+    assert "上涨" not in json.dumps(TILT_QUESTION, ensure_ascii=False) and "接下来" not in TILT_QUESTION["instructions"]
+    assert [normalize(old) for old in ("偏多", "中性", "偏空", "利好较多")] == ["利好较多", "大致相当", "风险较多", "利好较多"]
+    assert normalize_odds({"choice": "偏空", "probabilities": {"偏空": .6}}) == {"choice": "风险较多", "probabilities": {"风险较多": .6}}
+    stock = small_stock()
+    data = {"tilt": "大致相当", "summary": "", "risk_points": [{"text": "走势看涨", "evidence": ["ret_20d"]}]}
+    checked = check_brief(data, stock)
+    assert checked["tilt"] == "大致相当" and checked["risk_points"] == [] and checked["removed"] == 1

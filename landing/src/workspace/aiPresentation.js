@@ -17,9 +17,14 @@ export function factGroups(facts = []) {
   return groups
 }
 
-// 倾向只是对数据的归纳：利好因素多、差不多、还是风险因素多。保存的数据里仍是 偏多/中性/偏空，
-// 页面上换成这三个说法；也不用红绿色，免得看起来像买卖信号。
-const TILT_LABELS = { 偏多: '利好多', 中性: '中性', 偏空: '风险多' }
+// 倾向只是对现在数据的归纳：利好因素多、差不多、还是风险因素多，不预测以后的价格。
+// 以前保存的记录写的是 偏多/中性/偏空，显示时换成现在的说法；也不用红绿色，免得看起来像买卖信号。
+const OLD_TILTS = { 偏多: '利好较多', 中性: '大致相当', 偏空: '风险较多' }
+export const TILTS = ['利好较多', '大致相当', '风险较多']
+const TILT_LABELS = { ...OLD_TILTS, ...Object.fromEntries(TILTS.map((tilt) => [tilt, tilt])) }
+export function normalizeTilt(tilt) {
+  return OLD_TILTS[tilt] || tilt || ''
+}
 export const TILT_NOTE = '对当前数据的归纳，不是买卖建议'
 export function tiltLabel(tilt) {
   return TILT_LABELS[tilt] || tilt || ''
@@ -75,14 +80,9 @@ export function percent(value) {
   return `${Math.round(Number(value) * 100)}%`
 }
 
-// 决策模型对同一张数据表的估计；和 AI 解读的倾向不同时说明信号不一致。
-export function oddsText(odds) {
-  if (!odds) return ''
-  const parts = ['偏多', '中性', '偏空'].map((tilt) => `${tiltLabel(tilt)} ${percent(odds.probabilities?.[tilt] ?? 0)}`)
-  return `决策模型 ${odds.model} 的估计：${parts.join(' · ')}`
-}
+// 决策模型和 AI 解读对同一张数据表的归纳不同时，说明信号不一致。
 export function oddsDisagree(odds, tilt) {
-  return Boolean(odds && tilt && odds.choice !== tilt)
+  return Boolean(odds && tilt && normalizeTilt(odds.choice) !== normalizeTilt(tilt))
 }
 
 export function overfitText(probability) {

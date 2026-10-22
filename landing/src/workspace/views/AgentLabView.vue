@@ -301,7 +301,7 @@ function moveTone(value) {
             </ul>
           </div>
         </div>
-        <p v-if="brief.removed" class="mt-4 text-xs text-slate-500">已去掉 {{ brief.removed }} 条与数据对不上、没有依据或给出买卖建议的内容。</p>
+        <p v-if="brief.removed" class="mt-4 text-xs text-slate-500">已去掉 {{ brief.removed }} 条与数据对不上、没有依据、给出买卖建议或说价格方向的内容。</p>
       </SectionCard>
       <div v-else-if="step === 'reading'" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4 text-sm text-indigo-100">AI 正在根据下面的数据写解读…</div>
       <div v-else-if="record.ai_note" class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-amber-100">{{ record.ai_note }}</div>
@@ -350,7 +350,7 @@ function moveTone(value) {
       </SectionCard>
     </template>
 
-    <SectionCard title="以前的分析" hint="“之后”是从分析日到本地最新行情的涨跌，和同期沪深300比较，可以用来看 AI 的判断靠不靠谱">
+    <SectionCard title="以前的分析" hint="“之后”是从分析日到本地最新行情的涨跌，和同期沪深300比较。只是之后的行情，不用来评价当时的归纳">
       <p v-if="!history.length" class="text-sm text-slate-500">还没有分析记录。</p>
       <ul v-else class="divide-y divide-white/5" aria-label="以前的分析">
         <li v-for="item in history" :key="item.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 text-sm">

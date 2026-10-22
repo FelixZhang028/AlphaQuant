@@ -1,10 +1,11 @@
 """The AI reading of one stock's facts, and the checks it has to pass before anyone sees it.
 
-The model gets the facts table and nothing else. It answers with a lean (偏多 / 中性 / 偏空), a
-short summary and three lists of points; each point names the facts it rests on. A point is
+The model gets the facts table and nothing else. It answers with a lean (利好较多 / 大致相当 / 风险较多:
+which side of today's data is larger, never a forecast), a short summary and three lists of points; each point names the facts it rests on. A point is
 dropped when it names no known fact, when one of its numbers is not in the facts it names, or
 when it gives trading instructions (买入, 目标价 ...). The page shows the facts next to each
-point from the local data, not the model's retelling of them.
+point from the local data, not the model's retelling of them. Points that talk about the price's
+direction (看涨, 偏多 ...) are dropped as well.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ import re
 from typing import Any
 
 from quant_platform.ai_research.facts import StockFacts
+from quant_platform.ai_research.tilts import DIRECTION_WORDS, TILTS, normalize
 
-TILTS = ("偏多", "中性", "偏空")
 CONFIDENCE = ("高", "中", "低")
 SECTIONS = {"bull_points": 4, "risk_points": 4, "watch_points": 3}
 MAX_EVIDENCE = 3
@@ -28,8 +29,9 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)?")
 RULES = """规则：
 1. 只能使用“数据表”里的内容。表里没有的信息（新闻、公司业务、行业政策、宏观、财报细节）一律不写，也不要猜。
 2. 引用数字时照抄数据表里的写法，不要自己计算新的数字。
-3. 不给交易建议：不要出现买入、卖出、加仓、减仓、仓位、目标价、止损这类词。整体倾向只填在 tilt 里（偏多、中性或偏空）；
-   summary 和要点里不要用“偏多、偏空、看多、看空”这类词，用“利好因素”“风险因素”来描述数据。
+3. 不给交易建议，也不预测以后的价格：不要出现买入、卖出、加仓、减仓、仓位、目标价、止损这类词。
+   tilt 只回答“现在的数据里利好因素和风险因素哪边更多”（利好较多、大致相当或风险较多）；
+   summary 和要点里不要用“偏多、偏空、看多、看空、看涨、看跌”这类词，用“利好因素”“风险因素”来描述数据。
 4. 用简短、平实的中文。
 5. “研究经验”是用户自己的看法，可以帮助决定关注什么，但不能当作数据依据。"""
 
@@ -38,7 +40,7 @@ BRIEF_SYSTEM = f"""你是 A 股研究助手，帮助普通投资者读懂一只�
 6. 每条要点在 evidence 里写出它依据的数据编号（1～3 个，只能用数据表第一列里的编号），每条不超过 60 个字。
 
 只输出一个 JSON 对象，不要输出别的文字：
-{{"tilt": "偏多、中性或偏空", "confidence": "高、中或低", "summary": "一到两句话的总体看法，不超过 100 字",
+{{"tilt": "利好较多、大致相当或风险较多", "confidence": "高、中或低", "summary": "一到两句话的总体看法，不超过 100 字",
 "bull_points": [{{"text": "数据里的一条利好因素", "evidence": ["数据编号"]}}],
 "risk_points": [{{"text": "数据里的一条风险因素", "evidence": ["数据编号"]}}],
 "watch_points": [{{"text": "接下来值得留意的一件事", "evidence": ["数据编号"]}}]}}
@@ -109,7 +111,9 @@ def _numbers_supported(text: str, sources: list[str]) -> bool:
 
 
 def _gives_orders(text: str) -> bool:
-    return any(word in text for word in TRADING_WORDS)
+    """Trading instructions, or talk about where the price is heading."""
+
+    return any(word in text for word in TRADING_WORDS + DIRECTION_WORDS)
 
 
 def check_brief(data: dict[str, Any], stock: StockFacts) -> dict[str, Any]:
@@ -118,9 +122,9 @@ def check_brief(data: dict[str, Any], stock: StockFacts) -> dict[str, Any]:
     Raises :class:`BriefFormatError` when the lean is missing or unknown, so the caller can ask once more.
     """
 
-    tilt = str(data.get("tilt", "")).strip()
+    tilt = normalize(str(data.get("tilt", "")).strip())
     if tilt not in TILTS:
-        raise BriefFormatError("tilt 必须是 偏多、中性 或 偏空")
+        raise BriefFormatError("tilt 必须是 利好较多、大致相当 或 风险较多")
     confidence = str(data.get("confidence", "")).strip()
     confidence = confidence if confidence in CONFIDENCE else "低"
     facts = stock.by_key()
@@ -155,7 +159,7 @@ def ask_messages(stock: StockFacts, brief: dict[str, Any] | None, history: list[
     context = facts_table(stock) + _experience_block(experience)
     if brief:
         points = [f"- {point['text']}" for name in SECTIONS for point in brief.get(name, [])]
-        context += f"\n\n你之前的解读：倾向{brief['tilt']}，信心{brief['confidence']}。{brief.get('summary', '')}\n" + "\n".join(points)
+        context += f"\n\n你之前的解读：数据里{normalize(brief['tilt'])}，信心{brief['confidence']}。{brief.get('summary', '')}\n" + "\n".join(points)
     messages = [{"role": "system", "content": ASK_SYSTEM}, {"role": "user", "content": context},
                 {"role": "assistant", "content": "好的，我已经看过这些数据，请提问。"}]
     for turn in history:
