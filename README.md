@@ -96,7 +96,7 @@ npm run dev -- --host 127.0.0.1
 | `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` / `_CHATS` | 可选：每人每天免费的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）、AI 问答次数（默认 3 / 10 / 5 / 3 / 3 / 10），用完以后每次扣积分；管理员不限、不扣积分。AI 问答每问一次算一次（内部调用两次模型） |
 | `FELLOWQUANT_POINTS_SIGNUP` / `_GIFT_DAYS` / `_CHECKIN` / `_CHECKIN_STEP` / `_CHECKIN_MAX` / `_CHECKIN_DAYS` / `_MAKEUP_EVERY` / `_MAKEUP_WINDOW` / `_DAILY_CAP` / `_COST_BRIEF` …… | 可选：积分。新用户送多少（默认 100，每个账户一次，以前注册的账户第一次打开时补上）、赠送的积分多少天有效（默认 30）、每日打卡（北京时间每天一次；连续第 1 天送 5，每多一天多送 2，最多 15，断了从头开始；打卡的积分 30 天有效；累计真正打卡 7 天送一张不过期的补签卡，可以补最近 7 天内漏打的一天，只接上连续天数、不送积分；第 1 天送 0 就关闭打卡）、每人每天最多用几次 AI（默认 200，免费的加积分的，0 不限）、免费次数用完以后每次多少积分（默认 AI 解读 3、追问 1、生成规则 2、AI 评估 2、个股判断 2、AI 问答 2）。模型没有回答时不扣积分；扣的时候先扣快到期的。积分来自注册赠送、每日打卡、兑换码和管理员发放，充值以后再开 |
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
-| `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
+| `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:05 以后：BaoStock 大约 17:30 发布当天日线、18:00 发布复权因子；还没发布时每 10 分钟再查一次）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_FUNDAMENTALS_UPDATE` | 财报季自动更新财务数据（默认开启）：1～4 月、7～8 月、10 月以及 5、9、11 月第一周的每个周六 10:00 以后，下载最近 5 个报告期里还没有的财报；填 `off` 关闭，管理员仍可以在管理后台手动更新 |
 | `FELLOWQUANT_BAOSTOCK_INTERVAL` | 每两次 BaoStock 请求之间至少隔几秒（默认 0.1）。BaoStock 会把短时间内请求太多的服务器暂时拉黑（提示“黑名单用户”）；被拒绝时数据任务立刻停下、当天不再自动重试，页面上会写明原因。经常被拉黑时调大这个数 |
 | `FELLOWQUANT_FACTOR_PROFILE` | AI 研究员的因子画像：后端每 10 分钟检查一次，把最新交易日的全市场因子值预先算好（约半分钟，存在 `data/runtime/factor_profiles`）；填 `off` 关闭预先计算，分析时仍会在后台现算 |

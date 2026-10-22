@@ -132,3 +132,32 @@ def test_a_data_job_started_by_the_backend_outlives_the_launcher(tmp_path):
         cleanup(proc)
         if pid_file.exists():
             subprocess.run(['taskkill', '/PID', pid_file.read_text(), '/T', '/F'], capture_output=True)
+
+
+def test_restarting_stops_the_old_backend_but_not_a_running_data_job(tmp_path):
+    # 启动器清理占着端口的旧后端时，旧后端启动的数据任务要继续下载，普通子进程一起停掉。
+    pids = tmp_path / 'pids.txt'
+    backend = subprocess.Popen([sys.executable, '-c', (
+        "import subprocess, sys, time\n"
+        "sleep = 'import time; time.sleep(60)'\n"
+        "worker = subprocess.Popen([sys.executable, '-c', sleep])\n"
+        # 拼出来：在虚拟环境里，这个“后端”是 python.exe 启动器下面的真正 Python，它的命令行里不能出现数据任务的名字
+        "job = subprocess.Popen([sys.executable, '-c', sleep, 'quant_platform.application.' + 'data_jobs'])\n"
+        f"open({str(pids)!r}, 'w').write(f'{{worker.pid}} {{job.pid}}')\n"
+        "time.sleep(60)\n")])
+    try:
+        wait_for(lambda: pids.exists() and pids.read_text().strip(), 'Test processes did not start')
+        worker, job = (int(value) for value in pids.read_text().split())
+        command = f". {literal(ROOT / 'scripts' / 'StopTree.ps1')}; Stop-PlatformTree -Id {backend.pid}"
+        subprocess.run([str(POWERSHELL), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+                       check=True, capture_output=True, timeout=60)
+        wait_for(lambda: backend.poll() is not None, 'The old backend survived')
+        alive = lambda pid: str(pid) in subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'],
+                                                       capture_output=True, text=True).stdout
+        wait_for(lambda: not alive(worker), 'An ordinary child process survived')
+        assert alive(job), 'The data job was stopped with the old backend'
+    finally:
+        backend.kill()
+        if pids.exists() and pids.read_text().strip():
+            for pid in pids.read_text().split():
+                subprocess.run(['taskkill', '/PID', pid, '/F'], capture_output=True)

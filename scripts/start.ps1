@@ -30,7 +30,8 @@ try {
     Write-Host '后台数据任务（每天自动更新、补历史数据）不随窗口关闭，会继续运行；需要时在数据更新页停止。'
     Write-Host ''
 
-    # 清理上次会话遗留的本平台进程（直接关闭启动窗口时子进程会存活并占住端口）。
+    # 清理上次会话遗留的本平台进程（直接关闭启动窗口时子进程会存活并占住端口）；正在运行的数据任务不停。
+    . (Join-Path $PSScriptRoot 'StopTree.ps1')
     # 只清理命令行可识别为本平台的进程；外来进程仍按端口冲突报错。
     foreach ($port in @($BackendPort, $FrontendPort)) {
         $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
@@ -40,11 +41,7 @@ try {
             $ours = $commandLine.IndexOf($projectRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0
             if ($ours) {
                 Write-Host "[清理] 发现上次遗留的进程（端口 $port，PID $($listener.OwningProcess)），已自动停止。"
-                $savedPreference = $ErrorActionPreference
-                try {
-                    $ErrorActionPreference = 'Continue'
-                    & taskkill.exe /PID $listener.OwningProcess /T /F 2>$null | Out-Null
-                } finally { $ErrorActionPreference = $savedPreference }
+                Stop-PlatformTree -Id $listener.OwningProcess
             }
         }
     }

@@ -13,7 +13,7 @@ export function headline(loop, daily) {
   parts.push(data.latest_date ? `行情更新到 ${data.latest_date}` : '平台还没有行情数据')
   if (data.listed) parts.push(`沪深 A 股 ${number(data.listed)} 只在市`)
   if (loop?.bars_min) parts.push(`${loop.bars_min.slice(0, 4)} 年起`)
-  parts.push(daily?.enabled === false ? '由管理员定期更新' : `每个交易日 ${daily?.time || '18:30'} 以后自动更新`)
+  parts.push(daily?.enabled === false ? '由管理员定期更新' : `每个交易日 ${daily?.time || '18:05'} 以后自动更新`)
   return parts.join(' · ')
 }
 
@@ -24,7 +24,7 @@ function span(start, end) {
 // 数据清单：每类一行，写清楚内容、范围、多久更新一次、现在的情况。
 export function guideRows(loop, daily) {
   const data = daily?.data || {}
-  const time = daily?.time || '18:30'
+  const time = daily?.time || '18:05'
   const everyDay = daily?.enabled === false ? '管理员定期更新' : `每个交易日 ${time} 以后`
   const indicators = loop?.indicators
   const fundamentals = loop?.fundamentals
@@ -96,7 +96,7 @@ export const BACKTEST_RULES = [
 export const LIMITS = [
   '选“当前股票池”作为回测范围时，用的是你自己选的股票，不会自动包含已经退市的股票。想避免只看到“活下来的股票”，可以选指数的历史成分股。',
   '只包含沪深两市的 A 股，不包含北交所、港股和基金。',
-  '数据来自公开数据源，偶尔会延迟、出错或缺失；当天的行情要到收盘后（18:30 以后）才有。',
+  '数据来自公开数据源，偶尔会延迟、出错或缺失；当天的行情要到收盘后才有（数据源大约 17:30 发布，平台 18:05 以后开始更新）。',
   '不包含新闻、公告正文和分析师预测，AI 研究员也只根据这些本地数据分析。',
 ]
 

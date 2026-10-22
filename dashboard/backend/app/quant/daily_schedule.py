@@ -1,8 +1,10 @@
 """每个交易日收盘后自动更新全市场数据，以及给页面看的更新状态。
 
 规则（北京时间）：
-- 周一到周五，到 ``FELLOWQUANT_DAILY_UPDATE_TIME``（默认 18:30）以后启动一次每日更新；
-- 当天的行情还没发布、或者更新失败、意外中断时，30 分钟后再试，最多 4 次，23:30 以后不再启动；
+- 周一到周五，到 ``FELLOWQUANT_DAILY_UPDATE_TIME``（默认 18:05）以后启动一次每日更新。
+  BaoStock 大约 17:30 发布当天的日线、18:00 发布复权因子，18:05 开始就能一次拿到当天的全部数据；
+- 当天的行情还没发布时，10 分钟后再查一次（只查是否发布，很快），一直到发布或者 23:30；
+- 更新失败、部分没完成、意外中断时，30 分钟后再试，最多 4 次，23:30 以后不再启动；
 - 不是交易日（节假日）、更新完成、或者管理员停止了当天的更新，当天就不再启动；
 - 有别的数据任务在运行时等它结束。
 - ``FELLOWQUANT_DAILY_UPDATE=off`` 关闭自动更新（管理员仍可以手动启动）。
@@ -22,10 +24,11 @@ from typing import Any
 logger = logging.getLogger("uvicorn.error")
 
 CHINA = timezone(timedelta(hours=8))
-DEFAULT_TIME = time(18, 30)
+DEFAULT_TIME = time(18, 5)
 LAST_START = time(23, 30)
-RETRY_AFTER = timedelta(minutes=30)
-MAX_RUNS = 4
+RETRY_AFTER = timedelta(minutes=30)          # 更新失败、没完成：过一会儿再试
+NOT_READY_AFTER = timedelta(minutes=10)      # 行情还没发布：很快再查一次
+MAX_RUNS = 4                                 # 失败最多再试几次（“还没发布”不算）
 CHECK_SECONDS = 60
 ACTIVE = ("STARTING", "RUNNING", "RETRYING")
 DATASET = "daily"
@@ -65,6 +68,12 @@ def runs_on(records: list[dict[str, Any]], day: date) -> list[dict[str, Any]]:
     return [r for r in records if DATASET in r.get("datasets", []) and r.get("end_date") == day.isoformat()]
 
 
+def _not_ready(record: dict[str, Any]) -> bool:
+    """The run only found that today's bars are not published yet."""
+
+    return record.get("status") == "SUCCESS" and (record.get("result") or {}).get("market") == "not_ready"
+
+
 @dataclass(frozen=True)
 class Decision:
     start: bool
@@ -99,12 +108,14 @@ def decide(records: list[dict[str, Any]], now: datetime, *, at: time | None = No
         if last.get("blocked"):
             # 被数据源拒绝：今天不再自动重试，重试只会让拉黑持续更久。
             return Decision(False, "failed", "数据源 BaoStock 暂时拒绝了这台服务器（请求太多被列入黑名单）；今天不再自动重试，明天收盘后再更新")
-        if len(runs) >= MAX_RUNS or now.time() >= LAST_START:
+        failures = [run for run in runs if not _not_ready(run)]
+        if len(failures) >= MAX_RUNS or now.time() >= LAST_START:
             reason = "行情还没有发布" if market == "not_ready" else "更新没有完成"
             return Decision(False, "failed", f"今天试了 {len(runs)} 次，{reason}；明天收盘后再更新")
         finished = _finished_at(last)
-        if finished is not None and now - finished.astimezone(CHINA) < RETRY_AFTER:
-            retry = (finished.astimezone(CHINA) + RETRY_AFTER).strftime("%H:%M")
+        wait = NOT_READY_AFTER if _not_ready(last) else RETRY_AFTER
+        if finished is not None and now - finished.astimezone(CHINA) < wait:
+            retry = (finished.astimezone(CHINA) + wait).strftime("%H:%M")
             reason = "今天的行情还没有发布" if market == "not_ready" else "上次更新没有完成"
             return Decision(False, "waiting", f"{reason}，{retry} 再试")
     elif now.time() >= LAST_START:
