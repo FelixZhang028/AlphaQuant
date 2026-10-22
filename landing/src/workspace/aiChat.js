@@ -57,7 +57,9 @@ export function blockLinks(block) {
 export function usageText(usage) {
   if (!usage) return ''
   if (usage.limit === null || usage.limit === undefined) return '管理员不限次数'
-  return usage.remaining > 0 ? `今天还能问 ${usage.remaining} 次（每天 ${usage.limit} 次）` : `今天的 ${usage.limit} 次已经用完，明天再来`
+  if (usage.remaining > 0) return `今天还能免费问 ${usage.remaining} 次（每天 ${usage.limit} 次）`
+  if (usage.cost && usage.points != null) return `今天的 ${usage.limit} 次免费已用完，再问每次 ${usage.cost} 积分（现有 ${usage.points}）`
+  return `今天的 ${usage.limit} 次免费已用完，明天再来`
 }
 
 // “用到的数据（2 项，1 项没有查到）”

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { createPackage, nlGenerate, nlStatus, preflightPackage, studioOptions } from '../../api.js'
+import { remainingText } from '../aiPresentation.js'
 import { openResearch } from '../researchNavigation.js'
 import { blankForm, blankRule, chooseIndicator, formFromDefinition, packagePayload } from '../ruleForm.js'
 import FormField from '../ui/FormField.vue'
@@ -72,7 +73,7 @@ async function loadNlModel() {
 const nlModelText = computed(() => {
   const { ai, usage } = nlModel.value
   if (!ai.available) return '使用离线规则识别'
-  const left = usage?.remaining == null ? '' : `，今天还可以用 ${usage.remaining} 次`
+  const left = remainingText(usage, '生成') ? `，${remainingText(usage, '生成')}` : ''
   return `使用 AI 模型 ${ai.model}${left}`
 })
 async function generate() {

@@ -53,3 +53,9 @@ def fresh_rate_limits(monkeypatch):
     rate_limit.reset()
     yield
     rate_limit.reset()
+
+
+@pytest.fixture(autouse=True)
+def no_signup_points(monkeypatch):
+    # 注册赠送的积分会让“免费次数用完就拒绝”的旧测试继续用下去；积分的测试自己打开。
+    monkeypatch.setenv("FELLOWQUANT_POINTS_SIGNUP", "0")

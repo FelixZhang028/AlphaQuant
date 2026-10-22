@@ -13,6 +13,7 @@ const orders = [
   { value: 'created', label: '注册时间（新的在前）' },
   { value: 'ai_today', label: '今天的 AI 次数（多的在前）' },
   { value: 'ai_total', label: '累计 AI 次数（多的在前）' },
+  { value: 'points', label: '积分（多的在前）' },
   { value: 'seen', label: '最后访问（近的在前）' },
 ]
 
@@ -23,6 +24,7 @@ const rows = computed(() => {
     created: (a, b) => b.id - a.id,
     ai_today: (a, b) => b.ai_today - a.ai_today || b.id - a.id,
     ai_total: (a, b) => b.ai_total - a.ai_total || b.id - a.id,
+    points: (a, b) => (b.points ?? -1) - (a.points ?? -1) || b.id - a.id,
     seen: (a, b) => String(b.last_seen_at || '').localeCompare(String(a.last_seen_at || '')),
   }[order.value]
   return [...list].sort(by)
@@ -59,9 +61,9 @@ async function toggle(user) {
         <option v-for="o in orders" :key="o.value" :value="o.value" class="bg-ink">{{ o.label }}</option>
       </select>
     </div>
-    <p class="mt-2 text-xs text-slate-500">AI 次数包括 AI 解读、追问、AI 问答、生成规则、AI 评估和个股判断；某个人用得特别多时，可以先停用，查清楚再恢复。</p>
+    <p class="mt-2 text-xs text-slate-500">AI 次数包括 AI 解读、追问、AI 问答、生成规则、AI 评估和个股判断；某个人用得特别多时，可以先停用，查清楚再恢复。给用户加或扣积分在“积分与兑换码”里。</p>
     <div class="mt-4 overflow-x-auto">
-      <table class="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_td]:px-3 [&_th]:px-3 [&_td:first-child]:pl-0 [&_th:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th:last-child]:pr-0 w-full min-w-[900px] text-left text-sm">
+      <table class="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap [&_td]:px-3 [&_th]:px-3 [&_td:first-child]:pl-0 [&_th:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th:last-child]:pr-0 w-full min-w-[960px] text-left text-sm">
         <thead>
           <tr class="text-xs text-slate-500">
             <th class="pb-3 font-medium">ID</th>
@@ -70,6 +72,7 @@ async function toggle(user) {
             <th class="pb-3 text-right font-medium">今天 AI</th>
             <th class="pb-3 text-right font-medium">累计 AI</th>
             <th class="pb-3 text-right font-medium">回测</th>
+            <th class="pb-3 text-right font-medium">积分</th>
             <th class="pb-3 font-medium">注册时间</th>
             <th class="pb-3 font-medium">最后访问</th>
             <th class="pb-3 text-right font-medium">操作</th>
@@ -90,6 +93,7 @@ async function toggle(user) {
             <td class="py-3 text-right font-medium" :class="u.ai_today ? 'text-white' : 'text-slate-500'">{{ u.ai_today }}</td>
             <td class="py-3 text-right text-slate-400">{{ u.ai_total }}</td>
             <td class="py-3 text-right text-slate-400">{{ u.backtests }}</td>
+            <td class="py-3 text-right text-slate-400">{{ u.points ?? '—' }}</td>
             <td class="py-3 text-slate-400">{{ time(u.created_at) }}</td>
             <td class="py-3 text-slate-400">{{ time(u.last_seen_at) }}</td>
             <td class="py-3 text-right">

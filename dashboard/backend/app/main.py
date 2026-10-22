@@ -35,6 +35,7 @@ from .routes.admin import router as admin_router
 from .routes.agent_lab import router as agent_lab_router
 from .routes.auth import router as auth_router
 from .routes.backtests import router as backtests_router
+from .routes.points import router as points_router
 from .routes.settings import router as settings_router
 from .routes.workspace import _data_jobs
 from .routes.workspace import router as workspace_router
@@ -190,6 +191,7 @@ app.include_router(admin_router)
 app.include_router(workspace_router)
 app.include_router(agent_lab_router)
 app.include_router(settings_router)
+app.include_router(points_router)
 
 
 @app.get("/api/health", summary="健康检查")

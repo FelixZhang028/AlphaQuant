@@ -37,8 +37,9 @@ test('数据表里的代码可以点；数据块下面的跳转', () => {
 })
 
 test('次数的说法', () => {
-  assert.equal(usageText({ limit: 20, used: 2, remaining: 18 }), '今天还能问 18 次（每天 20 次）')
-  assert.equal(usageText({ limit: 20, used: 20, remaining: 0 }), '今天的 20 次已经用完，明天再来')
+  assert.equal(usageText({ limit: 20, used: 2, remaining: 18 }), '今天还能免费问 18 次（每天 20 次）')
+  assert.equal(usageText({ limit: 20, used: 20, remaining: 0 }), '今天的 20 次免费已用完，明天再来')
+  assert.equal(usageText({ limit: 10, used: 10, remaining: 0, cost: 2, points: 96 }), '今天的 10 次免费已用完，再问每次 2 积分（现有 96）')
   assert.equal(usageText({ limit: null, used: 5, remaining: null }), '管理员不限次数')
   assert.equal(usageText(null), '')
 })

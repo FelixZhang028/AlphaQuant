@@ -1,11 +1,11 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import DynamicBackground from './DynamicBackground.vue'
 import OnboardingTour from './OnboardingTour.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import AiChatWidget from '../workspace/ui/AiChatWidget.vue'
 import { adminViews, allItems, contentLayout, itemLabel, navigationItem, overviewKey, resolveView, viewFor, views, visibleGroups } from '../workspace/modules.js'
-import { getLocalUser, logout, restoreSession } from '../api.js'
+import { getLocalUser, getPoints, logout, restoreSession } from '../api.js'
 import '../workspace/workspace.css'
 import { researchContext, researchUrl } from '../workspace/researchNavigation.js'
 import { backtestId } from '../workspace/runRecords.js'
@@ -43,6 +43,14 @@ function navigateResearchTab(key) {
 }
 // 子视图可派发 `fq-navigate` 请求切换视图（如结果页深链审计页），与侧栏导航共用同一路径。
 function onNavigateEvent(e) { navigate(e.detail) }
+// 顶栏的积分：登录后和每次换页面时刷新（用 AI 会扣积分）；积分页兑换以后直接告诉这里。
+const pointsBalance = ref(null)
+async function refreshPoints() {
+  if (!user.value || user.value.is_admin) return (pointsBalance.value = null)
+  try { pointsBalance.value = (await getPoints()).balance } catch { /* 顶栏不显示就好 */ }
+}
+function onPointsChanged(e) { pointsBalance.value = e.detail }
+watch(activeKey, () => { if (!loading.value) refreshPoints() })
 // 设置页的“重新打开新手引导”。
 function onOpenTour() { tourOpen.value = true }
 // 顶栏：页面在最上面时完全透明、没有分界线，和页面背景连成一片；往下滚以后才加一层磨砂底，免得文字和内容叠在一起。
@@ -52,6 +60,7 @@ onMounted(() => {
   window.addEventListener('popstate', syncView)
   window.addEventListener('fq-navigate', onNavigateEvent)
   window.addEventListener('fq-open-tour', onOpenTour)
+  window.addEventListener('fq-points-changed', onPointsChanged)
   window.addEventListener('scroll', onScroll, { passive: true })
   onScroll()
 })
@@ -59,6 +68,7 @@ onUnmounted(() => {
   window.removeEventListener('popstate', syncView)
   window.removeEventListener('fq-navigate', onNavigateEvent)
   window.removeEventListener('fq-open-tour', onOpenTour)
+  window.removeEventListener('fq-points-changed', onPointsChanged)
   window.removeEventListener('scroll', onScroll)
 })
 
@@ -99,6 +109,7 @@ const navIcons = {
   'xtick-data': 'M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z',
   universe:
     'M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z',
+  points: 'M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z',
   account:
     'M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z',
   'decision-center':
@@ -141,6 +152,7 @@ async function verifySession() {
     routeContext.value = researchContext(new URL(window.location.href))
   }
   loading.value = false
+  refreshPoints()
   // 首次进入工作台自动弹出新手引导（可在顶栏 ? 图标重新打开）
   if (!localStorage.getItem('zt_tour_done')) tourOpen.value = true
 }
@@ -252,21 +264,28 @@ function doLogout() {
           <button class="rounded-lg p-2 text-slate-400 hover:bg-white/5 lg:hidden" @click="sidebarOpen = !sidebarOpen" aria-label="菜单">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
-          <h1 class="text-lg font-semibold text-white">{{ activeSection?.children ? activeSection.label : itemLabel(activeKey) }}</h1>
+          <h1 class="min-w-0 truncate whitespace-nowrap text-lg font-semibold text-white">{{ activeSection?.children ? activeSection.label : itemLabel(activeKey) }}</h1>
           <a href="/" class="hidden rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-slate-300 transition hover:border-white/25 hover:text-white sm:inline-flex">返回官网</a>
 
           <!-- 右上角：主题切换 + 新手引导 + 用户头像 + 名字 + 退出 -->
           <div class="ml-auto flex items-center gap-2">
+            <button v-if="pointsBalance != null" type="button"
+              class="flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-slate-300 transition hover:border-indigo-400/40 hover:text-white"
+              title="我的积分" :aria-label="`我的积分 ${pointsBalance}`" @click="navigate('points')">
+              <svg class="h-3.5 w-3.5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" /></svg>
+              <span class="tabular-nums font-medium">{{ pointsBalance }}</span><span class="hidden sm:inline">积分</span>
+            </button>
             <ThemeToggle />
+            <!-- 手机上顶栏放不下：新手引导在设置里也能打开，头像在侧栏底部也有 -->
             <button
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-300 transition hover:border-indigo-400/40 hover:text-white"
+              class="hidden h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-300 transition hover:border-indigo-400/40 hover:text-white sm:flex"
               title="新手引导"
               aria-label="新手引导"
               @click="tourOpen = true"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" /><circle cx="12" cy="17" r="0.8" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="10" stroke-width="2" /></svg>
             </button>
-            <div class="flex items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3">
+            <div class="hidden items-center gap-2.5 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-3 sm:flex">
               <span class="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-xs font-bold text-ink">{{ (user?.name || 'U').slice(0, 1) }}</span>
               <span class="hidden max-w-[9rem] truncate text-sm font-medium text-white sm:inline">{{ user?.name }}</span>
             </div>

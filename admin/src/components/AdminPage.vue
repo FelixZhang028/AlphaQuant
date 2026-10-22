@@ -6,16 +6,18 @@ import { barHeights, tokensText } from '../settings.js'
 import AuditPanel from './AuditPanel.vue'
 import DataPanel from './DataPanel.vue'
 import InvitesPanel from './InvitesPanel.vue'
+import PointsPanel from './PointsPanel.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import UsersPanel from './UsersPanel.vue'
 
-// 管理后台只显示平台的真实数字，并提供几项管理操作：停用账户、注册方式和邀请码、数据更新、
+// 管理后台只显示平台的真实数字，并提供几项管理操作：停用账户、注册方式和邀请码、积分和兑换码、数据更新、
 // 系统设置（AI 密钥、次数、数据更新、邮件服务）和操作记录。
 const emit = defineEmits(['logout'])
 const tabs = [
   { key: 'overview', label: '概览' },
   { key: 'users', label: '用户' },
   { key: 'invites', label: '注册与邀请码' },
+  { key: 'points', label: '积分与兑换码' },
   { key: 'data', label: '数据更新' },
   { key: 'settings', label: '系统设置' },
   { key: 'audit', label: '操作记录' },
@@ -25,7 +27,7 @@ const tab = ref(tabs.some((t) => t.key === initial) ? initial : 'overview')
 function openTab(key) {
   tab.value = key
   history.replaceState(null, '', `#${key}`)
-  if (key === 'overview' || key === 'users') load()   // 切过来时拿最新的数字
+  if (['overview', 'users', 'points'].includes(key)) load()   // 切过来时拿最新的数字
 }
 
 const stats = ref(null)
@@ -220,6 +222,7 @@ const marketText = computed(() => {
 
     <UsersPanel v-else-if="tab === 'users'" :users="users" @changed="load" @notify="notify" />
     <InvitesPanel v-else-if="tab === 'invites'" @changed="load" @notify="notify" />
+    <PointsPanel v-else-if="tab === 'points'" :users="users" @changed="load" @notify="notify" />
     <DataPanel v-else-if="tab === 'data'" :site-base="SITE_BASE" @notify="notify" />
     <SettingsPanel v-else-if="tab === 'settings'" @notify="notify" />
     <AuditPanel v-else-if="tab === 'audit'" />
