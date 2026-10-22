@@ -13,7 +13,8 @@
 - ai_tokens      每天调用文本模型用掉的 token（服务商返回了用量时）
 - point_lots / point_ledger  积分：每一批（有效期）和每一次增加、扣除
 - redeem_codes / redeem_uses 兑换码和谁用过
-- point_checkins 每日打卡（每人每天一行）
+- point_checkins 每日打卡（每人每天一行，含补签）
+- point_makeup_cards 补签卡
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -270,11 +271,22 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS point_checkins (
                 user_id    INTEGER NOT NULL,
                 day        TEXT    NOT NULL,                -- 北京时间的日期 YYYY-MM-DD
-                points     INTEGER NOT NULL,
+                points     INTEGER NOT NULL,                -- 这天送了多少（补签的是 0）
+                makeup     INTEGER NOT NULL DEFAULT 0,      -- 1：用补签卡补的
                 created_at TEXT    NOT NULL,
                 PRIMARY KEY (user_id, day),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+            -- 补签卡：累计打卡送的，不过期；用掉以后记下补的是哪一天
+            CREATE TABLE IF NOT EXISTS point_makeup_cards (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id   INTEGER NOT NULL,
+                earned_at TEXT    NOT NULL,
+                used_day  TEXT,
+                used_at   TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_makeup_cards_user ON point_makeup_cards(user_id, used_day);
             CREATE TABLE IF NOT EXISTS redeem_codes (
                 code       TEXT    PRIMARY KEY,
                 points     INTEGER NOT NULL,
@@ -305,6 +317,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
         if "last_seen_at" not in columns:
             conn.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
+        if "makeup" not in {row["name"] for row in conn.execute("PRAGMA table_info(point_checkins)")}:
+            conn.execute("ALTER TABLE point_checkins ADD COLUMN makeup INTEGER NOT NULL DEFAULT 0")
 
     # No public default credentials. Bootstrap only when explicitly configured.
     email = os.getenv("FELLOWQUANT_ADMIN_EMAIL", "").strip().lower()

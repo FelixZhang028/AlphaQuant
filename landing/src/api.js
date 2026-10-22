@@ -214,6 +214,9 @@ export function getPoints() {
 export function checkIn() {
   return request('/api/v1/points/checkin', { method: 'POST', auth: true })
 }
+export function makeupCheckin() {
+  return request('/api/v1/points/makeup', { method: 'POST', auth: true })
+}
 export function redeemPoints(code) {
   return request('/api/v1/points/redeem', { method: 'POST', body: { code }, auth: true })
 }

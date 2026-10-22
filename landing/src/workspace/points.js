@@ -49,12 +49,37 @@ export function priceText(price, unlimited = false) {
   return `${today}每次 ${price.cost} 积分`
 }
 
-// 每日打卡：没打的时候写能领多少，打过以后写连续了几天（按钮上已经写了“今天已打卡”）。
+// 每日打卡：没打的时候写今天能领多少，打过以后写连续了几天、明天能领多少。
 export function checkinText(state) {
   if (!state?.enabled) return ''
-  if (state.done_today) return `已连续 ${state.streak} 天，明天再来`
-  const streak = state.streak ? `，已连续 ${state.streak} 天` : ''
-  return `打卡领 ${state.points} 积分（${state.days} 天内有效）${streak}`
+  if (state.done_today) return `已连续 ${state.streak} 天，明天打卡可得 ${state.next_points} 积分`
+  const streak = state.streak ? `已连续 ${state.streak} 天，` : ''
+  return `${streak}今天打卡可得 ${state.today_points} 积分`
+}
+
+// 连续打卡的 7 格：第几天、送多少、打过没有。连续超过 7 天以后都按第 7 格送，7 格都打勾。
+export function checkinCells(state) {
+  if (!state?.ladder) return []
+  const position = state.done_today ? state.streak : state.streak + 1     // 今天是连续第几天
+  const shown = Math.min(position, state.ladder.length)
+  return state.ladder.map((points, index) => {
+    const day = index + 1
+    const status = day < shown || (day === shown && state.done_today) ? 'done' : day === shown ? 'today' : 'later'
+    const last = day === state.ladder.length
+    return { day, points, status, label: last ? `第 ${day} 天起` : `第 ${day} 天`, short: last ? `${day} 天+` : `${day} 天` }
+  })
+}
+
+// “10 月 20 日”
+export function monthDay(iso) {
+  const [, month, day] = String(iso || '').split('-').map(Number)
+  return month && day ? `${month} 月 ${day} 日` : ''
+}
+
+// 补签卡：有几张、再打几天送一张。
+export function cardText(state) {
+  if (!state?.card_every) return ''
+  return `补签卡 ${state.cards} 张 · 再打卡 ${state.card_in} 天送 1 张`
 }
 
 // 用户输入的兑换码：去掉空格、换成大写；格式明显不对时先在页面上提示。

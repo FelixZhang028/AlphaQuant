@@ -174,32 +174,77 @@ def test_new_accounts_get_the_gift_when_they_register(site):
     assert balance(uid) == 100
 
 
-def test_daily_checkin_once_a_day_with_a_streak(site, monkeypatch):
-    from datetime import date
+def checkin_on(client, monkeypatch, day):
+    monkeypatch.setattr(points, "_china_today", lambda: day)
+    return client.post("/api/v1/points/checkin")
+
+
+def test_the_streak_gives_more_each_day_up_to_the_maximum(site, monkeypatch):
+    from datetime import date, timedelta
 
     client, _ = site
-    day = {"today": date(2026, 10, 20)}
-    monkeypatch.setattr(points, "_china_today", lambda: day["today"])
-    first = client.post("/api/v1/points/checkin")
-    assert first.status_code == 200 and first.json()["points"] == 5 and first.json()["balance"] == 105
-    assert first.json()["checkin"] == {"enabled": True, "points": 5, "days": 7, "done_today": True, "streak": 1, "total": 1}
+    start = date(2026, 10, 1)
+    got = [checkin_on(client, monkeypatch, start + timedelta(days=n)).json() for n in range(8)]
+    assert [g["points"] for g in got] == [5, 7, 9, 11, 13, 15, 15, 15]
+    assert got[0]["checkin"]["ladder"] == [5, 7, 9, 11, 13, 15, 15]
+    assert got[2]["checkin"] == {**got[2]["checkin"], "done_today": True, "streak": 3, "today_points": 9, "next_points": 11}
     assert client.post("/api/v1/points/checkin").status_code == 409            # 一天只能打一次
-    day["today"] = date(2026, 10, 21)
-    assert client.get("/api/v1/points").json()["checkin"]["done_today"] is False
-    assert client.get("/api/v1/points").json()["checkin"]["streak"] == 1        # 今天还没打：从昨天往前数
-    assert client.post("/api/v1/points/checkin").json()["checkin"]["streak"] == 2
-    day["today"] = date(2026, 10, 23)                                           # 断了一天
-    third = client.post("/api/v1/points/checkin").json()
-    assert third["checkin"]["streak"] == 1 and third["balance"] == 115
-    lot = next(l for l in third["summary"]["lots"] if l["source"] == "checkin")
-    assert lot["label"] == "每日打卡"
-    assert third["summary"]["ledger"][0]["note"] == "连续第 1 天"
+    assert got[0]["summary"]["ledger"][0]["note"] == "连续第 1 天"
+    lot = next(l for l in got[0]["summary"]["lots"] if l["source"] == "checkin")
+    assert lot["label"] == "每日打卡" and lot["expires_at"][:10] == (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()
+    # 断了一天：从 5 分重新开始；没打的时候显示今天打能领多少
+    monkeypatch.setattr(points, "_china_today", lambda: start + timedelta(days=9))
+    state = client.get("/api/v1/points").json()["checkin"]
+    assert state["done_today"] is False and state["streak"] == 0 and state["today_points"] == 5 and state["next_points"] == 7
+    assert checkin_on(client, monkeypatch, start + timedelta(days=9)).json()["points"] == 5
+
+
+def test_seven_real_checkins_give_a_card_that_fills_the_newest_missed_day(site, monkeypatch):
+    from datetime import date, timedelta
+
+    client, _ = site
+    start = date(2026, 10, 1)
+    for n in range(6):
+        assert checkin_on(client, monkeypatch, start + timedelta(days=n)).json()["card_earned"] is False
+    seventh = checkin_on(client, monkeypatch, start + timedelta(days=6)).json()   # 10-07：累计 7 天，送一张
+    assert seventh["card_earned"] is True and seventh["checkin"]["cards"] == 1 and seventh["checkin"]["card_in"] == 7
+    assert client.post("/api/v1/points/makeup").status_code == 409            # 没有漏掉的日子
+    # 漏了 10-08 和 10-09，10-10 打开：先补最近的 10-09，再没有卡了
+    monkeypatch.setattr(points, "_china_today", lambda: start + timedelta(days=9))
+    assert client.get("/api/v1/points").json()["checkin"]["missed_day"] == "2026-10-09"
+    used = client.post("/api/v1/points/makeup").json()
+    assert used["day"] == "2026-10-09" and used["checkin"]["cards"] == 0 and used["checkin"]["missed_day"] == "2026-10-08"
+    assert client.post("/api/v1/points/makeup").status_code == 400
+    # 再给一张卡补上 10-08：连续天数接上，今天是第 10 天，送 15 分；补签的日子不送积分、不算累计
+    with database.get_conn() as conn:
+        conn.execute("INSERT INTO point_makeup_cards (user_id, earned_at) VALUES (1, 'now')")
+    client.post("/api/v1/points/makeup")
+    today = checkin_on(client, monkeypatch, start + timedelta(days=9)).json()
+    assert today["streak"] == 10 and today["points"] == 15 and today["checkin"]["total"] == 8
+    with database.get_conn() as conn:
+        made = conn.execute("SELECT day, points FROM point_checkins WHERE makeup = 1 ORDER BY day").fetchall()
+    assert [(r["day"], r["points"]) for r in made] == [("2026-10-08", 0), ("2026-10-09", 0)]
+
+
+def test_cards_only_fill_days_inside_the_window_and_after_the_first_checkin(site, monkeypatch):
+    from datetime import date, timedelta
+
+    client, _ = site
+    start = date(2026, 10, 1)
+    with database.get_conn() as conn:
+        conn.execute("INSERT INTO point_makeup_cards (user_id, earned_at) VALUES (1, 'now')")
+    monkeypatch.setattr(points, "_china_today", lambda: start)
+    assert client.post("/api/v1/points/makeup").status_code == 409            # 还没打过卡：没有能补的日子
+    checkin_on(client, monkeypatch, start)
+    monkeypatch.setattr(points, "_china_today", lambda: start + timedelta(days=20))
+    assert client.post("/api/v1/points/makeup").status_code == 409            # 漏的日子都在 7 天以前
 
 
 def test_checkin_can_be_turned_off_and_administrators_do_not_check_in(site, monkeypatch):
     client, current = site
     current["user"] = {"id": 9, "is_admin": True}
     assert client.post("/api/v1/points/checkin").status_code == 400
+    assert client.post("/api/v1/points/makeup").status_code == 400
     current["user"] = {"id": 1, "is_admin": False}
     monkeypatch.setenv("FELLOWQUANT_POINTS_CHECKIN", "0")
     assert client.post("/api/v1/points/checkin").status_code == 403

@@ -3,13 +3,15 @@
 规则：
 - 每种 AI 功能每天有免费次数（``platform_ai.LIMITS``），先用免费次数，用完了每次扣一定的积分。
 - 积分按“批”记：注册赠送、每日打卡、管理员发放、兑换码……每一批有自己的有效期。扣的时候先扣快过期的。
-- 每日打卡：每个账户每天（北京时间）打一次卡，送一点短期有效的积分。
+- 每日打卡：每个账户每天（北京时间）打一次卡。连续打卡送得越来越多（5、7、9……最多 15），断了从头开始；
+  累计真正打卡 7 天送一张补签卡（不过期），补最近漏掉的一天，只接上连续天数、不送那天的积分。
 - 调用失败（模型没有回答）时退回扣掉的积分，明细里也不留这一笔。
 - 每个人每天最多用多少次（免费的加积分的），防止一个账户一直调用；管理员不扣积分、不受限制。
 - 积分不能提现、不能转给别人。
 
 表：``point_lots``（每一批积分和剩下多少）、``point_ledger``（每一次增加和扣除）、
-``redeem_codes`` / ``redeem_uses``（兑换码和谁用过）、``point_checkins``（哪天打过卡）。时间都是 UTC 的 ISO 文本。
+``redeem_codes`` / ``redeem_uses``（兑换码和谁用过）、``point_checkins``（哪天打过卡，含补签）、
+``point_makeup_cards``（补签卡）。时间都是 UTC 的 ISO 文本。
 """
 
 from __future__ import annotations
@@ -37,8 +39,12 @@ COSTS = {
 SIGNUP = ("FELLOWQUANT_POINTS_SIGNUP", 100)            # 新用户送多少积分
 GIFT_DAYS = ("FELLOWQUANT_POINTS_GIFT_DAYS", 30)       # 赠送的积分多少天有效
 DAILY_CAP = ("FELLOWQUANT_POINTS_DAILY_CAP", 200)      # 每人每天最多用多少次 AI（免费的加积分的），0 表示不限
-CHECKIN = ("FELLOWQUANT_POINTS_CHECKIN", 5)             # 每日打卡送多少积分，0 表示关闭打卡
-CHECKIN_DAYS = ("FELLOWQUANT_POINTS_CHECKIN_DAYS", 7)   # 打卡的积分多少天有效
+CHECKIN = ("FELLOWQUANT_POINTS_CHECKIN", 5)             # 每日打卡：连续第 1 天送多少积分，0 表示关闭打卡
+CHECKIN_STEP = ("FELLOWQUANT_POINTS_CHECKIN_STEP", 2)   # 连续打卡每多一天多送几分
+CHECKIN_MAX = ("FELLOWQUANT_POINTS_CHECKIN_MAX", 15)    # 每天最多送几分（到了以后每天都送这么多）
+CHECKIN_DAYS = ("FELLOWQUANT_POINTS_CHECKIN_DAYS", 30)  # 打卡的积分多少天有效
+MAKEUP_EVERY = ("FELLOWQUANT_POINTS_MAKEUP_EVERY", 7)   # 累计真正打卡几天送一张补签卡（补签卡不过期），0 表示没有补签卡
+MAKEUP_WINDOW = ("FELLOWQUANT_POINTS_MAKEUP_WINDOW", 7) # 补签卡最多补几天以内漏掉的日子
 
 SOURCES = {"signup": "注册赠送", "checkin": "每日打卡", "admin": "管理员发放", "redeem": "兑换码", "purchase": "购买", "spend": "使用"}
 CODE_PATTERN = re.compile(r"^[A-Z0-9-]{6,40}$")
@@ -187,10 +193,18 @@ def _china_today() -> date:
     return datetime.now(CHINA).date()
 
 
-def _streak(days: list[str], today: date) -> int:
-    """Consecutive days checked in, ending today (or yesterday when today is not done yet)."""
+def reward(streak: int) -> int:
+    """Points for the ``streak``-th day in a row: the start, then ``step`` more each day, at most the maximum."""
 
-    seen = set(days)
+    start = _number(CHECKIN)
+    if start <= 0 or streak <= 0:
+        return 0
+    return min(max(start, _number(CHECKIN_MAX)), start + _number(CHECKIN_STEP) * (streak - 1))
+
+
+def _streak(seen: set[str], today: date) -> int:
+    """Consecutive days checked in (made-up days count), ending today (or yesterday when today is not done yet)."""
+
     start = today if today.isoformat() in seen else today - timedelta(days=1)
     count = 0
     while (start - timedelta(days=count)).isoformat() in seen:
@@ -198,34 +212,94 @@ def _streak(days: list[str], today: date) -> int:
     return count
 
 
+def _missed_day(seen: set[str], today: date) -> date | None:
+    """The newest missed day a make-up card can fill. The whole gap must lie within the window (a check-in
+    inside the window comes before it), so filling it can join the streak up again."""
+
+    window = [today - timedelta(days=back) for back in range(1, _number(MAKEUP_WINDOW, 1) + 1)]
+    for index, day in enumerate(window):
+        if day.isoformat() not in seen:
+            return day if any(older.isoformat() in seen for older in window[index + 1:]) else None
+    return None
+
+
+def _real_checkins(conn, user_id: int) -> int:
+    return int(conn.execute("SELECT COUNT(*) FROM point_checkins WHERE user_id = ? AND makeup = 0", (user_id,)).fetchone()[0])
+
+
 def checkin_state(conn, user_id: int) -> dict[str, Any]:
     today = _china_today()
-    days = [r["day"] for r in conn.execute("SELECT day FROM point_checkins WHERE user_id = ? ORDER BY day DESC LIMIT 400",
-                                           (user_id,)).fetchall()]
-    return {"enabled": _number(CHECKIN) > 0, "points": _number(CHECKIN), "days": _number(CHECKIN_DAYS, 1),
-            "done_today": today.isoformat() in days, "streak": _streak(days, today), "total": len(days)}
+    seen = {r["day"] for r in conn.execute("SELECT day FROM point_checkins WHERE user_id = ? ORDER BY day DESC LIMIT 400",
+                                           (user_id,)).fetchall()}
+    done = today.isoformat() in seen
+    streak = _streak(seen, today)
+    real = _real_checkins(conn, user_id)
+    every = _number(MAKEUP_EVERY)
+    missed = _missed_day(seen, today) if every else None
+    cards = int(conn.execute("SELECT COUNT(*) FROM point_makeup_cards WHERE user_id = ? AND used_day IS NULL",
+                             (user_id,)).fetchone()[0]) if every else 0
+    return {
+        "enabled": _number(CHECKIN) > 0, "days": _number(CHECKIN_DAYS, 1),
+        "ladder": [reward(n) for n in range(1, 8)],          # 连续第 1～7 天各送多少；第 7 天以后和第 7 天一样
+        "done_today": done, "streak": streak, "total": real,
+        # 今天打过：今天领了多少、明天能领多少；没打：今天打能领多少、明天接着打能领多少
+        "today_points": reward(streak if done else streak + 1),
+        "next_points": reward(streak + 1 if done else streak + 2),
+        "cards": cards, "card_every": every, "card_in": (every - real % every) if every else None,
+        "missed_day": missed.isoformat() if missed else None, "makeup_window": _number(MAKEUP_WINDOW, 1),
+    }
 
 
 def checkin(user: dict) -> dict[str, Any]:
-    """Check in for today (China time) once; gives ``CHECKIN`` points valid ``CHECKIN_DAYS`` days."""
+    """Check in for today (China time) once. The points grow with the streak; every ``MAKEUP_EVERY``
+    real check-ins (made-up days do not count) give a make-up card."""
 
-    amount = _number(CHECKIN)
-    if amount <= 0:
+    if _number(CHECKIN) <= 0:
         raise HTTPException(status_code=403, detail="每日打卡暂时关闭")
     if user.get("is_admin"):
         raise HTTPException(status_code=400, detail="管理员不用积分，不用打卡")
     today = _china_today().isoformat()
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        added = conn.execute("INSERT OR IGNORE INTO point_checkins (user_id, day, points, created_at) VALUES (?,?,?,?)",
-                             (user["id"], today, amount, _iso(_now()))).rowcount
-        if not added:
+        if conn.execute("SELECT 1 FROM point_checkins WHERE user_id = ? AND day = ?", (user["id"], today)).fetchone():
             raise HTTPException(status_code=409, detail="今天已经打过卡了，明天再来")
+        seen = {r["day"] for r in conn.execute("SELECT day FROM point_checkins WHERE user_id = ?", (user["id"],)).fetchall()}
+        streak = _streak(seen | {today}, _china_today())
+        amount = reward(streak)
+        conn.execute("INSERT INTO point_checkins (user_id, day, points, makeup, created_at) VALUES (?,?,?,0,?)",
+                     (user["id"], today, amount, _iso(_now())))
         ensure_signup(conn, user["id"])
+        grant(conn, user["id"], amount, "checkin", _number(CHECKIN_DAYS, 1), f"连续第 {streak} 天")
+        every = _number(MAKEUP_EVERY)
+        card = bool(every and _real_checkins(conn, user["id"]) % every == 0)
+        if card:
+            conn.execute("INSERT INTO point_makeup_cards (user_id, earned_at) VALUES (?,?)", (user["id"], _iso(_now())))
         state = checkin_state(conn, user["id"])
-        grant(conn, user["id"], amount, "checkin", _number(CHECKIN_DAYS, 1), f"连续第 {state['streak']} 天")
         have = balance(conn, user["id"])
-    return {"points": amount, "days": _number(CHECKIN_DAYS, 1), "balance": have, "checkin": state}
+    return {"points": amount, "streak": streak, "days": _number(CHECKIN_DAYS, 1), "card_earned": card, "balance": have, "checkin": state}
+
+
+def makeup(user: dict) -> dict[str, Any]:
+    """Use one make-up card on the newest missed day within the window. The streak joins up again;
+    the made-up day gives no points."""
+
+    if user.get("is_admin"):
+        raise HTTPException(status_code=400, detail="管理员不用积分，不用补签")
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        card = conn.execute("SELECT id FROM point_makeup_cards WHERE user_id = ? AND used_day IS NULL ORDER BY id LIMIT 1",
+                            (user["id"],)).fetchone()
+        if card is None:
+            raise HTTPException(status_code=400, detail="没有补签卡；累计打卡满一定天数会送一张")
+        seen = {r["day"] for r in conn.execute("SELECT day FROM point_checkins WHERE user_id = ?", (user["id"],)).fetchall()}
+        day = _missed_day(seen, _china_today())
+        if day is None:
+            raise HTTPException(status_code=409, detail=f"最近 {_number(MAKEUP_WINDOW, 1)} 天没有需要补签的日子")
+        conn.execute("INSERT INTO point_checkins (user_id, day, points, makeup, created_at) VALUES (?,?,0,1,?)",
+                     (user["id"], day.isoformat(), _iso(_now())))
+        conn.execute("UPDATE point_makeup_cards SET used_day = ?, used_at = ? WHERE id = ?", (day.isoformat(), _iso(_now()), card["id"]))
+        state = checkin_state(conn, user["id"])
+    return {"day": day.isoformat(), "checkin": state}
 
 
 # --------------------------------------------------------------------------- #
