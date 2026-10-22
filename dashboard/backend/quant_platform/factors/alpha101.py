@@ -1,8 +1,8 @@
-"""The 101 Formulaic Alphas computed from daily bars, all but #56 (market cap).
+"""The 101 Formulaic Alphas computed from daily bars.
 
 Source: https://arxiv.org/abs/1601.00991 (Appendix A). Each formula below is the paper's,
 with the paper's operator definitions. 82 of the 101 need only daily price and volume, 18 more
-need an industry classification, and #56 needs market cap (not here yet).
+need an industry classification, and #56 needs market cap.
 
 Conventions, chosen so that no value depends on data after its own date:
 
@@ -12,6 +12,8 @@ Conventions, chosen so that no value depends on data after its own date:
   day is not counted as a loss.
 - ``vwap`` is amount / volume of the day; ``adv{d}`` is the average amount over ``d`` days,
   as the paper defines it.
+- ``cap`` is the day's close times the total shares of the newest report published by that
+  day, the same market value as the 总市值 factor.
 - A dividend or split makes raw prices and volumes before and after it incomparable. A value
   whose price/volume window spans such a day is left missing rather than computed from a
   jump that never traded (``span`` below is the number of day-to-day steps the window covers).
@@ -52,6 +54,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from quant_platform.data.extras import require_extra_data
 from quant_platform.data.index_constituents import UNIVERSE_COLUMN
 from quant_platform.data.industry import MISSING_INDUSTRY_MESSAGE
 from quant_platform.factors.base import FactorDefinition, melt_wide, pivot_field
@@ -322,6 +325,14 @@ class Panel:
 
     def adv(self, d: int) -> Frame:
         return self.amount.rolling(d, min_periods=d).mean()
+
+    @property
+    def cap(self) -> Frame:
+        """Market value: the day's close times the total shares of the newest report published by then."""
+
+        require_extra_data(self._bars, ["total_shares"])
+        shares = self._field("total_shares")
+        return self.close * shares.where(shares > 0)
 
     @property
     def _action(self) -> Frame | None:
@@ -797,6 +808,12 @@ def _alpha055(p: Panel) -> Frame:
     low12 = ts_min(p.low, 12)
     position = (p.close - low12) / (ts_max(p.high, 12) - low12)
     return -correlation(rank(position.replace([np.inf, -np.inf], np.nan)), rank(p.volume), 6)
+
+
+# (0 - (1 * (rank((sum(returns, 10) / sum(sum(returns, 2), 3))) * rank((returns * cap)))))
+def _alpha056(p: Panel) -> Frame:
+    recent = ts_sum(p.returns, 10) / ts_sum(ts_sum(p.returns, 2), 3)
+    return -(rank(recent.replace([np.inf, -np.inf], np.nan)) * rank(p.returns * p.cap))
 
 
 # (0 - (1 * ((close - vwap) / decay_linear(rank(ts_argmax(close, 30)), 2))))
@@ -1421,7 +1438,14 @@ _THIRD_BATCH: tuple[_Formula, ...] = (
              + _IND_NOTE + _AMOUNT_NOTE, _alpha100),
 )
 
-FORMULAS = tuple(sorted(FORMULAS + _SECOND_BATCH + _THIRD_BATCH, key=lambda item: item.number))
+_CAP_NOTE = "（cap 是总市值：当天收盘价 × 当天已经公告的最新一期财报的总股本，和总市值因子的算法相同）"
+
+_MARKET_CAP: tuple[_Formula, ...] = (
+    _Formula(56, "近10日收益结构与市值加权的当日收益", "反转", 0, 11, ("raw_close", "total_shares"),
+             "-(rank(sum(returns, 10) / sum(sum(returns, 2), 3)) * rank(returns * cap))" + _CAP_NOTE, _alpha056),
+)
+
+FORMULAS = tuple(sorted(FORMULAS + _SECOND_BATCH + _THIRD_BATCH + _MARKET_CAP, key=lambda item: item.number))
 # 有复权因子时每个公式都会用到：识别除权除息日、计算真实收益、按当天的前复权价计算长窗口。
 _ADJUSTMENT = ("adj_factor", "adjusted_close", UNIVERSE_COLUMN)
 
