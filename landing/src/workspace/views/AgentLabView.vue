@@ -280,7 +280,7 @@ function moveTone(value) {
 
       <JevStockReport v-if="odds" :report="odds" :trade-date="record.trade_date" :text-tilt="brief?.tilt || ''"
         :upgrading="upgradingReport" :can-upgrade="Boolean(status?.decision?.available)"
-        :remaining="status?.usage?.decision?.remaining ?? null" @upgrade="upgradeReport" />
+        :usage="status?.usage?.decision || null" @upgrade="upgradeReport" />
 
       <SectionCard v-if="brief" title="AI 解读" :hint="`只根据下面的数据写成，每条后面是它引用的数据 · 模型 ${record.model}`">
         <div class="flex flex-wrap items-center gap-3">

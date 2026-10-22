@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { openResearch } from '../researchNavigation.js'
-import { evidenceText, normalizeTilt, oddsDisagree, TILT_NOTE, TILTS, tiltLabel, tiltTone } from '../aiPresentation.js'
+import { canUse, evidenceText, normalizeTilt, oddsDisagree, TILT_NOTE, TILTS, tiltLabel, tiltTone, useLabel } from '../aiPresentation.js'
 import { assessmentTone, confidenceLabel, distributionRows, isDetailedReport, reportSummary } from '../jevReportPresentation.js'
 
 const props = defineProps({
@@ -10,7 +10,7 @@ const props = defineProps({
   textTilt: { type: String, default: '' },
   upgrading: { type: Boolean, default: false },
   canUpgrade: { type: Boolean, default: false },
-  remaining: { type: Number, default: null },
+  usage: { type: Object, default: null },   // 今天的个股判断次数和积分：免费次数用完以后用积分补全
 })
 defineEmits(['upgrade'])
 const detailed = computed(() => isDetailedReport(props.report))
@@ -68,8 +68,8 @@ const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
 
       <div v-if="!detailed" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4">
         <p class="text-sm text-slate-300">这是一条历史简版判断，尚未评估各个维度。可以使用当时保存的数据补全报告。</p>
-        <button v-if="canUpgrade" type="button" :disabled="upgrading || remaining === 0" class="mt-3 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 disabled:opacity-50" @click="$emit('upgrade')">
-          {{ upgrading ? '正在补全报告…' : remaining === 0 ? '今天的评估额度已用完' : '补全分项报告 · 使用 1 次评估' }}
+        <button v-if="canUpgrade" type="button" :disabled="upgrading || !canUse(usage)" class="mt-3 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 disabled:opacity-50" @click="$emit('upgrade')">
+          {{ upgrading ? '正在补全报告…' : useLabel(usage, usage?.remaining > 0 ? '补全分项报告 · 用 1 次免费次数' : '补全分项报告') }}
         </button>
         <p v-else class="mt-2 text-xs text-slate-500">平台配置 Jev 后可以补全；当前保存的判断仍可查看。</p>
       </div>

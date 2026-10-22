@@ -41,6 +41,19 @@ export function remainingText(usage, word) {
   return `今天的免费${word}次数已用完`
 }
 
+// 还能不能再用一次：今天还有免费次数，或者积分够；管理员（没有次数限制）总是可以。
+export function canUse(usage) {
+  if (!usage || usage.remaining == null || usage.remaining > 0) return true
+  return usage.points != null && Number(usage.points) >= Number(usage.cost || 0)
+}
+
+// 按钮上的字：有免费次数时照原样；免费次数用完时写这次要多少积分，积分不够时说清楚差多少。
+export function useLabel(usage, label) {
+  if (!usage || usage.remaining == null || usage.remaining > 0) return label
+  if (canUse(usage)) return `${label} · ${usage.cost} 积分`
+  return `积分不够（需要 ${usage.cost}，现有 ${usage.points ?? 0}）`
+}
+
 export function modelText(status) {
   if (!status) return '正在读取 AI 模型状态…'
   if (!status.ai?.available) return status.decision?.available

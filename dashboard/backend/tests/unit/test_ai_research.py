@@ -522,3 +522,18 @@ def test_the_lean_describes_the_data_and_never_the_price():
     data = {"tilt": "大致相当", "summary": "", "risk_points": [{"text": "走势看涨", "evidence": ["ret_20d"]}]}
     checked = check_brief(data, stock)
     assert checked["tilt"] == "大致相当" and checked["risk_points"] == [] and checked["removed"] == 1
+
+
+def test_after_the_free_uses_a_report_upgrade_spends_points(api, monkeypatch):
+    from app.quant import points
+
+    client, current = api
+    monkeypatch.setenv('FELLOWQUANT_AI_DAILY_DECISIONS', '0')
+    monkeypatch.setenv('FELLOWQUANT_POINTS_SIGNUP', '100')
+    monkeypatch.setattr(platform_ai, 'decision_client', lambda: FakeJev())
+    created = client.post('/api/v1/agent-lab/briefs', json={'symbol': '600000.SH'}).json()
+    usage = client.get('/api/v1/agent-lab/status').json()['usage']['decision']
+    assert usage['remaining'] == 0 and usage['cost'] == 2 and usage['points'] == 100      # 页面据此显示“· 2 积分”
+    assert client.post(f"/api/v1/agent-lab/briefs/{created['id']}/decision").status_code == 200
+    with database.get_conn() as conn:
+        assert points.balance(conn, current['user']['id']) == 98

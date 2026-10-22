@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  evidenceText, factGroups, laterText, modelText, normalizeTilt, oddsDisagree, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltLabel, tiltTone,
+  canUse, evidenceText, factGroups, useLabel, laterText, modelText, normalizeTilt, oddsDisagree, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltLabel, tiltTone,
 } from '../src/workspace/aiPresentation.js'
 import { researchContext, researchUrl } from '../src/workspace/researchNavigation.js'
 
@@ -70,4 +70,16 @@ test('过度拟合的可能分三档说明', () => {
   assert.match(overfitText(0.7), /很可能经不起/)
   assert.match(overfitText(0.5), /拿不准/)
   assert.match(overfitText(0.2), /不太像是巧合/)
+})
+
+test('免费次数用完以后：积分够就还能用，按钮上写要多少积分', () => {
+  const free = { limit: 3, used: 1, remaining: 2, cost: 2, points: 0 }
+  const paid = { limit: 3, used: 3, remaining: 0, cost: 2, points: 10 }
+  const short = { limit: 3, used: 3, remaining: 0, cost: 2, points: 1 }
+  const admin = { limit: null, used: 9, remaining: null, cost: 0, points: null }
+  assert.deepEqual([free, paid, short, admin, null].map(canUse), [true, true, false, true, true])
+  assert.equal(useLabel(free, '补全分项报告'), '补全分项报告')
+  assert.equal(useLabel(paid, '补全分项报告'), '补全分项报告 · 2 积分')
+  assert.equal(useLabel(short, '补全分项报告'), '积分不够（需要 2，现有 1）')
+  assert.equal(useLabel(admin, '补全分项报告'), '补全分项报告')
 })
