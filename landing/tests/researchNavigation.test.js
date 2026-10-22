@@ -3,10 +3,10 @@ import test from 'node:test'
 import { researchContext, researchUrl, strategyReference } from '../src/workspace/researchNavigation.js'
 import { allItems, groups, navigationItem, resolveView, views } from '../src/workspace/modules.js'
 
-test('市场研究：AI研究员、事件研究、行情图表；文档问答、决策辅助的旧链接仍能打开，旧的研究经验链接进入 AI研究员', () => {
+test('市场研究：AI研究员、条件选股、事件研究、行情图表；文档问答、决策辅助的旧链接仍能打开，旧的研究经验链接进入 AI研究员', () => {
   const group = groups.find((g) => g.label === '市场研究')
-  assert.deepEqual(group.items.map((item) => item.label), ['AI研究员', '事件研究', '行情图表'])
-  assert.ok(views['event-study'])
+  assert.deepEqual(group.items.map((item) => item.label), ['AI研究员', '条件选股', '事件研究', '行情图表'])
+  assert.ok(views['event-study'] && views['stock-screen'])
   for (const key of ['knowledge-base', 'decision-center']) {
     assert.ok(allItems.some((item) => item.key === key))
     assert.ok(views[key])

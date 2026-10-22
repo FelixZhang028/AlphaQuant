@@ -30,3 +30,14 @@ test('结果概括', () => {
     '按 2026-10-21 收盘后的数据，在全市场 4,801 只股票里，有 1,057 只符合条件，按排序显示前 100 只')
   assert.equal(screenSummary(null), '')
 })
+
+test('条件选股和新建规则策略之间交接条件：取走一次就没有了', async () => {
+  const store = new Map()
+  globalThis.sessionStorage = { setItem: (k, v) => store.set(k, v), getItem: (k) => store.get(k) ?? null, removeItem: (k) => store.delete(k) }
+  const { handOffRules, takeHandedRules } = await import('../src/workspace/ruleHandoff.js')
+  handOffRules({ name: '动量', entry_rules: [] })
+  assert.deepEqual(takeHandedRules(), { name: '动量', entry_rules: [] })
+  assert.equal(takeHandedRules(), null)
+  delete globalThis.sessionStorage
+  assert.equal(takeHandedRules(), null)          // 没有存储也不出错
+})
