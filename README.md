@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="landing/public/fellowquant-logo.png" alt="FellowQuant logo" width="88" />
+  <img src="landing/public/brand/prismind-icon-512.png" alt="镜思 Prismind logo" width="96" />
 </p>
 
-<h1 align="center">FellowQuant</h1>
+<h1 align="center">镜思 Prismind</h1>
 
 <p align="center">从投资想法，到可验证的量化研究。</p>
 
@@ -23,7 +23,7 @@
 
 **品牌首页**
 
-![FellowQuant 首页](docs/images/homepage.png)
+![镜思 Prismind 首页](docs/images/homepage.png)
 
 **功能台：精简导航与策略工作室**
 
@@ -31,7 +31,7 @@
 
 ## 📖 项目介绍
 
-FellowQuant v4 是面向 A 股的量化研究工作台，基于 **Vue 3 + FastAPI** 构建。它把数据更新、策略创建、因子评估、回测验证和 AI 投研放进同一套工作流程，帮助研究者记录和检验投资想法。
+镜思 Prismind（v4）是面向 A 股的数据研究工作台，基于 **Vue 3 + FastAPI** 构建。它把数据更新、策略创建、因子评估、回测验证和 AI 投研放进同一套工作流程，帮助研究者记录和检验投资想法。
 
 v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。策略研究侧栏收敛为四个入口，详细操作在页内切换，减少寻找功能的成本。
 
@@ -52,8 +52,8 @@ v4 延续 AlphaQuant 的量化研究能力，并采用独立前后端架构。�
 准备 Python 3.11+、Node.js 18+ 和 Git。
 
 ```bash
-git clone --branch fellowquant_v4 https://github.com/FelixZhang028/AlphaQuant.git
-cd AlphaQuant
+git clone https://github.com/FelixZhang028/Prismind.git
+cd Prismind
 ```
 
 **Windows**：在项目根目录运行 `start.bat`。首次运行会检查并安装必要依赖，启动后访问 `http://127.0.0.1:5273`。按任意键停止由脚本启动的服务。
@@ -184,7 +184,7 @@ python -m compileall -q app quant_platform trading_agents
 
 ## 🤝 参与贡献
 
-欢迎通过 [Issue](https://github.com/FelixZhang028/AlphaQuant/issues) 反馈问题、提出功能建议，或提交 Pull Request。反馈时请说明复现步骤、预期行为和实际行为。
+欢迎通过 [Issue](https://github.com/FelixZhang028/Prismind/issues) 反馈问题、提出功能建议，或提交 Pull Request。反馈时请说明复现步骤、预期行为和实际行为。
 
 感谢 AlphaQuant 的量化研究基础，以及 [WeKnora](https://github.com/Tencent/WeKnora) 和 [OpenRouter](https://openrouter.ai/) 提供的集成能力。
 

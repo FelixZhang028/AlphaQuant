@@ -78,5 +78,5 @@ def today_usage(user: dict = Depends(get_current_user)):
 def export_my_data(user: dict = Depends(get_current_user)):
     rate_limit.check(f"export:{user['id']}", 10, 60 * 60, "导出太频繁")
     data = export_account(user["id"])
-    name = f"fellowquant-{datetime.now(platform_ai.CHINA):%Y%m%d}.json"
+    name = f"prismind-{datetime.now(platform_ai.CHINA):%Y%m%d}.json"
     return JSONResponse(content=data, headers={"Content-Disposition": f'attachment; filename="{name}"'})

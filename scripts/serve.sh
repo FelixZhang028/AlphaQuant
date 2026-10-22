@@ -21,6 +21,6 @@ done
 export FELLOWQUANT_STATIC_DIR="$root/landing/dist"
 export FELLOWQUANT_ADMIN_DIR="$root/admin/dist"
 unset FELLOWQUANT_API_DOCS
-echo "[启动] FellowQuant  http://$host:$port  管理后台 /admin/  （按 Ctrl+C 停止）"
+echo "[启动] 镜思 Prismind  http://$host:$port  管理后台 /admin/  （按 Ctrl+C 停止）"
 # 只开一个进程：次数限制和后台任务都记在这个进程里。
 exec python3 -m uvicorn app.main:app --app-dir "$root/dashboard/backend" --host "$host" --port "$port" --no-server-header

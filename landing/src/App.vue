@@ -112,23 +112,9 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 
     <!-- 顶栏：品牌 + 锚点导航 + 语言/主题/登录 -->
     <header class="fq-topbar">
-      <a class="fq-logo" href="/index.html" aria-label="FellowQuant">
-        <svg width="27" height="27" viewBox="0 0 27 27" fill="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="fq-logo-grad" x1="0" y1="0" x2="27" y2="27" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#4d6bfe" />
-              <stop offset="1" stop-color="#2e609f" />
-            </linearGradient>
-          </defs>
-          <rect width="27" height="27" rx="8" fill="url(#fq-logo-grad)" />
-          <path d="M7.4 17.6V11.4" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="5.9" y="12.4" width="3" height="3.7" rx="0.9" fill="#fff" />
-          <path d="M13.5 15.2V7.9" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="12" y="9" width="3" height="4.5" rx="0.9" fill="#fff" />
-          <path d="M19.6 12.7V5.6" stroke="#fff" stroke-width="1.7" stroke-linecap="round" />
-          <rect x="18.1" y="6.8" width="3" height="4.9" rx="0.9" fill="#fff" />
-        </svg>
-        <span class="fq-logo-word">FellowQuant</span>
+      <a class="fq-logo" href="/index.html" aria-label="镜思 Prismind">
+        <img src="/brand/prismind-icon-small.svg" width="27" height="27" alt="" aria-hidden="true" class="shrink-0" />
+        <span class="fq-logo-word">Prismind<small class="fq-logo-sub">镜思</small></span>
       </a>
 
       <nav class="fq-menu">
@@ -397,6 +383,15 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+
+/* 英文名后面跟一个小号的中文名 */
+.fq-logo-sub {
+  margin-left: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  opacity: 0.6;
 }
 
 .fq-menu {

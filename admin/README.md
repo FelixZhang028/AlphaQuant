@@ -1,4 +1,4 @@
-# FellowQuant · 管理后台（独立项目）
+# 镜思 Prismind · 管理后台（独立项目）
 
 后台管理界面，与官网（landing）解耦的独立 Vite + Vue 3 + Tailwind 项目。
 

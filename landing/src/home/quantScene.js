@@ -1,4 +1,4 @@
-/* FellowQuant 主页 WebGL 背景 —— 细K线波场（Thin Candle Waves）
+/* 镜思 Prismind 主页 WebGL 背景 —— 细K线波场（Thin Candle Waves）
  *
  * 意象：一簇平面「K线图」走势场——
  *  - 每条线为阶梯状 close 价折线（行情 step 图），细线
@@ -423,7 +423,7 @@ export function createQuantScene(canvas, scrollState, initialTheme = 'dark') {
     e.preventDefault()
     cancelAnimationFrame(rafId)
     canvas.style.display = 'none'
-    console.warn('[FellowQuant] WebGL 上下文丢失，已切换为渐变背景')
+    console.warn('[Prismind] WebGL 上下文丢失，已切换为渐变背景')
   }
   function onContextRestored() {
     if (disposed) return

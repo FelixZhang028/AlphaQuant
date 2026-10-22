@@ -30,9 +30,9 @@ async function onSubmit() {
   <div class="flex min-h-screen items-center justify-center px-4 py-10">
     <div class="glass-strong w-full max-w-md rounded-3xl p-8">
       <div class="flex items-center gap-3">
-        <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-lg font-bold text-white shadow-lg shadow-indigo-500/40">F</span>
+        <img src="/brand/prismind-icon-small.svg" alt="" aria-hidden="true" class="h-11 w-11 shrink-0 rounded-xl shadow-lg shadow-indigo-500/40" />
         <div>
-          <p class="text-lg font-semibold text-white">FellowQuant</p>
+          <p class="text-lg font-semibold text-white">Prismind <span class="text-sm font-medium tracking-[0.3em] text-slate-400">镜思</span></p>
           <p class="text-xs text-slate-500">管理后台 · 管理员登录</p>
         </div>
       </div>

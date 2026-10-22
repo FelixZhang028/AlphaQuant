@@ -11,7 +11,7 @@ import KnowledgeBaseView from './KnowledgeBaseView.vue'
 const props = defineProps({ user: { type: Object, default: null }, notify: { type: Function, default: () => {} } })
 
 const VERSION = '1.0.0'
-const GITHUB = 'https://github.com/FelixZhang028/AlphaQuant'
+const GITHUB = 'https://github.com/FelixZhang028/Prismind'
 const contactEmail = CONTACT_EMAIL.startsWith('【') ? '' : CONTACT_EMAIL   // 法律文件里还没填时不显示
 
 function navigate(key) {
@@ -186,7 +186,7 @@ const pill = (active) => active ? 'border-indigo-400/50 bg-indigo-500/15 text-wh
 
     <SectionCard title="关于">
       <ul class="space-y-2 text-sm text-slate-300">
-        <li>FellowQuant 版本 {{ VERSION }}</li>
+        <li>镜思 Prismind 版本 {{ VERSION }}</li>
         <li class="flex flex-wrap gap-x-4 gap-y-1">
           <a href="/legal.html#terms" target="_blank" class="text-indigo-300 hover:text-indigo-200">服务条款</a>
           <a href="/legal.html#privacy" target="_blank" class="text-indigo-300 hover:text-indigo-200">隐私政策</a>

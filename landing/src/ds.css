@@ -1,4 +1,4 @@
-/* FellowQuant 设计系统 — 参考 deepseek.com 视觉语言（浅色玻璃拟态）
+/* 镜思 Prismind 设计系统 — 参考 deepseek.com 视觉语言（浅色玻璃拟态）
    作用域限定在 .ds-site 下，避免影响工作台等其他页面。 */
 
 @font-face {
@@ -793,6 +793,15 @@
   font-size: 19px;
   letter-spacing: -0.01em;
   color: var(--ds-color-brand-medium-reverse);
+}
+/* 英文名后面跟一个小号的中文名 */
+.ds-logo-sub {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  color: var(--ds-color-brand-medium-reverse);
+  opacity: 0.6;
 }
 
 /* ---- ds-* utility classes ---- */

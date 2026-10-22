@@ -318,7 +318,7 @@ def settings_test(body: SettingsTestIn, admin: dict = Depends(require_admin)):
         else:
             if not mailer.configured(config):
                 raise HTTPException(status_code=422, detail="还没有填 SMTP 服务器和发件人地址")
-            mailer.send_mail(admin["email"], "FellowQuant 测试邮件", "这是管理后台发出的测试邮件。收到说明邮件服务配置正确，找回密码可以正常发验证码。", config)
+            mailer.send_mail(admin["email"], "【镜思】测试邮件", "这是管理后台发出的测试邮件。收到说明邮件服务配置正确，找回密码可以正常发验证码。", config)
             result = {"to": admin["email"]}
             audit.record(admin, "settings.test_email", f"发了一封测试邮件到 {admin['email']}")
     except HTTPException:

@@ -84,8 +84,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="FellowQuant · 后端",
-    description="FellowQuant 的认证、研究与数据接口",
+    title="镜思 Prismind · 后端",
+    description="镜思 Prismind 的认证、研究与数据接口",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs" if API_DOCS else None,
@@ -194,7 +194,7 @@ app.include_router(settings_router)
 
 @app.get("/api/health", summary="健康检查")
 def health():
-    return {"status": "ok", "service": "FellowQuant 后端"}
+    return {"status": "ok", "service": "镜思 Prismind 后端"}
 
 
 if ADMIN_DIR:
@@ -206,4 +206,4 @@ if STATIC_DIR:
 else:
     @app.get("/", summary="健康检查")
     def root():
-        return {"status": "ok", "service": "FellowQuant 后端"}
+        return {"status": "ok", "service": "镜思 Prismind 后端"}

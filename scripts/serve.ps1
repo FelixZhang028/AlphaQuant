@@ -31,7 +31,7 @@ foreach ($dist in @($siteDist, $adminDist)) {
 $env:FELLOWQUANT_STATIC_DIR = $siteDist
 $env:FELLOWQUANT_ADMIN_DIR = $adminDist
 Remove-Item Env:FELLOWQUANT_API_DOCS -ErrorAction SilentlyContinue
-Write-Host "[启动] FellowQuant  http://${ListenHost}:$Port  管理后台 /admin/  （按 Ctrl+C 停止）"
+Write-Host "[启动] 镜思 Prismind  http://${ListenHost}:$Port  管理后台 /admin/  （按 Ctrl+C 停止）"
 # 只开一个进程：次数限制和后台任务都记在这个进程里。
 & python -m uvicorn app.main:app --app-dir $backendRoot --host $ListenHost --port $Port --no-server-header
 exit $LASTEXITCODE

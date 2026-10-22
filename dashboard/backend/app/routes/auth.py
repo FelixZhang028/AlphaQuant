@@ -283,7 +283,7 @@ def forgot_request(body: ForgotRequestIn, request: Request):
         raise HTTPException(status_code=429, detail="请等待一分钟后重新获取验证码")
     code = f"{secrets.randbelow(1000000):06d}"
     try:
-        mailer.send_mail(row["email"], "FellowQuant 密码重置验证码", f"您的验证码是 {code}，10 分钟内有效。若非本人操作，请忽略此邮件。")
+        mailer.send_mail(row["email"], "【镜思】密码重置验证码", f"您的验证码是 {code}，10 分钟内有效。若非本人操作，请忽略此邮件。")
     except Exception:
         raise HTTPException(status_code=503, detail="验证码邮件发送失败，请稍后重试") from None
     _RESET_CODES[row["id"]] = (code, time.time() + RESET_CODE_TTL, 0)

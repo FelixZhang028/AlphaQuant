@@ -271,16 +271,14 @@ const features = [
 
         <div class="relative">
           <a href="/" class="flex items-center gap-2.5">
-            <span
-              class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold text-white shadow-lg shadow-indigo-500/40"
-            >F</span>
-            <span class="text-xl font-semibold tracking-wide text-white">FellowQuant</span>
+            <img src="/brand/prismind-icon-small.svg" alt="" aria-hidden="true" class="h-9 w-9 shrink-0 rounded-xl shadow-lg shadow-indigo-500/40" />
+            <span class="text-xl font-semibold tracking-wide text-white">Prismind <span class="text-sm font-medium tracking-[0.3em] text-slate-400">镜思</span></span>
           </a>
           <p class="mt-8 text-2xl font-bold leading-snug text-white">
             让数据说话，<br />把判断留给<span class="font-serif italic text-indigo-300">你</span>
           </p>
           <p class="mt-4 max-w-xs text-sm leading-relaxed text-slate-300/80">
-            A 股量化研究工具：数据、回测、因子和 AI 解读，在一处完成。
+            A 股数据研究工作台：数据、回测、因子和 AI 解读，在一处完成。
           </p>
         </div>
 
