@@ -35,6 +35,7 @@ COSTS = {
     "review": ("FELLOWQUANT_POINTS_COST_REVIEW", 2),
     "decision": ("FELLOWQUANT_POINTS_COST_DECISION", 2),
     "chat": ("FELLOWQUANT_POINTS_COST_CHAT", 2),
+    "screen": ("FELLOWQUANT_POINTS_COST_SCREEN", 3),
 }
 SIGNUP = ("FELLOWQUANT_POINTS_SIGNUP", 100)            # 新用户送多少积分
 GIFT_DAYS = ("FELLOWQUANT_POINTS_GIFT_DAYS", 30)       # 赠送的积分多少天有效

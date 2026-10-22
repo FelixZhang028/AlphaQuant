@@ -35,3 +35,16 @@ export function screenSummary(result) {
   const shown = result.shown < result.matched ? `，按排序显示前 ${result.shown} 只` : ''
   return `按 ${result.trade_date} 收盘后的数据，在${where} ${result.checked.toLocaleString('zh-CN')} 只股票里，有 ${result.matched.toLocaleString('zh-CN')} 只符合条件${shown}`
 }
+
+// 这组条件过去表现如何：回测结果里的几个数（后端给的已经是百分数，例如 -7.94 表示 -7.94%）。
+export function historyMetrics(summary) {
+  if (!summary) return []
+  const percent = (value, signed = true) => (value == null ? '—' : `${signed && value > 0 ? '+' : ''}${Number(value).toFixed(2)}%`)
+  return [
+    { label: '区间收益', value: percent(summary.total_return) },
+    { label: '年化收益', value: percent(summary.annual_return) },
+    { label: '最大回撤', value: summary.max_drawdown == null ? '—' : `-${Math.abs(Number(summary.max_drawdown)).toFixed(2)}%` },
+    { label: '夏普比率', value: summary.sharpe == null ? '—' : Number(summary.sharpe).toFixed(2) },
+    { label: '完成的交易', value: summary.closed_trades == null ? '—' : `${summary.closed_trades} 笔` },
+  ]
+}

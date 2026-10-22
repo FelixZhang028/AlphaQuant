@@ -9,6 +9,7 @@ import { handOffRules, takeHandedRules } from '../ruleHandoff.js'
 import FormField from '../ui/FormField.vue'
 import RuleConditions from '../ui/RuleConditions.vue'
 import SectionCard from '../ui/SectionCard.vue'
+import ScreenHistory from '../ui/ScreenHistory.vue'
 import TodayScreen from '../ui/TodayScreen.vue'
 
 const props = defineProps({ notify: { type: Function, default: () => {} } })
@@ -19,6 +20,7 @@ const form = ref(null)
 const packages = ref([])
 const picked = ref('')
 const from = ref('')        // 条件是从哪里来的，显示在表单上面
+const markets = ref([])     // 回测范围：当前股票池和已下载成分股的指数（筛选结果里带回来）
 
 const packageOptions = computed(() => [{ value: '', label: '选一个我的策略' }, ...packages.value.map((p) => ({ value: p.package_id, label: p.name }))])
 
@@ -88,7 +90,9 @@ onActivated(() => {
         <RuleConditions :form="form" :options="options" />
       </SectionCard>
 
-      <TodayScreen :form="form" :notify="notify" />
+      <TodayScreen :form="form" :notify="notify" @result="markets = $event.markets || []" />
+
+      <ScreenHistory :form="form" :markets="markets" />
 
       <div class="flex flex-wrap items-center gap-3">
         <button type="button" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5" @click="backtest">用这些条件做回测 →</button>

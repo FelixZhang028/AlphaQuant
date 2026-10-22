@@ -6,6 +6,7 @@ import { screenPackage } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
 import { definitionFromForm } from '../ruleForm.js'
 import { changeText, conditionValues, formatIndicator, screenSummary } from '../screenPresentation.js'
+import ScreenBrief from './ScreenBrief.vue'
 import SectionCard from './SectionCard.vue'
 
 const props = defineProps({
@@ -13,6 +14,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },   // 规则还有问题时不能筛
   notify: { type: Function, default: () => {} },
 })
+const emit = defineEmits(['result'])
 
 const scope = ref('pool')
 const excludeSt = ref(true)
@@ -20,6 +22,7 @@ const running = ref(false)
 const result = ref(null)
 const stale = ref(false)
 const error = ref('')
+const lastRequest = ref(null)     // 这次结果用的条件和范围：AI 解读要用同一组
 
 watch(() => props.form, () => { if (result.value) stale.value = true }, { deep: true })
 
@@ -29,8 +32,11 @@ async function run() {
   try {
     const definition = definitionFromForm(props.form)
     if (!definition.name) definition.name = '未命名策略'
-    result.value = await screenPackage({ definition, scope: scope.value, exclude_st: excludeSt.value, limit: 100 })
+    const request = { definition, scope: scope.value, exclude_st: excludeSt.value }
+    result.value = await screenPackage({ ...request, limit: 100 })
+    lastRequest.value = request
     stale.value = false
+    emit('result', result.value)
   } catch (e) {
     error.value = e.message || '筛选失败'
   } finally {
@@ -74,6 +80,7 @@ const tone = (change) => (change > 0 ? 'text-rose-300' : change < 0 ? 'text-emer
               <th class="pb-2 text-right font-medium">当日涨跌</th>
               <th class="pb-2 text-right font-medium">{{ result.ranking_label }}</th>
               <th v-for="(text, index) in result.conditions" :key="index" class="pb-2 text-right font-medium" :title="text">条件 {{ index + 1 }}</th>
+              <th class="pb-2 text-right font-medium"><span class="sr-only">操作</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
@@ -90,12 +97,16 @@ const tone = (change) => (change > 0 ? 'text-rose-300' : change < 0 ? 'text-emer
               <td v-for="(text, index) in result.conditions" :key="index" class="py-2 text-right text-xs tabular-nums text-slate-400" :title="text">
                 {{ conditionValues(result, item, index).left }} / {{ conditionValues(result, item, index).right }}
               </td>
+              <td class="py-2 text-right">
+                <button type="button" class="rounded-full border border-white/10 px-2.5 py-0.5 text-xs text-indigo-200 hover:border-indigo-400/40" @click="openResearch('agent-lab', { symbol: item.symbol })">AI 分析</button>
+              </td>
             </tr>
           </tbody>
         </table>
-        <p class="mt-2 text-xs text-slate-500">“条件 N”一列是这条条件左边和右边的数值，鼠标移上去看是哪条条件。点股票名字在股票查询里打开。</p>
+        <p class="mt-2 text-xs text-slate-500">“条件 N”一列是这条条件左边和右边的数值，鼠标移上去看是哪条条件。点股票名字在股票查询里打开；“AI 分析”在 AI研究员里打开这只股票，点“开始分析”才会分析。</p>
       </div>
       <p v-else class="mt-3 text-sm text-slate-400">今天没有股票同时满足这些条件，可以放宽条件或者换成全市场再试。</p>
+      <ScreenBrief v-if="result.items.length && lastRequest" :request="lastRequest" :result="result" :stale="stale" />
     </div>
   </SectionCard>
 </template>

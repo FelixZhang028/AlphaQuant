@@ -41,3 +41,11 @@ test('条件选股和新建规则策略之间交接条件：取走一次就没�
   delete globalThis.sessionStorage
   assert.equal(takeHandedRules(), null)          // 没有存储也不出错
 })
+
+test('这组条件过去表现如何：回测结果的几个数', async () => {
+  const { historyMetrics } = await import('../src/workspace/screenPresentation.js')
+  const shown = historyMetrics({ total_return: -7.94, annual_return: 12.3, max_drawdown: 22.67, sharpe: -0.456, closed_trades: 51 })
+  assert.deepEqual(shown.map((item) => item.value), ['-7.94%', '+12.30%', '-22.67%', '-0.46', '51 笔'])
+  assert.deepEqual(historyMetrics(null), [])
+  assert.equal(historyMetrics({ sharpe: null })[3].value, '—')
+})
