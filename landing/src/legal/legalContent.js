@@ -2,7 +2,7 @@
 // 改了运营方式（换服务器、换 AI 服务商、开始收费）时要同步修改，并更新生效日期；正式收费前请律师看一遍。
 // 每一节是 { heading, paragraphs: [...] }；段落里的文字原样显示，不解析 HTML。
 
-export const OPERATOR = 'Felix Zhang、Wellord Su'
+export const OPERATOR = 'Felix Zhang、Jason Su'
 export const CONTACT_EMAIL = 'prismind_ai@163.com'
 export const EFFECTIVE_DATE = '2026-10-22'
 
