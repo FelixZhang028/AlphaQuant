@@ -538,9 +538,9 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   color: var(--fq-accent);
 }
 
-/* 首页大标题：青 → 紫 → 玫红的“霓虹极光”渐变，颜色缓慢地来回流动 */
+/* 首页大标题：蓝 → 紫 → 粉的“棱镜光谱”渐变，像白光穿过棱镜，颜色缓慢地来回流动 */
 .fq-hero-word {
-  --fq-title-gradient: linear-gradient(92deg, #6fd6e8 0%, #8b5cf6 34%, #ec4899 56%, #8b5cf6 78%, #6fd6e8 100%);
+  --fq-title-gradient: linear-gradient(92deg, #7ea8ff 0%, #a78bfa 30%, #f0abfc 52%, #a78bfa 74%, #7ea8ff 100%);
   display: inline-block;
   padding: 0 0.04em 0.08em;                 /* 留出 g、d 这类字母的笔画，渐变不被切掉 */
   background: var(--fq-title-gradient);
@@ -548,17 +548,17 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 26px rgba(139, 92, 246, 0.3));
+  filter: drop-shadow(0 0 26px rgba(167, 139, 250, 0.3));
   animation: fq-title-sheen 9s ease-in-out infinite alternate;
 }
 
 .fq-site.fq-light .fq-hero-sub::before,
 .fq-site.fq-light .fq-hero-sub::after {
-  color: #be185d;
+  color: #db2777;
 }
 
 .fq-site.fq-light .fq-hero-word {
-  --fq-title-gradient: linear-gradient(92deg, #0e8fa8 0%, #6d28d9 34%, #be185d 56%, #6d28d9 78%, #0e8fa8 100%);
+  --fq-title-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
   filter: none;
 }
 
@@ -572,7 +572,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   inset: 8% -10% 0;
   z-index: -1;
   border-radius: 50%;
-  background: linear-gradient(90deg, #6fd6e8, #8b5cf6 45%, #ec4899);
+  background: linear-gradient(90deg, #7ea8ff, #a78bfa 45%, #f0abfc);
   filter: blur(64px);
   pointer-events: none;
 }
@@ -622,7 +622,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
 .fq-hero-sub::before,
 .fq-hero-sub::after {
   content: '·';
-  color: #ec4899;
+  color: #f0abfc;
   margin: 0 12px;
 }
 
@@ -664,15 +664,37 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   transform: translateY(-2px);
 }
 
-.fq-btn-solid {
-  background: linear-gradient(120deg, #0e8fa8, #6d28d9 52%, #be185d);
+/* 主按钮：和大标题同一条渐变，颜色跟着标题一起流动；标题颜色浅，深色主题里按钮用深紫色的字 */
+.fq-site .fq-btn-solid {
+  --fq-button-gradient: linear-gradient(92deg, #7ea8ff 0%, #a78bfa 30%, #f0abfc 52%, #a78bfa 74%, #7ea8ff 100%);
+  background: var(--fq-button-gradient);
+  background-size: 200% 100%;
   border-color: transparent;
+  color: #1e1036;
+  font-weight: 700;
+  animation: fq-title-sheen 9s ease-in-out infinite alternate;
+  transition: box-shadow 0.3s ease, filter 0.3s ease, transform 0.5s var(--fq-ease);
+}
+
+/* 普通按钮悬停时会换背景，主按钮要保留渐变；前面加 .fq-site，比“链接沿用文字颜色”的规则优先 */
+.fq-site .fq-btn-solid:hover {
+  background: var(--fq-button-gradient);
+  background-size: 200% 100%;
+  border-color: transparent;
+  filter: brightness(1.08);
+  box-shadow: 0 8px 32px rgba(167, 139, 250, 0.5);
+}
+
+/* 浅色主题：标题用深一些的颜色，按钮跟着用，字换成白色（分开写：构建时合并逗号选择器会丢掉前缀） */
+.fq-site.fq-light .fq-btn-solid {
+  --fq-button-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
   color: #fff;
 }
 
-.fq-btn-solid:hover {
-  background: linear-gradient(120deg, #14a3bd, #7c3aed 52%, #db2777);
-  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.45);
+.fq-site.fq-light .fq-btn-solid:hover {
+  --fq-button-gradient: linear-gradient(92deg, #4d6bfe 0%, #7c3aed 30%, #db2777 52%, #7c3aed 74%, #4d6bfe 100%);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(124, 58, 237, 0.35);
 }
 
 .fq-scroll-hint {
@@ -940,7 +962,8 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId))
   }
 
   .fq-dot,
-  .fq-hero-word {
+  .fq-hero-word,
+  .fq-btn-solid {
     animation: none;
   }
 }
