@@ -41,27 +41,27 @@ function removeRule(index) {
           <span class="text-xs text-slate-400">条件 {{ index + 1 }}</span>
           <button type="button" class="text-xs text-rose-300 hover:underline disabled:opacity-40" :disabled="form.rules.length <= 1" @click="removeRule(index)">删除</button>
         </div>
-        <div class="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,2fr)_minmax(0,1fr)]">
-          <FormField label="指标" type="select" :model-value="rule.left.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.left, $event, options)" />
-          <FormField v-if="rule.left.window != null" label="周期（日）" type="number" v-model="rule.left.window" :min="windowLimits(rule.left.name).minimum" :max="windowLimits(rule.left.name).maximum" :step="1" />
-          <div v-else class="hidden xl:block" />
-          <FormField label="判断" type="select" v-model="rule.operator" :options="operatorOptions" />
-          <FormField label="和什么比较" type="select" v-model="rule.compare" :options="compareOptions" />
+        <!-- 只排出用得到的格子：没有周期的指标不留“周期”那一格，和数值比较时不留第二个周期 -->
+        <div class="mt-3 flex flex-wrap gap-4">
+          <FormField class="min-w-[11rem] flex-[2]" label="指标" type="select" :model-value="rule.left.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.left, $event, options)" />
+          <FormField v-if="rule.left.window != null" class="w-28 shrink-0" label="周期（日）" type="number" v-model="rule.left.window" :min="windowLimits(rule.left.name).minimum" :max="windowLimits(rule.left.name).maximum" :step="1" />
+          <FormField class="min-w-[8rem] flex-1" label="判断" type="select" v-model="rule.operator" :options="operatorOptions" />
+          <FormField class="min-w-[9rem] flex-1" label="和什么比较" type="select" v-model="rule.compare" :options="compareOptions" />
           <template v-if="rule.compare === 'indicator'">
-            <FormField label="另一个指标" type="select" :model-value="rule.right.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.right, $event, options)" />
-            <FormField v-if="rule.right.window != null" label="周期（日）" type="number" v-model="rule.right.window" :min="windowLimits(rule.right.name).minimum" :max="windowLimits(rule.right.name).maximum" :step="1" />
+            <FormField class="min-w-[11rem] flex-[2]" label="另一个指标" type="select" :model-value="rule.right.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.right, $event, options)" />
+            <FormField v-if="rule.right.window != null" class="w-28 shrink-0" label="周期（日）" type="number" v-model="rule.right.window" :min="windowLimits(rule.right.name).minimum" :max="windowLimits(rule.right.name).maximum" :step="1" />
           </template>
-          <FormField v-else label="数值" type="number" v-model="rule.value" step="any" />
+          <FormField v-else class="min-w-[9rem] flex-[2]" label="数值" type="number" v-model="rule.value" step="any" />
         </div>
       </li>
     </ol>
     <button type="button" class="mt-3 text-sm text-indigo-300 hover:underline disabled:opacity-40" :disabled="form.rules.length >= MAX_RULES" @click="addRule">+ 添加条件</button>
 
     <h3 class="mt-6 text-sm font-semibold text-white">排序</h3>
-    <div class="mt-3 grid gap-4 md:grid-cols-3">
-      <FormField label="排序指标" type="select" :model-value="form.ranking.name" :options="indicatorOptions" @update:model-value="chooseIndicator(form.ranking, $event, options)" />
-      <FormField v-if="form.ranking.window != null" label="周期（日）" type="number" v-model="form.ranking.window" :min="windowLimits(form.ranking.name).minimum" :max="windowLimits(form.ranking.name).maximum" :step="1" />
-      <FormField label="排序方向" type="select" v-model="form.ranking.direction" :options="dirOptions" />
+    <div class="mt-3 flex flex-wrap gap-4">
+      <FormField class="min-w-[11rem] flex-[2]" label="排序指标" type="select" :model-value="form.ranking.name" :options="indicatorOptions" @update:model-value="chooseIndicator(form.ranking, $event, options)" />
+      <FormField v-if="form.ranking.window != null" class="w-28 shrink-0" label="周期（日）" type="number" v-model="form.ranking.window" :min="windowLimits(form.ranking.name).minimum" :max="windowLimits(form.ranking.name).maximum" :step="1" />
+      <FormField class="min-w-[9rem] flex-1" label="排序方向" type="select" v-model="form.ranking.direction" :options="dirOptions" />
     </div>
   </div>
 </template>
