@@ -3,6 +3,7 @@
 
 - GET  /         我的积分：余额、每一批和到期时间、最近的明细、每种 AI 功能的免费次数和价格
 - POST /redeem   用兑换码兑换积分
+- POST /checkin  每日打卡（北京时间每天一次）
 """
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -28,4 +29,10 @@ def my_points(user: dict = Depends(get_current_user)):
 def redeem_code(body: RedeemIn, user: dict = Depends(get_current_user)):
     rate_limit.check(f"redeem:{user['id']}", *REDEEM_LIMIT, "兑换尝试太频繁，请一小时后再试")
     result = points.redeem(user["id"], body.code)
+    return {**result, "summary": points.summary(user)}
+
+
+@router.post("/checkin", summary="每日打卡")
+def daily_checkin(user: dict = Depends(get_current_user)):
+    result = points.checkin(user)
     return {**result, "summary": points.summary(user)}

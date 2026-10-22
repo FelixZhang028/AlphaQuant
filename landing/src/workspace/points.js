@@ -49,6 +49,14 @@ export function priceText(price, unlimited = false) {
   return `${today}每次 ${price.cost} 积分`
 }
 
+// 每日打卡：没打的时候写能领多少，打过以后写连续了几天（按钮上已经写了“今天已打卡”）。
+export function checkinText(state) {
+  if (!state?.enabled) return ''
+  if (state.done_today) return `已连续 ${state.streak} 天，明天再来`
+  const streak = state.streak ? `，已连续 ${state.streak} 天` : ''
+  return `打卡领 ${state.points} 积分（${state.days} 天内有效）${streak}`
+}
+
 // 用户输入的兑换码：去掉空格、换成大写；格式明显不对时先在页面上提示。
 export function cleanCode(text) {
   return String(text || '').replace(/\s+/g, '').toUpperCase()

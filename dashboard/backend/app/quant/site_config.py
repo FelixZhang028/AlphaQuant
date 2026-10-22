@@ -83,6 +83,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(points.SIGNUP[0], "points", "新用户赠送积分", "int",
             "每个账户只送一次；以前注册的账户第一次打开时补上。0 表示不送。", default=str(points.SIGNUP[1]), minimum=0, maximum=100000),
     Setting(points.GIFT_DAYS[0], "points", "赠送的积分多少天有效", "int", default=str(points.GIFT_DAYS[1]), minimum=1, maximum=3650),
+    Setting(points.CHECKIN[0], "points", "每日打卡送多少积分", "int",
+            "每个账户每天（北京时间）打一次卡。0 表示关闭打卡。", default=str(points.CHECKIN[1]), minimum=0, maximum=10000),
+    Setting(points.CHECKIN_DAYS[0], "points", "打卡的积分多少天有效", "int", default=str(points.CHECKIN_DAYS[1]), minimum=1, maximum=3650),
     Setting(points.DAILY_CAP[0], "points", "每人每天最多用几次 AI（免费的加积分的）", "int",
             "防止一个账户一直调用。0 表示不限。", default=str(points.DAILY_CAP[1]), minimum=0, maximum=100000),
     *(Setting(variable, "points", f"{LIMITS[kind][2]}：每次多少积分", "int", default=str(default), minimum=1, maximum=10000)

@@ -172,3 +172,35 @@ def test_new_accounts_get_the_gift_when_they_register(site):
     assert made.status_code == 201
     uid = made.json()["id"]
     assert balance(uid) == 100
+
+
+def test_daily_checkin_once_a_day_with_a_streak(site, monkeypatch):
+    from datetime import date
+
+    client, _ = site
+    day = {"today": date(2026, 10, 20)}
+    monkeypatch.setattr(points, "_china_today", lambda: day["today"])
+    first = client.post("/api/v1/points/checkin")
+    assert first.status_code == 200 and first.json()["points"] == 5 and first.json()["balance"] == 105
+    assert first.json()["checkin"] == {"enabled": True, "points": 5, "days": 7, "done_today": True, "streak": 1, "total": 1}
+    assert client.post("/api/v1/points/checkin").status_code == 409            # 一天只能打一次
+    day["today"] = date(2026, 10, 21)
+    assert client.get("/api/v1/points").json()["checkin"]["done_today"] is False
+    assert client.get("/api/v1/points").json()["checkin"]["streak"] == 1        # 今天还没打：从昨天往前数
+    assert client.post("/api/v1/points/checkin").json()["checkin"]["streak"] == 2
+    day["today"] = date(2026, 10, 23)                                           # 断了一天
+    third = client.post("/api/v1/points/checkin").json()
+    assert third["checkin"]["streak"] == 1 and third["balance"] == 115
+    lot = next(l for l in third["summary"]["lots"] if l["source"] == "checkin")
+    assert lot["label"] == "每日打卡"
+    assert third["summary"]["ledger"][0]["note"] == "连续第 1 天"
+
+
+def test_checkin_can_be_turned_off_and_administrators_do_not_check_in(site, monkeypatch):
+    client, current = site
+    current["user"] = {"id": 9, "is_admin": True}
+    assert client.post("/api/v1/points/checkin").status_code == 400
+    current["user"] = {"id": 1, "is_admin": False}
+    monkeypatch.setenv("FELLOWQUANT_POINTS_CHECKIN", "0")
+    assert client.post("/api/v1/points/checkin").status_code == 403
+    assert client.get("/api/v1/points").json()["checkin"]["enabled"] is False

@@ -94,7 +94,7 @@ npm run dev -- --host 127.0.0.1
 | `TYPESAFE_API_KEY` / `JEV_API_KEY` | TypeSafe 官方 Jev 密钥（前者优先）；配置后 Jev 独立于聊天模型，默认调用官方 `/v1/systemone`，未配置时使用 OpenRouter |
 | `FELLOWQUANT_AI_MODEL` / `FELLOWQUANT_AI_BASE_URL` | 可选：换模型或换成其他 OpenAI 兼容服务（默认 OpenRouter 上的 `deepseek/deepseek-v4-pro`）；换服务时用 `FELLOWQUANT_AI_API_KEY` 填它的密钥 |
 | `FELLOWQUANT_AI_DAILY_BRIEFS` / `_QUESTIONS` / `_STRATEGIES` / `_REVIEWS` / `_DECISIONS` / `_CHATS` | 可选：每人每天免费的 AI 分析、追问、生成规则、AI 评估（回测评估和决策辅助）、个股判断（AI 研究员里的 Jev）、AI 问答次数（默认 3 / 10 / 5 / 3 / 3 / 10），用完以后每次扣积分；管理员不限、不扣积分。AI 问答每问一次算一次（内部调用两次模型） |
-| `FELLOWQUANT_POINTS_SIGNUP` / `_GIFT_DAYS` / `_DAILY_CAP` / `_COST_BRIEF` …… | 可选：积分。新用户送多少（默认 100，每个账户一次，以前注册的账户第一次打开时补上）、赠送的积分多少天有效（默认 30）、每人每天最多用几次 AI（默认 200，免费的加积分的，0 不限）、免费次数用完以后每次多少积分（默认 AI 解读 3、追问 1、生成规则 2、AI 评估 2、个股判断 2、AI 问答 2）。模型没有回答时不扣积分；扣的时候先扣快到期的。积分来自注册赠送、兑换码和管理员发放，充值以后再开 |
+| `FELLOWQUANT_POINTS_SIGNUP` / `_GIFT_DAYS` / `_CHECKIN` / `_CHECKIN_DAYS` / `_DAILY_CAP` / `_COST_BRIEF` …… | 可选：积分。新用户送多少（默认 100，每个账户一次，以前注册的账户第一次打开时补上）、赠送的积分多少天有效（默认 30）、每日打卡送多少（默认 5，北京时间每天一次，0 关闭）和多少天有效（默认 7）、每人每天最多用几次 AI（默认 200，免费的加积分的，0 不限）、免费次数用完以后每次多少积分（默认 AI 解读 3、追问 1、生成规则 2、AI 评估 2、个股判断 2、AI 问答 2）。模型没有回答时不扣积分；扣的时候先扣快到期的。积分来自注册赠送、每日打卡、兑换码和管理员发放，充值以后再开 |
 | `FELLOWQUANT_JEV_MODEL` / `FELLOWQUANT_JEV_URL` | 可选：决策模型和完整接口地址；TypeSafe 默认 `jev-latest`，OpenRouter 默认 `typesafe/jev-1.13`。密钥必须与服务匹配 |
 | `FELLOWQUANT_DAILY_UPDATE` / `FELLOWQUANT_DAILY_UPDATE_TIME` | 每个交易日收盘后自动更新全市场数据（默认开启，北京时间 18:30 以后）；填 `off` 关闭，管理员仍可在数据更新页手动运行 |
 | `FELLOWQUANT_FUNDAMENTALS_UPDATE` | 财报季自动更新财务数据（默认开启）：1～4 月、7～8 月、10 月以及 5、9、11 月第一周的每个周六 10:00 以后，下载最近 5 个报告期里还没有的财报；填 `off` 关闭，管理员仍可以在管理后台手动更新 |

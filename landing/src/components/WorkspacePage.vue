@@ -44,12 +44,18 @@ function navigateResearchTab(key) {
 // 子视图可派发 `fq-navigate` 请求切换视图（如结果页深链审计页），与侧栏导航共用同一路径。
 function onNavigateEvent(e) { navigate(e.detail) }
 // 顶栏的积分：登录后和每次换页面时刷新（用 AI 会扣积分）；积分页兑换以后直接告诉这里。
+// 今天还没打卡时，积分旁边亮一个小点提醒。
 const pointsBalance = ref(null)
+const checkinDue = ref(false)
+function showPoints(summary) {
+  pointsBalance.value = summary.balance
+  checkinDue.value = !!summary.checkin?.enabled && !summary.checkin.done_today
+}
 async function refreshPoints() {
   if (!user.value || user.value.is_admin) return (pointsBalance.value = null)
-  try { pointsBalance.value = (await getPoints()).balance } catch { /* 顶栏不显示就好 */ }
+  try { showPoints(await getPoints()) } catch { /* 顶栏不显示就好 */ }
 }
-function onPointsChanged(e) { pointsBalance.value = e.detail }
+function onPointsChanged(e) { showPoints(e.detail) }
 watch(activeKey, () => { if (!loading.value) refreshPoints() })
 // 设置页的“重新打开新手引导”。
 function onOpenTour() { tourOpen.value = true }
@@ -270,8 +276,9 @@ function doLogout() {
           <!-- 右上角：主题切换 + 新手引导 + 用户头像 + 名字 + 退出 -->
           <div class="ml-auto flex items-center gap-2">
             <button v-if="pointsBalance != null" type="button"
-              class="flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-slate-300 transition hover:border-indigo-400/40 hover:text-white"
-              title="我的积分" :aria-label="`我的积分 ${pointsBalance}`" @click="navigate('points')">
+              class="relative flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs text-slate-300 transition hover:border-indigo-400/40 hover:text-white"
+              :title="checkinDue ? '我的积分 · 今天还没打卡' : '我的积分'" :aria-label="`我的积分 ${pointsBalance}${checkinDue ? '，今天还没打卡' : ''}`" @click="navigate('points')">
+              <span v-if="checkinDue" class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-ink" aria-hidden="true" />
               <svg class="h-3.5 w-3.5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" /></svg>
               <span class="tabular-nums font-medium">{{ pointsBalance }}</span><span class="hidden sm:inline">积分</span>
             </button>

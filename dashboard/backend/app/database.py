@@ -13,6 +13,7 @@
 - ai_tokens      每天调用文本模型用掉的 token（服务商返回了用量时）
 - point_lots / point_ledger  积分：每一批（有效期）和每一次增加、扣除
 - redeem_codes / redeem_uses 兑换码和谁用过
+- point_checkins 每日打卡（每人每天一行）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -265,6 +266,15 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_point_ledger_user ON point_ledger(user_id, id);
             -- 兑换码：每个码多少积分、兑换后多少天有效、能给几个账户用、多久以内能兑换
+            -- 每日打卡：每人每天（北京时间）一行，主键保证一天只能打一次
+            CREATE TABLE IF NOT EXISTS point_checkins (
+                user_id    INTEGER NOT NULL,
+                day        TEXT    NOT NULL,                -- 北京时间的日期 YYYY-MM-DD
+                points     INTEGER NOT NULL,
+                created_at TEXT    NOT NULL,
+                PRIMARY KEY (user_id, day),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS redeem_codes (
                 code       TEXT    PRIMARY KEY,
                 points     INTEGER NOT NULL,

@@ -2,13 +2,14 @@
 
 规则：
 - 每种 AI 功能每天有免费次数（``platform_ai.LIMITS``），先用免费次数，用完了每次扣一定的积分。
-- 积分按“批”记：注册赠送、管理员发放、兑换码……每一批有自己的有效期。扣的时候先扣快过期的。
+- 积分按“批”记：注册赠送、每日打卡、管理员发放、兑换码……每一批有自己的有效期。扣的时候先扣快过期的。
+- 每日打卡：每个账户每天（北京时间）打一次卡，送一点短期有效的积分。
 - 调用失败（模型没有回答）时退回扣掉的积分，明细里也不留这一笔。
 - 每个人每天最多用多少次（免费的加积分的），防止一个账户一直调用；管理员不扣积分、不受限制。
 - 积分不能提现、不能转给别人。
 
 表：``point_lots``（每一批积分和剩下多少）、``point_ledger``（每一次增加和扣除）、
-``redeem_codes`` / ``redeem_uses``（兑换码和谁用过）。时间都是 UTC 的 ISO 文本。
+``redeem_codes`` / ``redeem_uses``（兑换码和谁用过）、``point_checkins``（哪天打过卡）。时间都是 UTC 的 ISO 文本。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import json
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -36,9 +37,12 @@ COSTS = {
 SIGNUP = ("FELLOWQUANT_POINTS_SIGNUP", 100)            # 新用户送多少积分
 GIFT_DAYS = ("FELLOWQUANT_POINTS_GIFT_DAYS", 30)       # 赠送的积分多少天有效
 DAILY_CAP = ("FELLOWQUANT_POINTS_DAILY_CAP", 200)      # 每人每天最多用多少次 AI（免费的加积分的），0 表示不限
+CHECKIN = ("FELLOWQUANT_POINTS_CHECKIN", 5)             # 每日打卡送多少积分，0 表示关闭打卡
+CHECKIN_DAYS = ("FELLOWQUANT_POINTS_CHECKIN_DAYS", 7)   # 打卡的积分多少天有效
 
-SOURCES = {"signup": "注册赠送", "admin": "管理员发放", "redeem": "兑换码", "purchase": "购买", "spend": "使用"}
+SOURCES = {"signup": "注册赠送", "checkin": "每日打卡", "admin": "管理员发放", "redeem": "兑换码", "purchase": "购买", "spend": "使用"}
 CODE_PATTERN = re.compile(r"^[A-Z0-9-]{6,40}$")
+CHINA = timezone(timedelta(hours=8))                    # 打卡按北京时间的日子算，和 AI 次数一样
 _CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
@@ -175,6 +179,56 @@ def adjust(conn, user_id: int, amount: int, note: str, days: int) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# 每日打卡
+# --------------------------------------------------------------------------- #
+
+
+def _china_today() -> date:
+    return datetime.now(CHINA).date()
+
+
+def _streak(days: list[str], today: date) -> int:
+    """Consecutive days checked in, ending today (or yesterday when today is not done yet)."""
+
+    seen = set(days)
+    start = today if today.isoformat() in seen else today - timedelta(days=1)
+    count = 0
+    while (start - timedelta(days=count)).isoformat() in seen:
+        count += 1
+    return count
+
+
+def checkin_state(conn, user_id: int) -> dict[str, Any]:
+    today = _china_today()
+    days = [r["day"] for r in conn.execute("SELECT day FROM point_checkins WHERE user_id = ? ORDER BY day DESC LIMIT 400",
+                                           (user_id,)).fetchall()]
+    return {"enabled": _number(CHECKIN) > 0, "points": _number(CHECKIN), "days": _number(CHECKIN_DAYS, 1),
+            "done_today": today.isoformat() in days, "streak": _streak(days, today), "total": len(days)}
+
+
+def checkin(user: dict) -> dict[str, Any]:
+    """Check in for today (China time) once; gives ``CHECKIN`` points valid ``CHECKIN_DAYS`` days."""
+
+    amount = _number(CHECKIN)
+    if amount <= 0:
+        raise HTTPException(status_code=403, detail="每日打卡暂时关闭")
+    if user.get("is_admin"):
+        raise HTTPException(status_code=400, detail="管理员不用积分，不用打卡")
+    today = _china_today().isoformat()
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        added = conn.execute("INSERT OR IGNORE INTO point_checkins (user_id, day, points, created_at) VALUES (?,?,?,?)",
+                             (user["id"], today, amount, _iso(_now()))).rowcount
+        if not added:
+            raise HTTPException(status_code=409, detail="今天已经打过卡了，明天再来")
+        ensure_signup(conn, user["id"])
+        state = checkin_state(conn, user["id"])
+        grant(conn, user["id"], amount, "checkin", _number(CHECKIN_DAYS, 1), f"连续第 {state['streak']} 天")
+        have = balance(conn, user["id"])
+    return {"points": amount, "days": _number(CHECKIN_DAYS, 1), "balance": have, "checkin": state}
+
+
+# --------------------------------------------------------------------------- #
 # 兑换码
 # --------------------------------------------------------------------------- #
 
@@ -263,6 +317,7 @@ def summary(user: dict, limit: int = 100) -> dict[str, Any]:
     with get_conn() as conn:
         ensure_signup(conn, user["id"])
         lots = _live_lots(conn, user["id"])
+        checked = checkin_state(conn, user["id"])
         rows = conn.execute("SELECT id, delta, kind, feature, note, created_at FROM point_ledger WHERE user_id = ? "
                             "ORDER BY id DESC LIMIT ?", (user["id"], limit)).fetchall()
     labels = {kind: word for kind, (_v, _d, word) in platform_ai.LIMITS.items()}
@@ -278,7 +333,7 @@ def summary(user: dict, limit: int = 100) -> dict[str, Any]:
         "ledger": [{"id": r["id"], "delta": int(r["delta"]), "kind": r["kind"], "label": SOURCES.get(r["kind"], r["kind"]),
                     "feature": labels.get(r["feature"], ""), "note": r["note"], "created_at": r["created_at"]} for r in rows],
         "prices": prices, "daily_cap": daily_cap(), "unlimited": bool(user.get("is_admin")),
-        "signup_points": _number(SIGNUP), "gift_days": _number(GIFT_DAYS, 1),
+        "signup_points": _number(SIGNUP), "gift_days": _number(GIFT_DAYS, 1), "checkin": checked,
     }
 
 

@@ -1,9 +1,9 @@
 <script setup>
-// 积分：余额、每一批的到期时间、兑换码、每种 AI 功能的免费次数和价格、明细。
+// 积分：余额、每日打卡、每一批的到期时间、兑换码、每种 AI 功能的免费次数和价格、明细。
 // 充值以后再开；现在积分来自注册赠送、兑换码和管理员发放。
 import { computed, onActivated, ref } from 'vue'
-import { getPoints, redeemPoints } from '../../api.js'
-import { chinaTime, cleanCode, codeProblem, expiresSoon, expiryText, ledgerText, priceText, signed } from '../points.js'
+import { checkIn, getPoints, redeemPoints } from '../../api.js'
+import { checkinText, chinaTime, cleanCode, codeProblem, expiresSoon, expiryText, ledgerText, priceText, signed } from '../points.js'
 import SectionCard from '../ui/SectionCard.vue'
 
 const props = defineProps({ user: { type: Object, default: null }, notify: { type: Function, default: () => {} } })
@@ -14,15 +14,16 @@ const code = ref('')
 const redeeming = ref(false)
 const redeemError = ref('')
 
-function announce(balance) {
-  window.dispatchEvent(new CustomEvent('fq-points-changed', { detail: balance }))
+// 告诉顶栏：余额和今天打没打卡。
+function announce(summary) {
+  window.dispatchEvent(new CustomEvent('fq-points-changed', { detail: { balance: summary.balance, checkin: summary.checkin } }))
 }
 
 async function load() {
   loadError.value = ''
   try {
     data.value = await getPoints()
-    announce(data.value.balance)
+    announce(data.value)
   } catch (e) {
     loadError.value = e.message || '积分加载失败'
   }
@@ -36,13 +37,29 @@ async function redeem() {
   try {
     const result = await redeemPoints(cleanCode(code.value))
     data.value = result.summary
-    announce(result.balance)
+    announce(result.summary)
     code.value = ''
     props.notify(`兑换成功：${result.points} 积分，${result.valid_days} 天内有效`)
   } catch (e) {
     redeemError.value = e.message || '兑换失败'
   } finally {
     redeeming.value = false
+  }
+}
+
+const checking = ref(false)
+async function doCheckin() {
+  checking.value = true
+  try {
+    const result = await checkIn()
+    data.value = result.summary
+    announce(result.summary)
+    props.notify(`打卡成功：+${result.points} 积分，${result.days} 天内有效`)
+  } catch (e) {
+    props.notify(e.message || '打卡失败')
+    load()
+  } finally {
+    checking.value = false
   }
 }
 
@@ -55,6 +72,8 @@ const inputClass = 'w-full rounded-xl border border-white/10 bg-white/5 px-3 py-
     <p v-if="loadError" role="alert" class="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{{ loadError }}</p>
 
     <section class="glass glass-sheen relative overflow-hidden rounded-2xl p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
       <p class="text-xs text-slate-400">我的积分</p>
       <template v-if="data">
         <p v-if="data.unlimited" class="mt-2 text-2xl font-semibold text-white">管理员不扣积分</p>
@@ -67,6 +86,15 @@ const inputClass = 'w-full rounded-xl border border-white/10 bg-white/5 px-3 py-
         </template>
       </template>
       <p v-else-if="!loadError" class="mt-2 text-sm text-slate-500">加载中…</p>
+      </div>
+      <div v-if="data && !data.unlimited && data.checkin?.enabled" class="flex flex-col items-start gap-1.5 sm:items-end">
+        <button type="button" :disabled="checking || data.checkin.done_today"
+          class="rounded-full px-5 py-2 text-sm font-semibold transition disabled:cursor-default"
+          :class="data.checkin.done_today ? 'border border-white/10 bg-white/5 text-slate-400' : 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:brightness-110'"
+          @click="doCheckin">{{ data.checkin.done_today ? '今天已打卡' : checking ? '打卡中…' : `每日打卡 +${data.checkin.points}` }}</button>
+        <p class="text-xs text-slate-500">{{ checkinText(data.checkin) }}</p>
+      </div>
+      </div>
       <p class="mt-4 text-xs text-slate-500">每种 AI 功能每天先用免费次数，用完以后才扣积分。回测、因子研究、事件研究、行情查询和导出数据都不用积分。</p>
     </section>
 

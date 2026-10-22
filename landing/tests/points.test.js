@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { chinaDate, cleanCode, codeProblem, expiresSoon, expiryText, ledgerText, priceText, signed } from '../src/workspace/points.js'
+import { checkinText, chinaDate, cleanCode, codeProblem, expiresSoon, expiryText, ledgerText, priceText, signed } from '../src/workspace/points.js'
 
 test('到期时间按北京时间写日期，快到期的提醒', () => {
   assert.equal(chinaDate('2026-11-20T17:00:00+00:00'), '2026-11-21')
@@ -27,4 +27,14 @@ test('兑换码去掉空格、换成大写，格式不对先提示', () => {
   assert.equal(codeProblem(''), '请输入兑换码')
   assert.equal(codeProblem('兑换码'), '兑换码只包含字母、数字和短横线')
   assert.equal(codeProblem('PM-ABCD-EFGH-JKLM'), '')
+})
+
+test('每日打卡的说法', () => {
+  const base = { enabled: true, points: 5, days: 7, total: 3 }
+  assert.equal(checkinText({ ...base, done_today: false, streak: 0 }), '打卡领 5 积分（7 天内有效）')
+  assert.equal(checkinText({ ...base, done_today: false, streak: 2 }), '打卡领 5 积分（7 天内有效），已连续 2 天')
+  assert.equal(checkinText({ ...base, done_today: true, streak: 1 }), '已连续 1 天，明天再来')
+  assert.equal(checkinText({ ...base, done_today: true, streak: 3 }), '已连续 3 天，明天再来')
+  assert.equal(checkinText({ ...base, enabled: false }), '')
+  assert.equal(checkinText(null), '')
 })
