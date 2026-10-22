@@ -76,7 +76,7 @@ export function dailyText(daily) {
   if (!daily) return ''
   const data = daily.data_date ? `行情更新到 ${daily.data_date}` : '还没有行情数据'
   if (daily.enabled === false) return `${data} · 自动更新已关闭`
-  return `${data} · 每个交易日 ${daily.time || '18:30'} 以后自动更新`
+  return `${data} · 每个交易日 ${daily.time || '18:05'} 以后自动更新`
 }
 export function seasonText(season) {
   if (!season) return ''

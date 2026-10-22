@@ -99,7 +99,8 @@ SETTINGS: tuple[Setting, ...] = (
 
     Setting("FELLOWQUANT_DAILY_UPDATE", "data", "每个交易日自动更新", "switch", default="on", options=("on", "off")),
     Setting("FELLOWQUANT_DAILY_UPDATE_TIME", "data", "自动更新的时间（北京时间）", "time",
-            "收盘后的数据要到 18:30 左右才齐。", default=DEFAULT_TIME.strftime("%H:%M")),
+            "BaoStock 大约 17:30 发布当天的日线、18:00 发布复权因子；行情还没发布时每 10 分钟再查一次。",
+            default=DEFAULT_TIME.strftime("%H:%M")),
     Setting("FELLOWQUANT_FUNDAMENTALS_UPDATE", "data", "财报季自动更新财务数据", "switch", default="on", options=("on", "off")),
     Setting("FELLOWQUANT_BAOSTOCK_INTERVAL", "data", "BaoStock 两次请求之间至少间隔（秒）", "number",
             "调大可以降低被数据源拉黑的可能，下载会变慢。对之后启动的任务生效。", default=str(DEFAULT_INTERVAL), minimum=0, maximum=5),

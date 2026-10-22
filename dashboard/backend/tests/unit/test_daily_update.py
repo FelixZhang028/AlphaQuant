@@ -245,11 +245,14 @@ def run(status, market=None, finished=at(19), day=TODAY):
     ([run("SUCCESS", "updated")], at(20), False, "done"),
     ([run("SUCCESS", "closed")], at(20), False, "closed"),                    # 节假日
     ([run("STOPPED")], at(20), False, "done"),                               # 管理员停了，当天不再自动启动
-    ([run("SUCCESS", "not_ready", finished=at(19))], at(19, 10), False, "waiting"),   # 行情没发布：30 分钟后再试
-    ([run("SUCCESS", "not_ready", finished=at(19))], at(19, 31), True, "waiting"),
+    ([run("SUCCESS", "not_ready", finished=at(19))], at(19, 5), False, "waiting"),    # 行情没发布：10 分钟后再查
+    ([run("SUCCESS", "not_ready", finished=at(19))], at(19, 11), True, "waiting"),
+    ([run("PARTIAL", "updated", finished=at(19))], at(19, 20), False, "waiting"),    # 没完成：30 分钟后再试
     ([run("PARTIAL", "updated", finished=at(19))], at(19, 40), True, "waiting"),     # 有一步没完成：再试
     ([run("INTERRUPTED", finished=at(19))], at(19, 40), True, "waiting"),
-    ([run("SUCCESS", "not_ready", finished=at(19 + i)) for i in range(4)], at(23), False, "failed"),  # 试了 4 次
+    ([run("PARTIAL", "updated", finished=at(19 + i)) for i in range(4)], at(23), False, "failed"),    # 失败试了 4 次
+    ([run("SUCCESS", "not_ready", finished=at(18, 5 + 10 * i)) for i in range(6)], at(19, 6), True, "waiting"),  # “还没发布”不算次数
+    ([run("SUCCESS", "not_ready", finished=at(23, 25))], at(23, 36), False, "failed"),  # 到 23:30 还没发布
     ([run("FAILED", finished=at(22))], at(23, 31), False, "failed"),           # 太晚了
     ([run("SUCCESS", "updated", day=TODAY - timedelta(days=1))], at(19), True, "waiting"),  # 昨天的不算
 ])
@@ -261,8 +264,9 @@ def test_when_the_daily_update_starts(records, now, start, state):
 def test_it_can_be_turned_off_and_says_why_it_waits():
     assert decide([], at(19), at=time(18, 30), on=False).state == "disabled"
     assert decide([], at(17), at=time(18, 30)).text == "今天 18:30 以后自动更新"
-    text = decide([run("SUCCESS", "not_ready", finished=at(19))], at(19, 10), at=time(18, 30)).text
-    assert text == "今天的行情还没有发布，19:30 再试"
+    text = decide([run("SUCCESS", "not_ready", finished=at(19))], at(19, 5), at=time(18, 30)).text
+    assert text == "今天的行情还没有发布，19:10 再试"
+    assert daily_schedule.DEFAULT_TIME == time(18, 5)            # BaoStock 17:30 日线、18:00 复权因子之后
 
 
 class Jobs:
