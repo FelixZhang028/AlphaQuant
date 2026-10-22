@@ -132,7 +132,65 @@ def read_json(path):
         return {}
 
 
-def alive(pid):
+# 进程号会被系统重新分配：任务的进程早就结束了，同一个号码后来可能给了别的程序。
+# 进程的启动时间比我们记下它的时间晚这么多秒，就不是我们的进程。
+PID_REUSE_SLACK = 120
+
+
+def process_started_at(pid):
+    """When process ``pid`` started (UTC datetime), or None when it is not known on this system."""
+
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            handle = kernel.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return None
+            try:
+                times = [wintypes.FILETIME() for _ in range(4)]
+                if not kernel.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                    return None
+                ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime   # 1601 年起的 100 纳秒
+                return datetime.fromtimestamp((ticks - 116444736000000000) / 1e7, UTC)
+            finally:
+                kernel.CloseHandle(handle)
+        # Linux：/proc/<pid>/stat 第 22 项是开机以后第几个时钟周期启动的。
+        fields = Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()
+        boot = next(float(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime"))
+        return datetime.fromtimestamp(boot + int(fields[19]) / os.sysconf("SC_CLK_TCK"), UTC)
+    except (OSError, ValueError, StopIteration, IndexError, AttributeError):
+        return None
+
+
+def alive(pid, recorded_at=None):
+    """Whether process ``pid`` is still running. With ``recorded_at`` (when the job wrote the pid down),
+    a process that started long after that is someone else's reused pid, so the job's process is gone."""
+
+    if not _running(pid):
+        return False
+    if recorded_at:
+        started = process_started_at(pid)
+        try:
+            recorded = datetime.fromisoformat(str(recorded_at))
+        except ValueError:
+            return True
+        if started is None:
+            # Windows 上任务进程是本程序用同一个账户启动的，一定读得到启动时间；读不到（例如被拒绝访问）
+            # 说明这个号码现在是别的账户、别的程序的。其他系统读不到时照旧当作还在运行。
+            return os.name != "nt"
+        if (started - recorded).total_seconds() > PID_REUSE_SLACK:
+            return False
+    return True
+
+
+def _running(pid):
     if not pid:
         return False
     if os.name == "nt":
@@ -177,8 +235,10 @@ class DataJobs:
             if not job:
                 continue
             if job["status"] in ("RUNNING", "RETRYING", "STARTING"):
-                if not alive(job.get("pid")) and not alive(job.get("child_pid")):
-                    job["status"] = "INTERRUPTED"
+                # 主进程在任务创建时启动；下载进程在最近一次 updated_at（开始这一次尝试）时启动。
+                if not alive(job.get("pid"), job.get("created_at")) and not alive(job.get("child_pid"), job.get("updated_at")):
+                    # 进程已经不在了：点过停止的算“已停止”，否则是“意外中断”。
+                    job["status"] = "STOPPED" if (path.parent / "stop").exists() else "INTERRUPTED"
             job["progress"] = read_json(path.parent / "progress.json")
             job["stopping"] = (path.parent / "stop").exists()
             # 结果（每一步下载了多少、哪里失败）给页面看；任务还没结束时为空。
