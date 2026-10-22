@@ -141,7 +141,8 @@ def test_restarting_stops_the_old_backend_but_not_a_running_data_job(tmp_path):
         "import subprocess, sys, time\n"
         "sleep = 'import time; time.sleep(60)'\n"
         "worker = subprocess.Popen([sys.executable, '-c', sleep])\n"
-        "job = subprocess.Popen([sys.executable, '-c', sleep, 'quant_platform.application.data_jobs'])\n"
+        # 拼出来：在虚拟环境里，这个“后端”是 python.exe 启动器下面的真正 Python，它的命令行里不能出现数据任务的名字
+        "job = subprocess.Popen([sys.executable, '-c', sleep, 'quant_platform.application.' + 'data_jobs'])\n"
         f"open({str(pids)!r}, 'w').write(f'{{worker.pid}} {{job.pid}}')\n"
         "time.sleep(60)\n")])
     try:
