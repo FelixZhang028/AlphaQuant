@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  evidenceText, factGroups, laterText, modelText, oddsDisagree, oddsText, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltLabel, tiltTone,
+  canUse, evidenceText, factGroups, useLabel, laterText, modelText, normalizeTilt, oddsDisagree, overfitText, percent, pickSuggestion, remainingText, signedPercent, tiltLabel, tiltTone,
 } from '../src/workspace/aiPresentation.js'
 import { researchContext, researchUrl } from '../src/workspace/researchNavigation.js'
 
@@ -26,7 +26,9 @@ test('没有模型、次数和管理员的说明', () => {
 test('依据只在日期不同时写日期，倾向换成对数据的说法，不用红绿色', () => {
   assert.equal(evidenceText({ label: '市盈率', text: '19.6', as_of: '2026-10-13' }, '2026-10-13'), '市盈率：19.6')
   assert.equal(evidenceText({ label: '最新财报', text: '半年报', as_of: '2026-08-20' }, '2026-10-13'), '最新财报：半年报（2026-08-20）')
-  assert.deepEqual(['偏多', '中性', '偏空'].map(tiltLabel), ['利好多', '中性', '风险多'])
+  assert.deepEqual(['偏多', '中性', '偏空'].map(tiltLabel), ['利好较多', '大致相当', '风险较多'])     // 以前保存的记录
+  assert.deepEqual(['利好较多', '大致相当', '风险较多'].map(tiltLabel), ['利好较多', '大致相当', '风险较多'])
+  assert.equal(normalizeTilt('偏空'), '风险较多')
   assert.equal(tiltLabel(''), '')
   assert.equal(tiltTone('偏多'), tiltTone('偏空'))
   assert.notEqual(tiltTone('中性'), tiltTone('其他'))
@@ -56,11 +58,11 @@ test('开始分析时用选过的股票、完整代码或列表里的第一只',
 })
 
 test('决策模型的概率：三种倾向都写出来，看法不同时能看出来', () => {
-  const odds = { choice: '中性', probabilities: { 偏多: 0.25, 中性: 0.55, 偏空: 0.2 }, model: 'jev-1.13' }
-  assert.equal(oddsText(odds), '决策模型 jev-1.13 的估计：利好多 25% · 中性 55% · 风险多 20%')
-  assert.equal(oddsDisagree(odds, '偏多'), true)
-  assert.equal(oddsDisagree(odds, '中性'), false)
-  assert.equal(oddsText(null), '')
+  const odds = { choice: '大致相当', model: 'jev-1.13' }
+  assert.equal(oddsDisagree(odds, '利好较多'), true)
+  assert.equal(oddsDisagree(odds, '大致相当'), false)
+  assert.equal(oddsDisagree({ choice: '中性' }, '大致相当'), false)      // 新旧说法一样就不算分歧
+  assert.equal(oddsDisagree(null, '利好较多'), false)
   assert.equal(percent(0.645), '65%')
 })
 
@@ -68,4 +70,16 @@ test('过度拟合的可能分三档说明', () => {
   assert.match(overfitText(0.7), /很可能经不起/)
   assert.match(overfitText(0.5), /拿不准/)
   assert.match(overfitText(0.2), /不太像是巧合/)
+})
+
+test('免费次数用完以后：积分够就还能用，按钮上写要多少积分', () => {
+  const free = { limit: 3, used: 1, remaining: 2, cost: 2, points: 0 }
+  const paid = { limit: 3, used: 3, remaining: 0, cost: 2, points: 10 }
+  const short = { limit: 3, used: 3, remaining: 0, cost: 2, points: 1 }
+  const admin = { limit: null, used: 9, remaining: null, cost: 0, points: null }
+  assert.deepEqual([free, paid, short, admin, null].map(canUse), [true, true, false, true, true])
+  assert.equal(useLabel(free, '补全分项报告'), '补全分项报告')
+  assert.equal(useLabel(paid, '补全分项报告'), '补全分项报告 · 2 积分')
+  assert.equal(useLabel(short, '补全分项报告'), '积分不够（需要 2，现有 1）')
+  assert.equal(useLabel(admin, '补全分项报告'), '补全分项报告')
 })

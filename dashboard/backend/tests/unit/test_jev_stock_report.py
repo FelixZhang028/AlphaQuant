@@ -19,9 +19,9 @@ class ReportClient:
             if question['type'] == 'score':
                 answers[key] = {'score': 2.0, 'probabilities': dict(zip(question['criteria'], [.1, .2, .4, .2, .1])), 'confidence': .4}
             else:
-                choice = self.choices.get(key, '中性')
+                choice = self.choices.get(key, '大致相当' if key == 'tilt' else '中性')
                 if key == 'tilt':
-                    probs = {'偏多': .12, '中性': .85, '偏空': .03}
+                    probs = {'利好较多': .12, '大致相当': .85, '风险较多': .03}
                 else:
                     probs = {label: .7 if label == choice else .1 for label in question['criteria']}
                 answers[key] = {'choice': choice, 'probabilities': probs, 'confidence': .6}

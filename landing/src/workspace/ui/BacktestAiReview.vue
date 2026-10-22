@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { getBacktestReview, runBacktestReview } from '../../api.js'
 import { openResearch } from '../researchNavigation.js'
-import { factGroups, overfitText, percent, remainingText } from '../aiPresentation.js'
+import { canUse, factGroups, overfitText, percent, remainingText, useLabel } from '../aiPresentation.js'
 import { confidenceLabel, probabilityLabel } from '../jevReportPresentation.js'
 
 const props = defineProps({
@@ -48,9 +48,9 @@ async function run() {
         <h3 class="text-sm font-semibold text-white">AI 评估</h3>
         <p class="mt-0.5 text-xs text-slate-500">决策模型只根据这次回测自己的数字，估计风险有多高、结果在新数据上做不到的可能有多大</p>
       </div>
-      <button v-if="!review && state.available" :disabled="running || state.usage?.remaining === 0"
+      <button v-if="!review && state.available" :disabled="running || !canUse(state.usage)"
         class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-60"
-        @click="run">{{ running ? '评估中…' : '让 AI 评估这次回测' }}</button>
+        @click="run">{{ running ? '评估中…' : useLabel(state.usage, '让 AI 评估这次回测') }}</button>
     </div>
     <p v-if="!review && !state.available" class="mt-3 text-sm text-amber-200">平台还没有配置决策模型，暂时不能评估。</p>
     <p v-else-if="!review && left" class="mt-2 text-xs text-slate-500">{{ left }}；评估过的回测再打开不会重复计数。</p>

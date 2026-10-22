@@ -58,6 +58,7 @@ from quant_platform.ai_research.brief import (
 )
 from quant_platform.ai_research.decisions import tilt_odds
 from quant_platform.ai_research.stock_report import REPORT_VERSION, stock_report
+from quant_platform.ai_research.tilts import normalize, normalize_odds
 from quant_platform.ai_research.facts import StockFacts, stock_facts
 from quant_platform.ai_research.outcome import later_moves
 from quant_platform.ai_research.report import compare_facts, fill_pending_factors
@@ -189,6 +190,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _reading(reading: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A saved AI reading with today's words (records from before say 偏多 / 中性 / 偏空)."""
+
+    if not isinstance(reading, dict):
+        return reading
+    return {**reading, "tilt": normalize(reading.get("tilt")), "odds": normalize_odds(reading.get("odds"))}
+
+
 def _record(row) -> dict[str, Any]:
     stored = json.loads(row["brief"]) if row["brief"] else {}
     return {
@@ -199,8 +208,8 @@ def _record(row) -> dict[str, Any]:
         "created_at": row["created_at"],
         "model": row["model"] or None,
         "facts": json.loads(row["facts"]),
-        "brief": stored.get("reading"),
-        "odds": stored.get("odds") or (stored.get("reading") or {}).get("odds"),
+        "brief": _reading(stored.get("reading")),
+        "odds": normalize_odds(stored.get("odds") or (stored.get("reading") or {}).get("odds")),
         "ai_note": TEXT_MODEL_NOTE if stored.get("note") == LEGACY_MODEL_NOTE else stored.get("note", ""),
         "use_experience": bool(stored.get("experience", False)),
         "questions": json.loads(row["questions"] or "[]"),
@@ -393,7 +402,7 @@ def brief_list(limit: int = Query(20, ge=1, le=100), user: dict = Depends(get_cu
         reading = stored.get("reading") or {}
         odds = stored.get("odds") or reading.get("odds") or {}
         items.append({"id": row["id"], "symbol": row["symbol"], "name": row["name"], "trade_date": row["trade_date"],
-                      "created_at": row["created_at"], "tilt": reading.get("tilt") or odds.get("choice"),
+                      "created_at": row["created_at"], "tilt": normalize(reading.get("tilt") or odds.get("choice")),
                       "later": moves.get((row["symbol"], date.fromisoformat(row["trade_date"])))})
     return {"items": items}
 

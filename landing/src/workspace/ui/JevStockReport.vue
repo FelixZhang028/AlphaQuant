@@ -1,8 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import { openResearch } from '../researchNavigation.js'
-import { evidenceText, oddsDisagree, TILT_NOTE, tiltLabel, tiltTone } from '../aiPresentation.js'
-import { assessmentTone, confidenceLabel, distributionRows, isDetailedReport, probabilityLabel, reportSummary } from '../jevReportPresentation.js'
+import { canUse, evidenceText, normalizeTilt, oddsDisagree, TILT_NOTE, TILTS, tiltLabel, tiltTone, useLabel } from '../aiPresentation.js'
+import { assessmentTone, confidenceLabel, distributionRows, isDetailedReport, reportSummary } from '../jevReportPresentation.js'
 
 const props = defineProps({
   report: { type: Object, required: true },
@@ -10,11 +10,17 @@ const props = defineProps({
   textTilt: { type: String, default: '' },
   upgrading: { type: Boolean, default: false },
   canUpgrade: { type: Boolean, default: false },
-  remaining: { type: Number, default: null },
+  usage: { type: Object, default: null },   // 今天的个股判断次数和积分：免费次数用完以后用积分补全
 })
 defineEmits(['upgrade'])
 const detailed = computed(() => isDetailedReport(props.report))
-const rows = computed(() => distributionRows(Object.fromEntries(['偏多', '中性', '偏空'].map(label => [label, props.report.probabilities?.[label]]))))
+// 三种归纳各是什么意思；不显示三者的百分比，免得看起来像涨跌的概率。
+const MEANINGS = {
+  利好较多: '数据里的利好因素明显多于风险因素',
+  大致相当: '利好因素和风险因素差不多，或者数据不足以判断',
+  风险较多: '数据里的风险因素明显多于利好因素',
+}
+const choice = computed(() => normalizeTilt(props.report.choice))
 const date = computed(() => props.report.as_of || props.tradeDate)
 const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
 </script>
@@ -36,22 +42,25 @@ const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
           <div class="mt-3 flex flex-wrap items-center gap-3">
             <span class="rounded-xl border px-4 py-2 text-xl font-semibold" :class="tiltTone(report.choice)">{{ tiltLabel(report.choice) }}</span>
             <div class="text-sm text-slate-300">
-              <p>模型置信度 <span class="font-semibold text-white">{{ confidenceLabel(report.confidence) }}</span> · {{ probabilityLabel(report.confidence) }}</p>
-              <p class="mt-0.5 text-xs text-slate-500">反映模型对分类的把握程度</p>
+              <p>模型的把握 <span class="font-semibold text-white">{{ confidenceLabel(report.confidence) }}</span></p>
+              <p class="mt-0.5 text-xs text-slate-500">模型对这个归纳有多确定</p>
             </div>
           </div>
           <p class="mt-2 text-xs text-slate-500">{{ TILT_NOTE }}</p>
           <p class="mt-4 text-base leading-relaxed text-slate-200">{{ reportSummary(report) }}</p>
-          <p v-if="disagree" class="mt-2 text-sm text-amber-200">Jev 与文字解读的倾向不同，说明对同一份数据的判断存在分歧。</p>
-          <p class="mt-3 text-xs leading-relaxed text-slate-500">概率表示对三类倾向的判断，不是未来涨跌幅或获利概率。说明文字由结构化结果整理，不是模型生成的推理过程。</p>
+          <p v-if="disagree" class="mt-2 text-sm text-amber-200">Jev 与文字解读的归纳不同，说明对同一份数据的判断存在分歧。</p>
+          <p class="mt-3 text-xs leading-relaxed text-slate-500">这只是对当前数据的归纳：利好因素和风险因素哪一边更多。不预测以后的价格，也不是买卖建议。说明文字由结构化结果整理，不是模型生成的推理过程。</p>
         </div>
 
         <div class="rounded-xl border border-white/10 bg-black/10 p-4">
-          <h4 class="text-sm font-medium text-slate-300">三种倾向的概率</h4>
-          <ul class="mt-4 space-y-4">
-            <li v-for="row in rows" :key="row.label">
-              <div class="mb-1.5 flex justify-between text-sm"><span class="text-slate-300">{{ tiltLabel(row.label) }}<span v-if="row.label === report.choice" class="ml-2 text-xs text-slate-500">本次判断</span></span><span class="font-medium text-white">{{ row.text }}</span></div>
-              <div class="h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true"><div class="h-full rounded-full bg-indigo-400" :style="{ width: row.width }" /></div>
+          <h4 class="text-sm font-medium text-slate-300">三种归纳</h4>
+          <ul class="mt-4 space-y-3">
+            <li v-for="tilt in TILTS" :key="tilt" class="rounded-lg border px-3 py-2.5 text-sm"
+              :class="tilt === choice ? 'border-indigo-300/40 bg-indigo-500/10' : 'border-white/10 bg-white/[0.02]'">
+              <p class="flex items-center justify-between gap-2" :class="tilt === choice ? 'text-white' : 'text-slate-400'">
+                <span class="font-medium">{{ tilt }}</span><span v-if="tilt === choice" class="text-xs text-indigo-200">本次归纳</span>
+              </p>
+              <p class="mt-1 text-xs" :class="tilt === choice ? 'text-slate-300' : 'text-slate-500'">{{ MEANINGS[tilt] }}</p>
             </li>
           </ul>
         </div>
@@ -59,8 +68,8 @@ const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
 
       <div v-if="!detailed" class="rounded-xl border border-indigo-400/20 bg-indigo-500/5 p-4">
         <p class="text-sm text-slate-300">这是一条历史简版判断，尚未评估各个维度。可以使用当时保存的数据补全报告。</p>
-        <button v-if="canUpgrade" type="button" :disabled="upgrading || remaining === 0" class="mt-3 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 disabled:opacity-50" @click="$emit('upgrade')">
-          {{ upgrading ? '正在补全报告…' : remaining === 0 ? '今天的评估额度已用完' : '补全分项报告 · 使用 1 次评估' }}
+        <button v-if="canUpgrade" type="button" :disabled="upgrading || !canUse(usage)" class="mt-3 rounded-full border border-indigo-400/40 bg-indigo-500/10 px-4 py-2 text-sm text-indigo-200 disabled:opacity-50" @click="$emit('upgrade')">
+          {{ upgrading ? '正在补全报告…' : useLabel(usage, usage?.remaining > 0 ? '补全分项报告 · 用 1 次免费次数' : '补全分项报告') }}
         </button>
         <p v-else class="mt-2 text-xs text-slate-500">平台配置 Jev 后可以补全；当前保存的判断仍可查看。</p>
       </div>
@@ -89,7 +98,7 @@ const disagree = computed(() => oddsDisagree(props.report, props.textTilt))
               <div class="flex items-start justify-between gap-2"><h5 class="text-sm font-semibold text-slate-200">{{ item.title }}</h5><span class="shrink-0 rounded-full border px-2 py-0.5 text-xs" :class="assessmentTone(item.assessment)">{{ item.assessment }}</span></div>
               <p class="mt-1 text-xs text-slate-500">{{ item.description }}</p>
               <p class="mt-3 text-sm leading-relaxed text-slate-300">{{ item.interpretation }}</p>
-              <p v-if="item.confidence != null" class="mt-2 text-xs text-slate-500">模型置信度 {{ probabilityLabel(item.confidence) }}（{{ confidenceLabel(item.confidence) }}）</p>
+              <p v-if="item.confidence != null" class="mt-2 text-xs text-slate-500">模型的把握：{{ confidenceLabel(item.confidence) }}</p>
               <ul v-if="item.evidence.length" class="mt-3 space-y-1.5 border-t border-white/10 pt-3">
                 <li v-for="fact in item.evidence.slice(0, 3)" :key="fact.key" class="break-words text-xs leading-relaxed text-slate-400">{{ evidenceText(fact, date) }}</li>
               </ul>

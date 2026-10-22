@@ -1,4 +1,6 @@
 // Display only saved model answers; prose is a fixed explanation of typed results.
+import { normalizeTilt } from './aiPresentation.js'
+
 export function probabilityLabel(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
     ? `${(value * 100).toFixed(1).replace(/\.0$/, '')}%` : '—'
@@ -18,10 +20,10 @@ export function distributionRows(probabilities = {}) {
 export function reportSummary(report) {
   if (report?.summary) return report.summary
   return {
-    偏多: '数据里的利好因素多于风险，仍需结合风险和数据范围理解。',
-    中性: '利好和风险因素大致相当，尚未形成明确的一边。',
-    偏空: '数据里的风险因素多于利好，需要优先核查不利线索。',
-  }[report?.choice] || '暂无综合判断。'
+    利好较多: '数据里的利好因素多于风险，仍需结合风险和数据范围理解。',
+    大致相当: '利好和风险因素大致相当，尚未形成明确的一边。',
+    风险较多: '数据里的风险因素多于利好，需要优先核查不利线索。',
+  }[normalizeTilt(report?.choice)] || '暂无综合判断。'
 }
 
 export function assessmentTone(value) {
