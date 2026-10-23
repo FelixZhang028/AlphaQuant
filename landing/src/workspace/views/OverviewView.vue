@@ -40,11 +40,8 @@ const progress = computed(() => stepsProgress(home.value?.steps))
 const aiReady = computed(() => home.value?.ai?.available === true)
 
 // ---------- 我的股票池 ----------
-const POOL_PREVIEW = 8
 const poolSort = reactive({ key: '', descending: true })
-const poolExpanded = ref(false)
 const poolRows = computed(() => sortPool(home.value?.pool, poolSort.key, poolSort.descending))
-const poolShown = computed(() => (poolExpanded.value ? poolRows.value : poolRows.value.slice(0, POOL_PREVIEW)))
 function sortBy(key) {
   if (poolSort.key === key) poolSort.descending = !poolSort.descending
   else Object.assign(poolSort, { key, descending: true })
@@ -167,7 +164,8 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
             <button type="button" class="ml-auto" :class="link" @click="go('universe')">管理股票池 →</button>
           </div>
           <p v-if="!home.pool.length" class="mt-4 text-sm text-slate-400">股票池是空的。<button type="button" :class="link" @click="go('universe')">去添加股票</button>，回测和因子研究会用到它。</p>
-          <div v-else class="mt-3 overflow-x-auto">
+          <!-- 全部直接显示；股票很多时在卡片里滚动，不把页面拉得太长 -->
+          <div v-else class="mt-3 max-h-[36rem] overflow-auto">
             <table class="w-full min-w-[480px] text-left text-sm">
               <thead class="text-xs text-slate-500">
                 <tr>
@@ -178,7 +176,7 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/5">
-                <tr v-for="row in poolShown" :key="row.symbol" class="cursor-pointer hover:bg-white/5" @click="go('market-lookup', { symbol: row.symbol })">
+                <tr v-for="row in poolRows" :key="row.symbol" class="cursor-pointer hover:bg-white/5" @click="go('market-lookup', { symbol: row.symbol })">
                   <td class="py-2 pr-3"><span class="text-slate-200">{{ row.name }}</span> <span class="text-xs text-slate-500">{{ row.symbol }}</span>
                     <span v-if="row.st" class="ml-1 text-[10px] text-amber-300">ST</span><span v-if="row.suspended" class="ml-1 text-[10px] text-slate-500">停牌</span></td>
                   <td class="py-2 pr-3 text-right text-slate-200">{{ row.missing ? '没有最新行情' : price(row.close) }}</td>
@@ -187,8 +185,6 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
                 </tr>
               </tbody>
             </table>
-            <button v-if="poolRows.length > POOL_PREVIEW" type="button" class="mt-3" :class="link" @click="poolExpanded = !poolExpanded">
-              {{ poolExpanded ? '收起' : `展开全部 ${poolRows.length} 只` }}</button>
           </div>
         </section>
 
