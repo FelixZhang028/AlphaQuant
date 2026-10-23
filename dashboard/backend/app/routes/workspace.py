@@ -72,7 +72,7 @@ from ..quant.rules import (
     definition_to_frontend,
     definition_to_quant,
 )
-from ..quant.symbols import to_bare, to_canonical
+from ..quant.symbols import index_symbol, to_bare, to_canonical
 from ..routes.admin import require_admin
 from ..routes.auth import get_current_user
 from quant_platform.agents_bridge.data_credentials import DataCredentialStore
@@ -1611,8 +1611,10 @@ def _local_market_catalog() -> LocalMarketCatalog:
 def local_market_list(q: str = Query("", max_length=80), scope: str = Query("all", pattern="^(all|universe)$"),
                       page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
                       user: dict = Depends(get_current_user)):
-    return _local_market_catalog().page(
-        _load_universe_symbols(user["id"]), scope=scope, q=q, page=page, page_size=page_size)
+    catalog = _local_market_catalog()
+    # indexes：本地有日线的常用指数，行情图表放在股票列表上方。
+    return {**catalog.page(_load_universe_symbols(user["id"]), scope=scope, q=q, page=page, page_size=page_size),
+            "indexes": catalog.indexes()}
 
 
 @router.get("/data-center/market/{symbol}", summary="单只股票行情完整性与缺失区间")
@@ -1637,13 +1639,13 @@ def local_market_financials(symbol: str, user: dict = Depends(get_current_user))
             **stock_financials(reports, today=daily_schedule.china_now().date())}
 
 
-@router.get("/data-center/market/{symbol}/bars", summary="单只股票日K线（前复权或不复权）")
+@router.get("/data-center/market/{symbol}/bars", summary="单只股票（前复权或不复权）或指数（带后缀，如 000001.SH）的日K线")
 def local_market_bars(symbol: str, adjust: str = Query("forward", pattern="^(forward|none)$"),
                       user: dict = Depends(get_current_user)):
     try:
         return _local_market_catalog().kline(symbol, adjust=adjust)
     except KeyError:
-        raise HTTPException(status_code=404, detail="本地没有该股票的行情，请先更新行情")
+        raise HTTPException(status_code=404, detail="本地没有该股票或指数的行情，请先更新行情")
 
 
 # 画线工具 -> 需要的点数。名称与前端图表库的图形名称一致。
@@ -1675,9 +1677,10 @@ class DrawingsIn(BaseModel):
 
 
 def _drawing_symbol(symbol: str) -> str:
-    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ))?", symbol.upper()):
+    if not re.fullmatch(r"\d{6}(?:\.(?:SH|SZ|BJ|CSI))?", symbol.upper()):
         raise HTTPException(status_code=422, detail="股票代码格式不正确")
-    return to_bare(symbol)
+    # 指数按带后缀的代码保存：上证指数 000001.SH 上的线不能出现在平安银行 000001 上。
+    return index_symbol(symbol) or to_bare(symbol)
 
 
 @router.get("/data-center/market/{symbol}/drawings", summary="当前用户在这只股票 K 线上画的线")

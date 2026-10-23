@@ -2,7 +2,7 @@
 import { computed, onActivated, ref, watch } from 'vue'
 import { listAuditRuns, localMarketList, runSymbolTrades, runTradedSymbols } from '../../api.js'
 import { TRADE_COLORS } from '../klineOverlays.js'
-import { formatVolume, quoteSummary } from '../klinePresentation.js'
+import { formatVolume, isIndexSymbol, quoteSummary } from '../klinePresentation.js'
 import { openResearch } from '../researchNavigation.js'
 import { setFocus } from '../chatFocus.js'
 import DataTable from '../ui/DataTable.vue'
@@ -153,9 +153,13 @@ const listMessage = computed(() => {
   return ''
 })
 
-// ---------- 当前股票 ----------
+// 本地有日线的常用指数（代码带后缀，如 000001.SH），放在股票列表上方。
+const indexes = computed(() => catalog.value.indexes || [])
+
+// ---------- 当前股票或指数 ----------
+const isIndex = computed(() => isIndexSymbol(symbol.value))
 const name = computed(() => data.value?.name
-  || rows.value.find((row) => row.symbol === symbol.value)?.name || '')
+  || [...indexes.value, ...rows.value].find((row) => row.symbol === symbol.value)?.name || '')
 const quote = computed(() => (data.value ? quoteSummary(data.value.bars) : null))
 const price = (value) => (value == null ? '—' : value.toFixed(2))
 const percent = (value) => (value == null ? '—' : `${value > 0 ? '+' : ''}${(value * 100).toFixed(2)}%`)
@@ -210,7 +214,8 @@ watch(() => [props.routeContext.symbol, props.routeContext.run], ([nextSymbol, n
   if (nextRun && runReference(nextRun) !== run.value) run.value = runReference(nextRun)
 })
 watch(symbol, () => { data.value = null })
-watch(() => [symbol.value, data.value?.name], ([code, name]) => setFocus('market-chart', code ? { symbol: code, name } : null), { immediate: true })
+// AI 问答里的“这只股票”只指股票：看指数时不带上，问答用这一页的通用问题。
+watch(() => [symbol.value, data.value?.name], ([code, name]) => setFocus('market-chart', code && !isIndexSymbol(code) ? { symbol: code, name } : null), { immediate: true })
 watch(run, loadTraded, { immediate: true })
 watch([run, symbol], loadTrades, { immediate: true })
 onActivated(() => {
@@ -221,9 +226,18 @@ onActivated(() => {
 
 <template>
   <div class="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_15rem]">
-    <SectionCard title="选择股票" :hint="run ? '只列出这次回测交易过的股票' : '只显示本地已有的行情'">
+    <SectionCard title="选择股票或指数" :hint="run ? '只列出这次回测交易过的股票' : '只显示本地已有的行情'">
       <FormField label="叠加回测成交" type="select" :model-value="run" :options="runOptions" @update:model-value="changeRun" />
       <p v-if="tradedError" class="mt-2 text-sm text-rose-300" role="alert">{{ tradedError }} <button type="button" class="underline" @click="loadTraded">重试</button></p>
+      <div v-if="!run && indexes.length" class="mt-3">
+        <p class="text-xs text-slate-400">指数</p>
+        <div class="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="指数">
+          <button v-for="row in indexes" :key="row.symbol" type="button" :aria-current="row.symbol === symbol ? 'true' : undefined"
+            class="rounded-full border px-2.5 py-1 text-xs transition"
+            :class="row.symbol === symbol ? 'border-indigo-400/40 bg-indigo-500/20 text-indigo-200' : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'"
+            @click="choose(row)">{{ row.name }}</button>
+        </div>
+      </div>
       <div v-if="!run" class="mt-3 flex flex-wrap gap-2" role="group" aria-label="股票范围">
         <button v-for="item in SCOPES" :key="item.key" type="button" :aria-pressed="scope === item.key"
           class="rounded-full border px-3 py-1 text-xs transition"
@@ -303,7 +317,7 @@ onActivated(() => {
           </div>
         </dl>
         <p class="mt-4 text-xs leading-5 text-slate-500">
-          {{ data.adjust === 'forward' ? '按前复权价格计算，区间涨跌已包含分红送转。' : '按不复权价格计算，除权除息日会出现价格缺口。' }}本地日线不是实时行情。
+          {{ isIndex ? '指数点位不需要复权。' : data.adjust === 'forward' ? '按前复权价格计算，区间涨跌已包含分红送转。' : '按不复权价格计算，除权除息日会出现价格缺口。' }}本地日线不是实时行情。
         </p>
       </template>
     </SectionCard>

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { dispose, init } from 'klinecharts'
 import { chartDrawings, localMarketBars, saveChartDrawings } from '../../api.js'
 import { useTheme } from '../../theme.js'
-import { aggregateBars, barsInRange, formatVolume, toCandles, tradeMarks } from '../klinePresentation.js'
+import { aggregateBars, barsInRange, formatVolume, isIndexSymbol, klineCaption, toCandles, tradeMarks } from '../klinePresentation.js'
 import { DRAWING_TOOLS, MAX_DRAWINGS, drawingOverlays, storedDrawings } from '../klineDrawings.js'
 import { TRADE_COLORS } from '../klineOverlays.js'
 
@@ -77,15 +77,9 @@ const message = computed(() => {
   if (result.value && !result.value.bars.length) return '本地行情缺少完整的开高低收价格，无法绘制K线。'
   return ''
 })
-const caption = computed(() => {
-  const data = result.value
-  if (!data?.bars.length) return ''
-  const parts = [`${data.adjust === 'forward' ? '前复权' : '不复权'} · ${data.start_date} 至 ${data.end_date} · 共 ${data.bars.length} 个交易日 · 成交量单位：股`]
-  if (adjust.value === 'forward' && data.adjust !== 'forward') parts.push('该股票缺少复权因子，当前显示不复权价格')
-  if (data.suspended_days) parts.push(`停牌 ${data.suspended_days} 天未显示`)
-  if (data.invalid_rows) parts.push(`${data.invalid_rows} 条记录价格不完整未显示`)
-  return parts.join('；')
-})
+const caption = computed(() => klineCaption(result.value, adjust.value))
+// 指数没有复权，不显示复权切换。
+const isIndex = computed(() => isIndexSymbol(props.symbol))
 
 function chartStyles() {
   const change = { upColor: RISE, downColor: FALL, noChangeColor: FLAT }
@@ -121,7 +115,7 @@ const controls = computed(() => [
   { label: 'K线周期', items: PERIODS, active: period.value, select: setPeriod },
   { label: 'K线时间范围', items: RANGES, active: range.value, select: setRange },
   { label: '副图指标', items: SUBS, active: sub.value, select: setSub },
-  { label: '复权方式', items: ADJUSTS, active: adjust.value, select: setAdjust, busy: loading.value },
+  ...(isIndex.value ? [] : [{ label: '复权方式', items: ADJUSTS, active: adjust.value, select: setAdjust, busy: loading.value }]),
 ])
 
 function applyTheme() {

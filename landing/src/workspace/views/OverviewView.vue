@@ -125,7 +125,7 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
         </div>
         <div class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <button v-for="index in home.indexes" :key="index.symbol" type="button" class="glass glass-sheen rounded-2xl p-4 text-left transition hover:-translate-y-0.5"
-            @click="go('market-chart')">
+            @click="go('market-chart', { symbol: index.symbol })">
             <div class="flex items-baseline justify-between gap-2">
               <p class="text-xs text-slate-400">{{ index.name }}</p>
               <p class="text-xs font-semibold" :class="tone(index.change)">{{ signedPct(index.change) }}</p>
