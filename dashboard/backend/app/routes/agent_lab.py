@@ -125,11 +125,12 @@ def _ai_failure(exc: Exception) -> str:
 
 @router.get("/status", summary="AI 研究员：模型是否可用、今天还剩几次")
 def agent_status(user: dict = Depends(get_current_user)):
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="brief")
     decision = platform_ai.decision_client()
     bounds = market_repository().daily_bar_bounds()
     return {
-        "ai": {"available": model is not None, "model": model.label if model else None},
+        "ai": {"available": model is not None, "model": model.label if model else None,
+               "models": {kind: platform_ai.platform_model(kind=kind).label for kind in ("brief", "question", "chat")} if model else {}},
         "decision": {"available": decision is not None, "model": decision.model if decision else None},
         "usage": {kind: platform_ai.usage(user, kind) for kind in ("brief", "question", "decision", "chat")},
         "experience_count": len(_prior_store(user["id"]).list()),
@@ -321,7 +322,7 @@ def brief_reading(brief_id: str, user: dict = Depends(get_current_user)):
     record = _record(_load(brief_id, user))
     if record["brief"] is not None:
         return _with_later(record, user)  # 已经解读过，不再调用、不再计数
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="brief")
     if model is None:
         _store_reading(brief_id, user, None, TEXT_MODEL_NOTE, record["use_experience"], "")
         return _with_later(_record(_load(brief_id, user)), user)
@@ -422,7 +423,7 @@ def brief_delete(brief_id: str, user: dict = Depends(get_current_user)):
 @router.post("/briefs/{brief_id}/questions", summary="针对一次分析继续追问")
 def brief_ask(brief_id: str, body: QuestionIn, user: dict = Depends(get_current_user)):
     record = _record(_load(brief_id, user))
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="question")
     if model is None:
         raise HTTPException(status_code=422, detail="平台还没有配置文本模型，暂时不能追问。")
     stock = StockFacts.from_dict(record["facts"])
@@ -499,7 +500,7 @@ def chat_ask(body: ChatIn, user: dict = Depends(get_current_user)):
     question = body.message.strip()
     if not question:
         raise HTTPException(status_code=422, detail="请输入问题")
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="chat")
     if model is None:
         raise HTTPException(status_code=422, detail=CHAT_MODEL_NOTE)
     turns: list[dict[str, Any]] = []

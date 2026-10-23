@@ -126,7 +126,7 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace, "market_repository", lambda: Repository())
     monkeypatch.setattr(workspace, "security_names", lambda: {})
     client = Client([GOOD])
-    monkeypatch.setattr(platform_ai, "platform_model", lambda: Model())
+    monkeypatch.setattr(platform_ai, "platform_model", lambda *args, **kwargs: Model())
     monkeypatch.setattr(platform_ai, "model_client", lambda model: client)
     app = FastAPI()
     app.include_router(workspace.router)
