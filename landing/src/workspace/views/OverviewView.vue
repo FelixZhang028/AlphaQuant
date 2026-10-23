@@ -157,7 +157,8 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
         </div>
       </section>
 
-      <div class="grid items-start gap-6 lg:grid-cols-3">
+      <!-- 同一行左右两边一样高：右边一列里最后一张卡片撑满剩下的高度，底边对齐 -->
+      <div class="grid gap-6 lg:grid-cols-3">
         <!-- 我的股票池 -->
         <section :class="card" class="min-w-0 lg:col-span-2" aria-label="我的股票池">
           <div class="flex flex-wrap items-center gap-3">
@@ -192,7 +193,7 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
         </section>
 
         <!-- 新手任务 / 我的研究 + 数据日历 -->
-        <div class="min-w-0 space-y-6">
+        <div class="flex min-w-0 flex-col gap-6">
           <section v-if="!progress.finished" :class="card" aria-label="新手任务">
             <div class="flex items-baseline justify-between">
               <h2 class="text-sm font-semibold text-white">开始使用</h2>
@@ -220,7 +221,7 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
             </dl>
           </section>
 
-          <section :class="card" aria-label="数据日历">
+          <section :class="card" class="flex flex-1 flex-col" aria-label="数据日历">
             <h2 class="text-sm font-semibold text-white">数据日历</h2>
             <p class="mt-3 text-sm text-slate-300">{{ dailyText(home.daily) }}</p>
             <div v-for="season in home.report_seasons" :key="season.period" class="mt-3">
@@ -229,12 +230,12 @@ const link = 'text-xs text-indigo-300 hover:text-indigo-200'
               <p class="mt-1 text-[11px] text-slate-500">平台在财报季定期下载新公布的财报</p>
             </div>
             <p v-if="!home.report_seasons.length" class="mt-2 text-xs text-slate-500">现在不是财报集中公布的时候。</p>
-            <button type="button" class="mt-3" :class="link" @click="go('data-guide')">看平台有哪些数据 →</button>
+            <button type="button" class="mt-auto self-start pt-3" :class="link" @click="go('data-guide')">看平台有哪些数据 →</button>
           </section>
         </div>
       </div>
 
-      <div class="grid items-start gap-6 lg:grid-cols-3">
+      <div class="grid gap-6 lg:grid-cols-3">
         <!-- 最近的研究 -->
         <section :class="card" class="min-w-0 lg:col-span-2" aria-label="最近的研究">
           <div class="flex items-center gap-3">
