@@ -1,0 +1,29 @@
+# 镜思 Prismind 网站后端（Linux 云服务器）。由 deploy/server/install-release.sh 安装到 /etc/systemd/system/。
+# 只开一个进程：次数限制和后台任务记在这个进程里。前面由 Nginx 提供 https。
+[Unit]
+Description=Prismind web backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=prismind
+Group=prismind
+WorkingDirectory=/opt/prismind/current/dashboard/backend
+Environment=FELLOWQUANT_STATIC_DIR=/opt/prismind/current/landing/dist
+Environment=FELLOWQUANT_ADMIN_DIR=/opt/prismind/current/admin/dist
+# Nginx 把访问者的地址放在 X-Real-IP 里（登录、注册的频率限制要用）。
+Environment=FELLOWQUANT_CLIENT_IP_HEADER=X-Real-IP
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/opt/prismind/venv/bin/python -m uvicorn app.main:app --app-dir /opt/prismind/current/dashboard/backend --host 127.0.0.1 --port 8000 --no-server-header
+Restart=always
+RestartSec=5
+# 重启网站时只停后端本身：它启动的数据下载任务（每日更新、补历史数据）继续运行，完成后自己结束。
+KillMode=process
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

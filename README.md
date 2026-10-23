@@ -130,6 +130,8 @@ WeKnora 需要预先部署、创建知识库，并为 Key 开通相应的读取�
 
 ## 🌐 正式部署
 
+线上网站跑在 Linux 云服务器上：第一次准备服务器、搬数据、`scripts/deploy.sh` 一条命令部署和回退、切换域名，见 [部署到云服务器](docs/DEPLOY_SERVER.md)。
+
 正式部署时由后端直接提供打包好的网页，整个网站只有一个地址，不需要配置跨域：
 
 ```bash
@@ -180,6 +182,7 @@ powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Stop      # 停止
 ├── scripts/start.ps1    # Windows 本机开发：启动前后端与清理
 ├── scripts/serve.ps1 / serve.sh  # 正式部署：打包网页，由后端一起提供
 ├── scripts/tunnel.ps1   # 在自己电脑上用 Cloudflare Tunnel 公开网站
+├── scripts/deploy.sh    # 部署到云服务器（deploy/server/ 是服务器上的服务、Nginx 和安装脚本）
 └── start.bat
 ```
 
