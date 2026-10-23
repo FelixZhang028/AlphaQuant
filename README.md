@@ -141,16 +141,25 @@ scripts/serve.sh            # Windows：powershell -File scripts\serve.ps1
 
 脚本先打包 `landing/` 和 `admin/`，再在 `127.0.0.1:8000` 启动后端，只开一个进程（次数限制和后台任务记在这个进程里，不要开多个 worker）。前面用 Cloudflare Tunnel 或 Nginx 提供 https，不直接暴露端口。上线前在 `.env` 里至少确认：`APP_SECRET`、管理员账户、`OPENROUTER_API_KEY`、`FELLOWQUANT_AI_DAILY_TOTAL`、注册方式（试用阶段建议用邀请码）、`FELLOWQUANT_CLIENT_IP_HEADER`、SMTP 和备份目录。`requirements.lock` 是测试通过的固定版本。
 
-**在自己的 Windows 电脑上公开（Cloudflare 临时 Tunnel）**：先安装 cloudflared（`winget install --id Cloudflare.cloudflared`），再运行
+**在自己的 Windows 电脑上公开（Cloudflare Tunnel）**：先安装 cloudflared（`winget install --id Cloudflare.cloudflared`）。有托管在 Cloudflare 的域名时用正式 Tunnel，网址固定；先在这台电脑上做一次设置（`login` 会打开浏览器，选中域名授权）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1            # 打包网页、在 127.0.0.1:8100 启动后端、申请 https 网址
-powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Install   # 以后登录 Windows 自动在后台启动（-Uninstall 取消）
+cloudflared tunnel login
+cloudflared tunnel create prismind
+cloudflared tunnel route dns prismind getprismind.com
+cloudflared tunnel route dns prismind www.getprismind.com
+```
+
+然后运行（下面每条命令都要带上同样的 `-Tunnel prismind -Hostname getprismind.com`；不带这两个参数就用临时 Tunnel）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Tunnel prismind -Hostname getprismind.com            # 打包网页、在 127.0.0.1:8100 启动后端、连上 Cloudflare
+powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Tunnel prismind -Hostname getprismind.com -Install   # 以后登录 Windows 自动在后台启动（-Uninstall 取消）
 powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Status    # 是否在运行、当前网址
 powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Stop      # 停止
 ```
 
-网址形如 `https://xxx.trycloudflare.com`，不需要 Cloudflare 账号，但**每次 Tunnel 重新启动都会变**，当前网址在 `dashboard/backend/data/runtime/public-url.txt`；只适合试用，有了托管在 Cloudflare 的域名后再换成固定网址的正式 Tunnel。脚本自动设置 `FELLOWQUANT_CLIENT_IP_HEADER=CF-Connecting-IP`，后端或 Tunnel 意外退出时自动重启，日志在 `dashboard/backend/data/runtime/logs/public-*.log`。用 8100 端口，和本机开发（`start.bat`，8000）可以同时运行。电脑睡眠、关机或退出登录时网站就访问不到了，要在电源设置里关掉自动睡眠。更新代码后先 `-Stop` 再启动，网页会重新打包。
+临时 Tunnel 的网址形如 `https://xxx.trycloudflare.com`，不需要 Cloudflare 账号，但**每次重新启动都会变**，只适合试用。当前网址在 `dashboard/backend/data/runtime/public-url.txt`。从编辑器或自动化工具的终端里启动时，脚本会自动转到后台运行（不在那个终端的进程组里），关掉终端网站也不会停。腾讯电脑管家、360 等安全软件可能会删掉“启动”文件夹里的快捷方式，`-Status` 显示“自动启动：未设置”时，要在安全软件里放行。脚本自动设置 `FELLOWQUANT_CLIENT_IP_HEADER=CF-Connecting-IP`，后端或 Tunnel 意外退出时自动重启，日志在 `dashboard/backend/data/runtime/logs/public-*.log`。用 8100 端口，和本机开发（`start.bat`，8000）可以同时运行。电脑睡眠、关机或退出登录时网站就访问不到了，要在电源设置里关掉自动睡眠。更新代码后先 `-Stop` 再启动，网页会重新打包。
 
 服务条款、隐私政策和风险提示在 `landing/src/legal/legalContent.js`（运营者、联系邮箱和生效日期在文件开头）；换服务器、换 AI 服务商或开始收费时要同步修改并更新生效日期，正式收费前请律师看一遍。管理后台在 `https://你的域名/admin/`，只有管理员账户能登录：概览（注册人数、今天活跃、回测和 AI 用量、行情数据和备份）、用户（每个人今天和累计的 AI 次数、回测数，可以停用或恢复账户；停用后不能登录，已经登录的设备立即退出，数据不删除）、注册与邀请码（选择开放 / 邀请码 / 暂停，生成和停用邀请码）、积分与兑换码（用户手里还有效的积分、最近 30 天发出和用掉的积分；一次生成多个兑换码，设置积分、有效天数、几个账户能用和兑换期限；给某个用户加或扣积分，要写原因，用户在积分明细里能看到）、数据更新（服务器磁盘空间和数据占用，剩余不到 5 GB 或 10% 时提醒；每日更新每一步的结果，可以只重新运行没完成的部分；财务数据的自动更新和手动更新；选数据集和日期下载历史数据；后台任务的进度和日志；手动备份）、系统设置（AI 模型和密钥、各类 AI 每天的免费次数、积分规则、每日更新的开关和时间、BaoStock 请求间隔、找回密码用的邮件服务、知识库；保存后立刻生效，不用重启；密钥和邮箱密码用 `APP_SECRET` 派生的密钥加密后存进数据库，页面上只显示前后几位，保存要再输一次管理员密码；可以先“测试连接”或发一封测试邮件；没在后台设置的项照常用 `.env`）、操作记录（改设置、停用用户、注册方式、邀请码、积分和兑换码、数据任务、备份，不记录密钥本身）。概览页有最近 30 天每天各类 AI 的次数和文本模型的 token 用量。换了 `APP_SECRET` 以后，后台保存的密钥会解不开，需要重新填写。网页每次打开都会检查有没有新版本，发布更新以后不会用到旧页面。
 
@@ -170,7 +179,7 @@ powershell -ExecutionPolicy Bypass -File scripts\tunnel.ps1 -Stop      # 停止
 ├── docs/images/          # 实际页面截图
 ├── scripts/start.ps1    # Windows 本机开发：启动前后端与清理
 ├── scripts/serve.ps1 / serve.sh  # 正式部署：打包网页，由后端一起提供
-├── scripts/tunnel.ps1   # 在自己电脑上用 Cloudflare 临时 Tunnel 公开网站
+├── scripts/tunnel.ps1   # 在自己电脑上用 Cloudflare Tunnel 公开网站
 └── start.bat
 ```
 

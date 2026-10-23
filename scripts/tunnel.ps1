@@ -4,16 +4,22 @@
     [switch]$Install,
     [switch]$Uninstall,
     [switch]$Stop,
-    [switch]$Status
+    [switch]$Status,
+    [string]$Tunnel = '',
+    [string]$Hostname = '',
+    [switch]$Detached
 )
-# 在自己的电脑上公开网站：用 scripts\serve.ps1 打包网页并启动后端，再用 Cloudflare 临时 Tunnel 给它一个 https 网址。
-# 临时网址形如 https://xxx.trycloudflare.com，不需要 Cloudflare 账号，但每次 Tunnel 重新启动都会变；
+# 在自己的电脑上公开网站：用 scripts\serve.ps1 打包网页并启动后端，再用 Cloudflare Tunnel 给它一个 https 网址。
+#   -Tunnel 名字 -Hostname 域名   用正式 Tunnel，网址固定（例如 -Tunnel prismind -Hostname getprismind.com）。
+#                               先在这台电脑上运行一次 cloudflared tunnel login、tunnel create、tunnel route dns。
+#   不带这两个参数                用临时 Tunnel：网址形如 https://xxx.trycloudflare.com，不需要账号，但每次重新启动都会变。
 # 当前网址写在 dashboard\backend\data\runtime\public-url.txt，也可以用 -Status 查看。
 # 后端或 Tunnel 意外退出时自动重启。默认用 8100 端口，和本机开发（scripts\start.ps1，8000）分开。
-#   -Install    登录 Windows 后自动在后台启动（放进“启动”文件夹，不需要管理员权限）
+#   -Install    登录 Windows 后自动在后台启动（放进“启动”文件夹，不需要管理员权限），带上 -Tunnel、-Hostname 等设置
 #   -Uninstall  取消自动启动
 #   -Stop       停止正在运行的公开网站
 #   -Status     查看是否在运行和当前网址
+# 从编辑器、自动化工具的终端里启动时，会自动转到后台运行，关掉那个终端也不会停。
 # 需要先安装 cloudflared：winget install --id Cloudflare.cloudflared
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -26,6 +32,10 @@ $tunnelLog = Join-Path $logRoot 'public-tunnel.log'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'FellowQuant Public Site.lnk'
 $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
+if ($Tunnel -and -not $Hostname) { throw '用正式 Tunnel 时要同时给出 -Hostname（例如 getprismind.com）。' }
+# 自动启动、转到后台重新启动时，都带上同样的设置。
+$launchArguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Port $Port"
+if ($Tunnel) { $launchArguments += " -Tunnel `"$Tunnel`" -Hostname `"$Hostname`"" }
 
 function Get-Supervisor {
     if (-not (Test-Path $pidFile)) { return $null }
@@ -48,12 +58,13 @@ if ($Install) {
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($shortcut)
     $link.TargetPath = $powerShellPath
-    $link.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Port $Port"
+    $link.Arguments = $launchArguments
     $link.WorkingDirectory = $projectRoot
     $link.WindowStyle = 7
     $link.Save()
     Write-Host "已设置：登录 Windows 后自动启动公开网站（$shortcut）。"
-    Write-Host '现在就启动：再运行一次本脚本（不带参数）。'
+    Write-Host '现在就启动：去掉 -Install 再运行一次（其他参数不变）。'
+    Write-Host '腾讯电脑管家、360 等安全软件可能会删掉这个快捷方式；之后用 -Status 确认“自动启动：已设置”。'
     exit 0
 }
 if ($Uninstall) {
@@ -77,6 +88,28 @@ if ($Stop) {
     Remove-Item $pidFile, $urlFile -ErrorAction SilentlyContinue
     Write-Log '[停止] 公开网站已停止。'
     exit 0
+}
+
+if (Get-Supervisor) { Write-Host '公开网站已经在运行，用 -Status 查看网址。'; exit 0 }
+# 从别的程序里启动时，本进程可能在那个程序的进程组（Windows job）里：那个程序一结束，
+# 整个网站会被一起强制关掉，来不及留下任何日志。这种情况下在进程组外面重新启动自己。
+if (-not $Detached) {
+    Add-Type -Namespace FellowQuant.Launcher -Name JobCheck -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+'@
+    $inJob = $false
+    [void][FellowQuant.Launcher.JobCheck]::IsProcessInJob([Diagnostics.Process]::GetCurrentProcess().Handle, [IntPtr]::Zero, [ref]$inJob)
+    if ($inJob) {
+        $arguments = "$launchArguments -Detached" + $(if ($SkipBuild) { ' -SkipBuild' } else { '' })
+        $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+        # 通过 WMI 启动：新进程由系统服务创建，不属于当前的进程组。
+        $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+            CommandLine = "`"$powerShellPath`" $arguments"; CurrentDirectory = $projectRoot; ProcessStartupInformation = $startup
+        }
+        if ($created.ReturnValue -ne 0) { throw "转到后台启动失败（WMI 返回 $($created.ReturnValue)）。" }
+        Write-Host "已转到后台启动公开网站（关掉当前窗口也不会停）。一两分钟后用 -Status 查看网址，日志在 $logFile"
+        exit 0
+    }
 }
 
 $mutex = New-Object Threading.Mutex($false, 'Local\FellowQuantPublicSite')
@@ -128,13 +161,29 @@ try {
 
     function Start-Tunnel {
         Remove-Item $urlFile -ErrorAction SilentlyContinue
-        Write-Log '[启动] 正在向 Cloudflare 申请临时网址…'
-        $process = $group.Start($cloudflared, [string[]]@('tunnel', '--no-autoupdate', '--url', "http://127.0.0.1:$Port"),
+        if ($Tunnel) {
+            Write-Log "[启动] 正在连接正式 Tunnel $Tunnel …"
+            $arguments = @('tunnel', '--no-autoupdate', 'run', '--url', "http://127.0.0.1:$Port", $Tunnel)
+        } else {
+            Write-Log '[启动] 正在向 Cloudflare 申请临时网址…'
+            $arguments = @('tunnel', '--no-autoupdate', '--url', "http://127.0.0.1:$Port")
+        }
+        $process = $group.Start($cloudflared, [string[]]$arguments,
             $projectRoot, (Join-Path $logRoot 'public-tunnel.stdout.log'), $tunnelLog)
         for ($attempt = 0; $attempt -lt 60 -and -not $process.HasExited; $attempt++) {
             Start-Sleep -Seconds 1
-            # cloudflared 把日志写在 stderr；网址出现在一个文字框里。api.trycloudflare.com 是申请网址的接口，不是网址本身。
+            # cloudflared 把日志写在 stderr。
             $text = Get-Content $tunnelLog -Raw -ErrorAction SilentlyContinue
+            if ($Tunnel) {
+                # 正式 Tunnel 的网址固定，有一条连接连上 Cloudflare 就能访问。
+                if ([string]$text -match 'Registered tunnel connection') {
+                    Set-Content -Path $urlFile -Value "https://$Hostname" -Encoding ASCII
+                    Write-Log "[启动] 已连上 Cloudflare，网址：https://$Hostname"
+                    return $process
+                }
+                continue
+            }
+            # 临时网址出现在一个文字框里。api.trycloudflare.com 是申请网址的接口，不是网址本身。
             $match = [regex]::Match([string]$text, 'https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com')
             if ($match.Success) {
                 Set-Content -Path $urlFile -Value $match.Value -Encoding ASCII
@@ -142,24 +191,25 @@ try {
                 return $process
             }
         }
-        Write-Log "[出错] 没有拿到临时网址，请查看 $tunnelLog"
+        Write-Log $(if ($Tunnel) { "[出错] 没有连上 Cloudflare，请查看 $tunnelLog" } else { "[出错] 没有拿到临时网址，请查看 $tunnelLog" })
         return $process
     }
 
-    $backend = Start-Backend (-not $SkipBuild)
-    $tunnel = Start-Tunnel
+    # PowerShell 变量名不分大小写：进程不能叫 $tunnel，否则会覆盖参数 $Tunnel。
+    $backendProcess = Start-Backend (-not $SkipBuild)
+    $tunnelProcess = Start-Tunnel
     while ($true) {
         Start-Sleep -Seconds 5
-        if ($backend.HasExited) {
+        if ($backendProcess.HasExited) {
             Write-Log '[重启] 后端已退出，15 秒后重新启动。'
             Start-Sleep -Seconds 15
-            $backend = Start-Backend $false
+            $backendProcess = Start-Backend $false
         }
-        if ($tunnel.HasExited) {
-            Write-Log '[重启] Tunnel 已退出，15 秒后重新申请（网址会变）。'
+        if ($tunnelProcess.HasExited) {
+            Write-Log $(if ($Tunnel) { '[重启] Tunnel 已退出，15 秒后重新连接（网址不变）。' } else { '[重启] Tunnel 已退出，15 秒后重新申请（网址会变）。' })
             Remove-Item $urlFile -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 15
-            $tunnel = Start-Tunnel
+            $tunnelProcess = Start-Tunnel
         }
     }
 } catch {
