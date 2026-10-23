@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { aggregateBars, barsInRange, formatVolume, quoteSummary, toCandles, tradeMarks } from '../src/workspace/klinePresentation.js'
+import { aggregateBars, barsInRange, formatVolume, isIndexSymbol, klineCaption, quoteSummary, toCandles, tradeMarks } from '../src/workspace/klinePresentation.js'
 
 const bar = (date) => ({ date, open: 10, high: 11, low: 9, close: 10.5, volume: 100 })
 
@@ -79,4 +79,26 @@ test('成交量按万、亿显示', () => {
   assert.equal(formatVolume(60000000), '6000万')
   assert.equal(formatVolume(8532), '8532')
   assert.equal(formatVolume('n/a'), 'n/a')
+})
+
+test('带后缀的是指数，6 位数字是股票：000001.SH 不是平安银行', () => {
+  assert.equal(isIndexSymbol('000001.SH'), true)
+  assert.equal(isIndexSymbol('399006.sz'), true)
+  assert.equal(isIndexSymbol('932000.CSI'), true)
+  assert.equal(isIndexSymbol('000001'), false)
+  assert.equal(isIndexSymbol(''), false)
+  assert.equal(isIndexSymbol(undefined), false)
+})
+
+test('K线说明：指数不说复权，股票缺少复权因子时提醒', () => {
+  const bars = [bar('2026-01-05'), bar('2026-01-06')]
+  const range = { start_date: '2026-01-05', end_date: '2026-01-06', bars }
+  assert.equal(klineCaption({ ...range, kind: 'index', adjust: 'none', suspended_days: 0, invalid_rows: 1 }, 'forward'),
+    '指数 · 2026-01-05 至 2026-01-06 · 共 2 个交易日 · 成交量单位：股；1 条记录价格不完整未显示')
+  assert.equal(klineCaption({ ...range, kind: 'stock', adjust: 'none', suspended_days: 3, invalid_rows: 0 }, 'forward'),
+    '不复权 · 2026-01-05 至 2026-01-06 · 共 2 个交易日 · 成交量单位：股；该股票缺少复权因子，当前显示不复权价格；停牌 3 天未显示')
+  assert.equal(klineCaption({ ...range, kind: 'stock', adjust: 'forward' }, 'forward'),
+    '前复权 · 2026-01-05 至 2026-01-06 · 共 2 个交易日 · 成交量单位：股')
+  assert.equal(klineCaption({ ...range, bars: [] }, 'forward'), '')
+  assert.equal(klineCaption(null, 'forward'), '')
 })

@@ -12,12 +12,17 @@ from typing import Any
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .symbols import to_bare, to_canonical
+from .symbols import index_symbol, to_bare, to_canonical
 
+from quant_platform.application.benchmarks import BENCHMARK_NAMES
 from quant_platform.core.files import replace_file
 
 _INDEX_LOCK = RLock()
 _CACHE_VERSION = 1
+BENCHMARK_TABLE = "benchmark_bars"
+# Order of the chart page's index buttons: the four home-page indexes first.
+INDEX_ORDER = ("000001.SH", "399001.SZ", "399006.SZ", "000300.SH", "000688.SH", "000905.SH", "000852.SH",
+               "932000.CSI", "000985.SH")
 
 
 def _cached_index(root: Path, signature: tuple):
@@ -211,8 +216,19 @@ class LocalMarketCatalog:
                 row["status_label"] = "区间有缺失" if missing_ranges else "已保存区间完整"
         return {**row, "missing_ranges": missing_ranges[:20], "missing_range_count": len(missing_ranges)}
 
+    def indexes(self) -> list[dict]:
+        """Indexes with local daily bars, for the chart page's quick list (most watched first)."""
+        path = self.root / f"{BENCHMARK_TABLE}.parquet"
+        if not path.exists():
+            return []
+        present = set(pd.read_parquet(path, columns=["symbol"])["symbol"].astype(str))
+        return [{"symbol": symbol, "name": BENCHMARK_NAMES[symbol]} for symbol in INDEX_ORDER if symbol in present]
+
     def kline(self, symbol: str, *, adjust: str = "forward") -> dict:
-        """Daily candles for one stock; forward adjustment anchors on the latest bar."""
+        """Daily candles for one stock or index; forward adjustment anchors on the latest bar."""
+        index = index_symbol(symbol)
+        if index:
+            return self._index_kline(index)
         canonical = to_canonical(symbol)
         if canonical not in self.stats:
             raise KeyError(symbol)
@@ -237,13 +253,42 @@ class LocalMarketCatalog:
         # Each bar carries its own ratio so raw prices from elsewhere (backtest fills) can be placed on it.
         shown["ratio"] = (factor / factor.iloc[-1]).round(6) if applied == "forward" else 1.0
         shown[prices] = shown[prices].mul(shown["ratio"], axis=0).round(4)
-        return {"symbol": to_bare(canonical), "name": self.names.get(canonical, "名称待补充"), "adjust": applied,
-                "start_date": shown["trade_date"].iloc[0].date().isoformat() if len(shown) else None,
-                "end_date": shown["trade_date"].iloc[-1].date().isoformat() if len(shown) else None,
-                "suspended_days": int(suspended.sum()), "invalid_rows": int((~suspended & ~valid).sum()),
-                "bars": [{"date": day.date().isoformat(), "open": o, "high": h, "low": l, "close": c, "volume": v,
-                          "factor": ratio}
-                         for day, o, h, l, c, v, ratio in zip(
-                             shown["trade_date"], shown["raw_open"], shown["raw_high"], shown["raw_low"],
-                             shown["raw_close"], shown["volume"].fillna(0).astype("int64"), shown["ratio"],
-                             strict=True)]}
+        return {"symbol": to_bare(canonical), "name": self.names.get(canonical, "名称待补充"), "kind": "stock",
+                "adjust": applied, **_candles(shown), "suspended_days": int(suspended.sum()),
+                "invalid_rows": int((~suspended & ~valid).sum())}
+
+    def _index_kline(self, symbol: str) -> dict:
+        """Daily candles for one index. Indexes have no adjustment and no suspensions."""
+        path = self.root / f"{BENCHMARK_TABLE}.parquet"
+        if not path.exists():
+            raise KeyError(symbol)
+        wanted = ["trade_date", "raw_open", "raw_high", "raw_low", "raw_close", "volume"]
+        available = pq.ParquetFile(path).schema_arrow.names
+        frame = pd.read_parquet(path, columns=[column for column in wanted if column in available],
+                                filters=[("symbol", "==", symbol)]).reindex(columns=wanted)
+        if frame.empty:
+            raise KeyError(symbol)
+        frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce").dt.normalize()
+        frame = frame.dropna(subset=["trade_date"]).sort_values("trade_date").drop_duplicates("trade_date", keep="last")
+        prices = ["raw_open", "raw_high", "raw_low", "raw_close"]
+        frame[[*prices, "volume"]] = frame[[*prices, "volume"]].apply(pd.to_numeric, errors="coerce").replace(
+            [float("inf"), -float("inf")], float("nan"))
+        valid = frame[prices].gt(0).all(axis=1) & frame["raw_high"].ge(frame["raw_low"])
+        shown = frame[valid].copy()
+        shown[prices] = shown[prices].round(4)
+        shown["ratio"] = 1.0
+        # Keep the suffix: 000001.SH (SSE Composite) must not turn into the stock 000001.
+        return {"symbol": symbol, "name": BENCHMARK_NAMES[symbol], "kind": "index", "adjust": "none",
+                **_candles(shown), "suspended_days": 0, "invalid_rows": int((~valid).sum())}
+
+
+def _candles(shown: pd.DataFrame) -> dict:
+    """The date range and chart bars of rows that can be drawn (prices already final)."""
+    return {"start_date": shown["trade_date"].iloc[0].date().isoformat() if len(shown) else None,
+            "end_date": shown["trade_date"].iloc[-1].date().isoformat() if len(shown) else None,
+            "bars": [{"date": day.date().isoformat(), "open": o, "high": h, "low": l, "close": c, "volume": v,
+                      "factor": ratio}
+                     for day, o, h, l, c, v, ratio in zip(
+                         shown["trade_date"], shown["raw_open"], shown["raw_high"], shown["raw_low"],
+                         shown["raw_close"], shown["volume"].fillna(0).astype("int64"), shown["ratio"],
+                         strict=True)]}

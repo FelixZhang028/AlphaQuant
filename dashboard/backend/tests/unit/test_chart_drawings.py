@@ -78,6 +78,16 @@ def test_too_many_drawings_and_bad_symbols_are_rejected(api):
     assert client.put(URL.format("0000011"), json={"drawings": []}).status_code == 422
 
 
+def test_index_drawings_are_kept_apart_from_the_same_numbered_stock(api):
+    client, _ = api
+    saved = client.put(URL.format("000001.sh"), json={"drawings": [LEVEL]})
+    assert saved.status_code == 200 and saved.json()["symbol"] == "000001.SH"
+    assert client.get(URL.format("000001.SH")).json()["drawings"] == [LEVEL]
+    # 平安银行（000001 / 000001.SZ）上没有上证指数的线。
+    assert client.get(URL.format("000001")).json()["drawings"] == []
+    assert client.get(URL.format("000001.SZ")).json()["drawings"] == []
+
+
 def test_drawings_require_login():
     app = FastAPI()
     app.include_router(workspace.router)

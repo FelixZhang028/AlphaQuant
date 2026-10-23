@@ -138,6 +138,38 @@ def test_kline_never_draws_incomplete_prices_or_invents_adjustment(repo):
         LocalMarketCatalog(repo.root).kline("000002")
 
 
+def save_index_bars(repo):
+    repo.save_table("benchmark_bars", pd.DataFrame({
+        "symbol": ["000001.SH"] * 3 + ["399006.SZ"],
+        "trade_date": pd.to_datetime(["2026-01-07", "2026-01-05", "2026-01-06", "2026-01-05"]),
+        "raw_open": [3010.0, 3000.0, 3005.0, 2000.0], "raw_high": [3030.0, 3020.0, None, 2010.0],
+        "raw_low": [3000.0, 2990.0, 2995.0, 1990.0], "raw_close": [3025.0, 3010.0, 3000.0, 2005.0],
+        "volume": [3e10, 2e10, 2.5e10, 1e10], "quality_status": "OK"}))
+
+
+def test_index_kline_reads_index_bars_and_never_becomes_the_same_numbered_stock(repo):
+    save_index_bars(repo)
+    catalog = LocalMarketCatalog(repo.root)
+    index = catalog.kline("000001.sh", adjust="forward")
+    assert index["symbol"] == "000001.SH" and index["name"] == "上证指数" and index["kind"] == "index"
+    assert index["adjust"] == "none" and index["suspended_days"] == 0 and index["invalid_rows"] == 1
+    assert index["bars"] == [
+        {"date": "2026-01-05", "open": 3000.0, "high": 3020.0, "low": 2990.0, "close": 3010.0, "volume": 20000000000, "factor": 1.0},
+        {"date": "2026-01-07", "open": 3010.0, "high": 3030.0, "low": 3000.0, "close": 3025.0, "volume": 30000000000, "factor": 1.0}]
+    # Without the suffix 000001 is still 平安银行.
+    stock = catalog.kline("000001")
+    assert stock["symbol"] == "000001" and stock["name"] == "平安银行" and stock["kind"] == "stock"
+    with pytest.raises(KeyError):
+        catalog.kline("000300.SH")
+
+
+def test_index_list_follows_home_order_and_only_lists_local_indexes(repo):
+    assert LocalMarketCatalog(repo.root).indexes() == []
+    save_index_bars(repo)
+    assert LocalMarketCatalog(repo.root).indexes() == [
+        {"symbol": "000001.SH", "name": "上证指数"}, {"symbol": "399006.SZ", "name": "创业板指"}]
+
+
 @pytest.fixture
 def client(repo, monkeypatch):
     app = FastAPI()
@@ -160,6 +192,16 @@ def test_catalog_routes_and_validation(client):
     assert client.get("/api/v1/data-center/market/600519/bars", params={"adjust": "backward"}).status_code == 422
     for params in [{"page": 0}, {"page_size": 101}, {"scope": "wrong"}]:
         assert client.get("/api/v1/data-center/market", params=params).status_code == 422
+
+
+def test_routes_list_indexes_and_draw_them_by_full_code(client, repo):
+    assert client.get("/api/v1/data-center/market").json()["indexes"] == []
+    save_index_bars(repo)
+    assert client.get("/api/v1/data-center/market").json()["indexes"][0] == {"symbol": "000001.SH", "name": "上证指数"}
+    index = client.get("/api/v1/data-center/market/000001.SH/bars").json()
+    assert index["kind"] == "index" and index["symbol"] == "000001.SH" and len(index["bars"]) == 2
+    assert client.get("/api/v1/data-center/market/000001/bars").json()["kind"] == "stock"
+    assert client.get("/api/v1/data-center/market/000300.SH/bars").status_code == 404
 
 
 def test_single_stock_update_never_downloads_the_whole_pool_or_changes_it(client, monkeypatch):

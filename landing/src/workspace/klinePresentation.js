@@ -100,6 +100,23 @@ export function tradeMarks(bars, shown, trades) {
   return { marks, spans, missing }
 }
 
+// 指数代码带交易所后缀（000001.SH 是上证指数），股票是 6 位数字（000001 是平安银行）。
+export function isIndexSymbol(code) {
+  return /^\d{6}\.[A-Z]+$/i.test(String(code || ''))
+}
+
+// K线下方的说明：价格口径、日期范围，以及没有画出来的记录。wanted 是用户选的复权方式。
+export function klineCaption(data, wanted) {
+  if (!data?.bars?.length) return ''
+  const index = data.kind === 'index'
+  const basis = index ? '指数' : data.adjust === 'forward' ? '前复权' : '不复权'
+  const parts = [`${basis} · ${data.start_date} 至 ${data.end_date} · 共 ${data.bars.length} 个交易日 · 成交量单位：股`]
+  if (!index && wanted === 'forward' && data.adjust !== 'forward') parts.push('该股票缺少复权因子，当前显示不复权价格')
+  if (data.suspended_days) parts.push(`停牌 ${data.suspended_days} 天未显示`)
+  if (data.invalid_rows) parts.push(`${data.invalid_rows} 条记录价格不完整未显示`)
+  return parts.join('；')
+}
+
 export function formatVolume(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return String(value)
