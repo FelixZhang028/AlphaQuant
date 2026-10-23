@@ -32,7 +32,8 @@ ln -sfn "$dir" "$base/current"
 systemctl restart prismind
 healthy() {
   for _ in $(seq 1 45); do
-    curl -fsS -o /dev/null http://127.0.0.1:8000/api/health && return 0
+    # 后端启动要几秒，这期间连不上是正常的，不显示。
+    curl -fsS -o /dev/null http://127.0.0.1:8000/api/health 2>/dev/null && return 0
     sleep 2
   done
   return 1
