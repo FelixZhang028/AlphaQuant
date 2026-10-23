@@ -61,7 +61,7 @@ scripts/deploy.sh 某个分支或提交   # 部署别的版本
 回退到上一个版本：
 
 ```bash
-ls -1dt /opt/prismind/releases/*/                      # 找到上一个版本
+sudo ls -1t /opt/prismind/releases                     # 找到上一个版本（/opt/prismind 只有 prismind 用户能看，要加 sudo）
 sudo ln -sfn /opt/prismind/releases/上一个版本 /opt/prismind/current
 sudo systemctl restart prismind
 ```
