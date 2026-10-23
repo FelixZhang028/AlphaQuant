@@ -45,6 +45,17 @@ LIMITS = {
 CHINA = timezone(timedelta(hours=8))
 
 
+# 每个文本 AI 功能可以用自己的模型：种类 -> (环境变量, 页面上的说法)。和默认的文本模型用同一个接口地址、
+# 同一把密钥；没单独设置就用 FELLOWQUANT_AI_MODEL。例如追问、AI 问答用快的，AI 解读、选股解读用强的。
+TEXT_MODELS = {
+    "brief": ("FELLOWQUANT_AI_MODEL_BRIEF", "AI 解读"),
+    "screen": ("FELLOWQUANT_AI_MODEL_SCREEN", "选股解读"),
+    "question": ("FELLOWQUANT_AI_MODEL_QUESTION", "追问"),
+    "chat": ("FELLOWQUANT_AI_MODEL_CHAT", "AI 问答"),
+    "strategy": ("FELLOWQUANT_AI_MODEL_STRATEGY", "一句话生成规则"),
+}
+
+
 @dataclass(frozen=True)
 class PlatformModel:
     base_url: str
@@ -66,13 +77,16 @@ def _value(config: Mapping[str, str] | None, name: str) -> str:
     return str((os.environ if config is None else config).get(name, "") or "").strip()
 
 
-def platform_model(config: Mapping[str, str] | None = None) -> PlatformModel | None:
+def platform_model(config: Mapping[str, str] | None = None, kind: str | None = None) -> PlatformModel | None:
+    """The text model for ``kind`` (one of ``TEXT_MODELS``): its own model name when one is set, else the default."""
+
     key = _value(config, "FELLOWQUANT_AI_API_KEY") or _value(config, "OPENROUTER_API_KEY")
     if not key:
         return None
+    own = _value(config, TEXT_MODELS[kind][0]) if kind in TEXT_MODELS else ""
     return PlatformModel(
         base_url=_value(config, "FELLOWQUANT_AI_BASE_URL") or DEFAULT_BASE_URL,
-        model=_value(config, "FELLOWQUANT_AI_MODEL") or DEFAULT_MODEL,
+        model=own or _value(config, "FELLOWQUANT_AI_MODEL") or DEFAULT_MODEL,
         api_key=key,
     )
 

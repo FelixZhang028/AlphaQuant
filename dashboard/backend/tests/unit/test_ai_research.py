@@ -251,7 +251,7 @@ def use_model(monkeypatch, answers):
 
 def test_without_a_model_the_data_is_still_shown(api):
     client, _ = api
-    assert client.get("/api/v1/agent-lab/status").json()["ai"] == {"available": False, "model": None}
+    assert client.get("/api/v1/agent-lab/status").json()["ai"] == {"available": False, "model": None, "models": {}}
     result = client.post("/api/v1/agent-lab/briefs", json={"symbol": "600000"}).json()
     assert result["brief"] is None and "还没有配置" in result["ai_note"]
     assert client.post(f"/api/v1/agent-lab/briefs/{result['id']}/reading").json()["brief"] is None

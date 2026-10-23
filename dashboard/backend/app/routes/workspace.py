@@ -460,7 +460,7 @@ def screen_brief(body: ScreenIn, user: dict = Depends(get_current_user)):
         saved = conn.execute("SELECT result FROM screen_briefs WHERE user_id = ? AND cache_key = ?", (user["id"], key)).fetchone()
     if saved:
         return {**json.loads(saved["result"]), "cached": True, "usage": platform_ai.usage(user, "screen")}
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="screen")
     if model is None:
         raise HTTPException(status_code=409, detail="平台还没有配置文本模型，暂时不能解读")
     names = security_names()
@@ -680,14 +680,14 @@ class NlGenerateIn(BaseModel):
 
 @router.get("/nl/status", summary="用一句话建策略：用哪个模型、今天还剩几次")
 def nl_status(user: dict = Depends(get_current_user)):
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="strategy")
     return {"ai": {"available": model is not None, "model": model.label if model else None},
             "usage": platform_ai.usage(user, "strategy")}
 
 
 @router.post("/nl/generate", summary="一句话生成结构化策略规则（平台模型；没有模型或次数用完时用离线规则识别）")
 def nl_generate(body: NlGenerateIn, user: dict = Depends(get_current_user)):
-    model = platform_ai.platform_model()
+    model = platform_ai.platform_model(kind="strategy")
     note = ""
     try:
         if model is not None:

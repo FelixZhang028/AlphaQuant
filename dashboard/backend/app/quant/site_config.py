@@ -34,7 +34,7 @@ from ..database import get_conn
 from ..security import SECRET_KEY
 from . import points
 from .daily_schedule import DEFAULT_TIME
-from .platform_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, LIMITS, TOTAL_DEFAULT
+from .platform_ai import DEFAULT_BASE_URL, DEFAULT_MODEL, LIMITS, TEXT_MODELS, TOTAL_DEFAULT
 
 PREFIX = "config:"
 
@@ -66,9 +66,16 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("FELLOWQUANT_AI_BASE_URL", "ai", "文本模型接口地址", "url",
             "OpenAI 兼容的接口地址。用 OpenRouter 时留空。", default=DEFAULT_BASE_URL),
     Setting("FELLOWQUANT_AI_MODEL", "ai", "文本模型名称", "text",
-            "AI 解读、追问、AI 问答、一句话生成规则用的模型。", default=DEFAULT_MODEL),
+            "默认的文本模型：下面没有单独设置模型的 AI 功能都用它。", default=DEFAULT_MODEL),
     Setting("FELLOWQUANT_AI_API_KEY", "ai", "文本模型密钥", "secret",
             "不用 OpenRouter 时填写（例如 DeepSeek、通义千问的密钥）；留空就用 OpenRouter 密钥。"),
+    # 每个功能单独的模型：和默认的文本模型同一个接口地址、同一把密钥，留空就用默认的。
+    *(Setting(variable, "ai", f"{word}用的模型", "text",
+              ("留空就用上面的文本模型名称。和它用同一个接口地址和密钥，所以要是同一家服务商的模型："
+               "直接用 DeepSeek 时写 deepseek-v4-flash 这样的名字，用 OpenRouter 时写 deepseek/deepseek-v4-flash；"
+               "以服务商的模型列表为准。") if kind == "brief" else "留空就用上面的文本模型名称。",
+              default="同文本模型名称")
+      for kind, (variable, word) in TEXT_MODELS.items()),
     Setting("TYPESAFE_API_KEY", "ai", "TypeSafe Jev 密钥", "secret",
             "决策模型 Jev 的官方密钥；留空时通过 OpenRouter 调用 Jev。"),
     Setting("FELLOWQUANT_JEV_MODEL", "ai", "Jev 模型名称", "text", "一般留空，用默认的版本。"),
