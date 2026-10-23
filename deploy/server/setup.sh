@@ -36,5 +36,8 @@ if [ ! -f /etc/nginx/sites-available/prismind ]; then
 fi
 ln -sfn /etc/nginx/sites-available/prismind /etc/nginx/sites-enabled/prismind
 rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+nginx -t
+# 刚装好时 Nginx 可能没在运行（例如 80 端口当时被占用）。
+systemctl enable -q nginx
+systemctl is-active -q nginx && systemctl reload nginx || systemctl start nginx
 echo "服务器准备好了。接下来：把数据和 .env 放到 $base/data、$base/shared/.env，再在本机运行 scripts/deploy.sh。"
