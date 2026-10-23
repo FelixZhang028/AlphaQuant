@@ -156,6 +156,17 @@ export function copyPackage(id, name) {
 export function deletePackage(id) {
   return request(`/api/v1/packages/${id}`, { method: 'DELETE', auth: true })
 }
+// 今天符合条件的股票：用规则策略的选股条件在本地最新一个交易日筛一遍
+export function screenPackage(payload) {
+  return request('/api/v1/packages/screen', { method: 'POST', body: payload, auth: true })
+}
+// 条件选股：AI 解读这组股票（同一组条件、同一天不重复扣次数）；用同样的条件回测最近几年
+export function screenBrief(payload) {
+  return request('/api/v1/packages/screen/brief', { method: 'POST', body: payload, auth: true })
+}
+export function screenHistory(payload) {
+  return request('/api/v1/packages/screen/history', { method: 'POST', body: payload, auth: true })
+}
 export function preflightPackage(payload) {
   return request('/api/v1/packages/preflight', { method: 'POST', body: payload, auth: true })
 }

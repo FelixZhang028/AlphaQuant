@@ -5,9 +5,10 @@ export const overviewKey = 'overview'
 
 // 沿用 AlphaQuant 的用户旅程，保留 v4 的所有模块入口。
 export const groups = [
-  // 市场研究：看一只股票（AI研究员）、看一类情况（事件研究）、看行情。
+  // 市场研究：看一只股票（AI研究员）、按条件找股票（条件选股）、看一类情况（事件研究）、看行情。
   { label: '市场研究', items: [
     { key: 'agent-lab', label: 'AI研究员' },
+    { key: 'stock-screen', label: '条件选股' },
     { key: 'event-study', label: '事件研究' },
     { key: 'market-chart', label: '行情图表' },
   ] },
@@ -83,7 +84,7 @@ export function itemLabel(key) {
 
 // 内容宽度与外壳独立：研究页为图表留空间，账户/设置保持紧凑。
 const wideViews = new Set([
-  'market-chart', 'event-study',
+  'market-chart', 'event-study', 'stock-screen',
   'factor-lab', 'backtest-review', 'research', 'audit-report',
   'strategy-forensics', 'strategy-studio', 'run-library',
 ])
@@ -103,6 +104,7 @@ export const views = {
   'factor-lab': defineAsyncComponent(() => import('./views/FactorLabView.vue')),
   'agent-lab': defineAsyncComponent(() => import('./views/AgentLabView.vue')),
   'event-study': defineAsyncComponent(() => import('./views/EventStudyView.vue')),
+  'stock-screen': defineAsyncComponent(() => import('./views/StockScreenView.vue')),
   'decision-center': defineAsyncComponent(() => import('./views/DecisionCenterView.vue')),
   'knowledge-base': investmentKnowledgeView,
   'backtest-review': defineAsyncComponent(() => import('./views/BacktestReviewView.vue')),

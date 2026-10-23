@@ -46,7 +46,7 @@ from ..quant.research_runs import (
     tunable_parameters,
     walk_forward_range,
 )
-from ..quant import audit, daily_schedule, home
+from ..quant import audit, daily_schedule, home, rate_limit
 from ..quant.compute import cached, computing
 from ..quant.runtime import (
     BACKEND_ROOT,
@@ -347,6 +347,172 @@ def preflight_package(body: PackageIn, user: dict = Depends(get_current_user)):
             "description": package.definition.describe(top_n=body.top_n, rebalance=body.rebalance)}
 
 
+class ScreenIn(BaseModel):
+    definition: DefinitionIn
+    scope: Literal["pool", "market"] = "pool"
+    exclude_st: bool = True
+    limit: int = Field(100, ge=1, le=300)
+
+
+class ScreenHistoryIn(BaseModel):
+    definition: DefinitionIn
+    market: str = Field(CURRENT_POOL, max_length=40)
+    years: int = Field(1, ge=1, le=5)
+    top_n: int = Field(5, ge=1, le=50)
+    rebalance: Literal["daily", "weekly", "monthly"] = "weekly"
+
+
+SCREEN_LIMIT = (60, 60 * 60)          # 全市场一次要读一年多的行情：每人每小时最多 60 次
+SCREEN_HISTORY_LIMIT = (20, 60 * 60)  # 回测比筛选慢得多：每人每小时最多 20 次
+
+
+def _screen_rule(definition_in: DefinitionIn) -> RuleStrategyDefinition:
+    definition = definition_in.model_dump()
+    definition["name"] = definition.get("name") or "未命名策略"     # 筛选不用名字；还没起名也能筛
+    try:
+        return _package_from_definition(definition, 5, "weekly", "visual_builder").definition
+    except ConfigurationError as exc:
+        raise HTTPException(status_code=422, detail=_sanitize_detail(exc))
+
+
+def _run_screen(body: ScreenIn, user: dict) -> tuple[RuleStrategyDefinition, date, dict[str, Any]]:
+    """规则、本地最新交易日、筛选结果（股票代码是带交易所的写法，最好的在前）。"""
+
+    from quant_platform.strategies.screen import screen
+
+    rule = _screen_rule(body.definition)
+    bounds = local_data_bounds()
+    if not bounds:
+        raise HTTPException(status_code=409, detail="平台还没有行情数据，管理员更新后就能筛选")
+    day = bounds[1]
+    # 需要的交易日换成自然日：一年大约 244 个交易日，多读一些留余量
+    start = day - timedelta(days=int(rule.minimum_history_days * 1.5) + 20)
+    symbols = None
+    if body.scope == "pool":
+        symbols = [to_canonical(str(code)) for code in _load_universe_symbols(user["id"])]
+        if not symbols:
+            raise HTTPException(status_code=409, detail="股票池是空的，请先在股票池管理里添加股票，或者改成筛选全市场")
+    bars = market_repository().get_daily_bars(symbols, start, day)
+    return rule, day, screen(rule, bars, day, exclude_st=body.exclude_st)
+
+
+def _screen_described(rule: RuleStrategyDefinition) -> dict[str, Any]:
+    return {
+        "conditions": [item.describe() for item in rule.entry_rules],
+        "condition_indicators": [{"left": item.left.name, "right": item.right.name if item.right else None}
+                                 for item in rule.entry_rules],
+        "logic": rule.entry_logic, "ranking": rule.ranking.describe(), "ranking_indicator": rule.ranking.indicator.name,
+        "ranking_label": rule.ranking.indicator.describe(),
+    }
+
+
+@router.post("/packages/screen", summary="今天符合条件的股票")
+def screen_package(body: ScreenIn, user: dict = Depends(get_current_user)):
+    """按页面上的选股条件和排序，在本地最新一个交易日筛出符合条件的股票。
+
+    条件和回测用的是同一套计算，所以这里列出的股票就是策略在那一天会考虑的股票。
+    只描述数据：条件是用户自己设的，不是推荐。停牌的股票当天没有可比的数据，不参与。
+    """
+
+    rate_limit.check(f"screen:{user['id']}", *SCREEN_LIMIT, "筛选太频繁，请稍后再试")
+    rule, day, result = _run_screen(body, user)
+    names = security_names()
+    items = [{**item, "symbol": to_bare(item["symbol"]), "name": names.get(item["symbol"], "")}
+             for item in result["items"][: body.limit]]
+    return {
+        "trade_date": day.isoformat(), "scope": body.scope, "checked": result["checked"], "matched": result["matched"],
+        "items": items, "shown": len(items), **_screen_described(rule),
+        "ai": {"available": platform_ai.platform_model() is not None, "usage": platform_ai.usage(user, "screen"),
+               "stocks": SCREEN_BRIEF_STOCKS},
+        "markets": market_options(),
+    }
+
+
+SCREEN_BRIEF_STOCKS = 30
+
+
+def _screen_brief_key(rule: RuleStrategyDefinition, body: ScreenIn, day: date) -> str:
+    import hashlib
+
+    text = json.dumps({"rule": rule.to_dict() | {"strategy_id": "", "name": ""}, "scope": body.scope,
+                       "exclude_st": body.exclude_st, "day": day.isoformat()}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@router.post("/packages/screen/brief", summary="AI 解读这组股票")
+def screen_brief(body: ScreenIn, user: dict = Depends(get_current_user)):
+    """让 AI 读一遍筛出来的这组股票（排序前 30 只）：共同特征、明显不同的几只、风险线索、接下来核查什么。
+
+    只用本地数据；每条要点写出依据，没有依据、数字对不上、给出买卖建议或说价格方向的要点会被去掉。
+    不给股票排名。同一组条件、范围和交易日再看时直接给保存的结果，不再扣次数。
+    """
+
+    from quant_platform.ai_research.brief import BriefFormatError, parse_json, retry_messages
+    from quant_platform.ai_research.screen_brief import HISTORY_DAYS, check_screen_brief, screen_facts, screen_messages
+
+    from .agent_lab import _ai_failure
+
+    rule, day, result = _run_screen(body, user)
+    if not result["items"]:
+        raise HTTPException(status_code=409, detail="今天没有股票符合这些条件，没有可以解读的内容")
+    key = _screen_brief_key(rule, body, day)
+    with get_conn() as conn:
+        saved = conn.execute("SELECT result FROM screen_briefs WHERE user_id = ? AND cache_key = ?", (user["id"], key)).fetchone()
+    if saved:
+        return {**json.loads(saved["result"]), "cached": True, "usage": platform_ai.usage(user, "screen")}
+    model = platform_ai.platform_model()
+    if model is None:
+        raise HTTPException(status_code=409, detail="平台还没有配置文本模型，暂时不能解读")
+    names = security_names()
+    items = [{**item, "name": names.get(item["symbol"], "")} for item in result["items"][:SCREEN_BRIEF_STOCKS]]
+    symbols = [item["symbol"] for item in items]
+    repository = market_repository()
+    history = repository.get_daily_bars(symbols, day - timedelta(days=HISTORY_DAYS), day)
+    latest = repository.get_daily_bars(symbols, day, day, extras=["pe_ttm", "pb_mrq", "turnover_rate", "industry"])
+    described = _screen_described(rule)
+    joiner = "，并且" if rule.entry_logic == "all" else "，或者"
+    stock = screen_facts(items, history, latest, day=day, matched=result["matched"], scope=body.scope,
+                         conditions=joiner.join(described["conditions"]), ranking=described["ranking"])
+    client = platform_ai.model_client(model)
+    messages = screen_messages(stock)
+    try:
+        with platform_ai.quota_call(user, "screen"):
+            answer = client.chat(messages, temperature=0.2, max_tokens=1800).text
+            try:
+                reading = check_screen_brief(parse_json(answer), stock)
+            except BriefFormatError as exc:
+                answer = client.chat(retry_messages(messages, answer, str(exc)), temperature=0.2, max_tokens=1800).text
+                reading = check_screen_brief(parse_json(answer), stock)
+    except platform_ai.QuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - 模型失败时说明原因，不扣次数
+        raise HTTPException(status_code=502, detail=f"AI 解读没有完成（{_ai_failure(exc)}），这次不计入次数")
+    payload = {"brief": reading, "model": model.label, "trade_date": day.isoformat(), "stocks": len(items),
+               "matched": result["matched"], "scope": body.scope}
+    with get_conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO screen_briefs (user_id, cache_key, trade_date, result, created_at) VALUES (?,?,?,?,?)",
+                     (user["id"], key, day.isoformat(), json.dumps(payload, ensure_ascii=False), _now()))
+    return {**payload, "cached": False, "usage": platform_ai.usage(user, "screen")}
+
+
+@router.post("/packages/screen/history", status_code=status.HTTP_201_CREATED, summary="这组条件过去表现如何")
+def screen_history(body: ScreenHistoryIn, user: dict = Depends(get_current_user)):
+    """用同样的选股条件回测最近几年（默认 1 年、每周调仓、持有前 5 只），结果和普通回测一样保存，可以打开看完整结果。"""
+
+    rate_limit.check(f"screen-history:{user['id']}", *SCREEN_HISTORY_LIMIT, "回测太频繁，请稍后再试")
+    rule = _screen_rule(body.definition)
+    bounds = local_data_bounds()
+    if not bounds:
+        raise HTTPException(status_code=409, detail="本地暂无行情数据，请先在数据管理中下载。")
+    end = bounds[1]
+    start = max(bounds[0], end - timedelta(days=365 * body.years))
+    name = f"条件选股：{rule.name}" if rule.name != "未命名策略" else "条件选股"
+    package = StrategyPackage(package_id="screen", name=name, definition=rule, top_n=body.top_n,
+                              rebalance=body.rebalance, source="stock_screen", created_at=datetime.now(UTC))
+    return _run_backtest(user, package, market=body.market, start=start, end=end, initial_cash=1_000_000,
+                         reference="", package_id=None)      # 没有保存成策略：研究记录里不显示“继续研究”
+
+
 @router.post("/packages/{package_id}/backtest", status_code=status.HTTP_201_CREATED, summary="运行策略包回测")
 def backtest_package(package_id: str, body: PackageBacktestIn | None = None, user: dict = Depends(get_current_user)):
     with get_conn() as conn:
@@ -369,24 +535,31 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
     if start >= end:
         raise HTTPException(status_code=422, detail="开始日期需早于结束日期，且区间须与本地行情有交集。")
 
-    service = build_backtest_service(user)
-    try:
-        use_market(service, body.market)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    studio = StrategyStudioService(service)
     try:
         package = _stored_package(row, body.style)
         package = dc_replace(package, top_n=body.top_n or package.top_n,
-                             rebalance=body.rebalance or package.rebalance)
+                             rebalance=body.rebalance or package.rebalance, name=row["name"])
     except (ValueError, ConfigurationError) as exc:
         raise HTTPException(status_code=422, detail=f"策略定义无效：{_sanitize_detail(exc)}")
+    return _run_backtest(user, package, market=body.market, start=start, end=end, initial_cash=body.initial_cash,
+                         reference=f"package:{package_id}", package_id=package_id)
 
+
+def _run_backtest(user: dict, package: StrategyPackage, *, market: str, start: date, end: date, initial_cash: float,
+                  reference: str, package_id: str | None) -> dict[str, Any]:
+    """跑一次规则策略回测并保存到回测记录；策略包回测和条件选股的“过去表现如何”共用。"""
+
+    service = build_backtest_service(user)
+    try:
+        use_market(service, market)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    studio = StrategyStudioService(service)
     base = dc_replace(
         service.default_request(),
         start_date=start,
         end_date=end,
-        initial_cash=body.initial_cash,
+        initial_cash=initial_cash,
         risk_limits=dc_replace(user_risk_limits(user["id"]), max_positions=package.top_n),
     )
     with computing(user):
@@ -401,8 +574,8 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
 
     result = backtest_run_to_result(run, names=security_names())
     result["effective_config"] = {
-        "strategy_reference": f"package:{package_id}", "package_id": package_id,
-        "strategy_plugin": "rule_builder", "market": body.market,
+        "strategy_reference": reference, "package_id": package_id,
+        "strategy_plugin": "rule_builder", "market": market,
         "strategy_parameters": {"definition_json": package.definition.to_json()},
         "initial_capital": base.initial_cash, "max_positions": package.top_n,
         "rebalance": package.rebalance, "from_date": start.isoformat(), "to_date": end.isoformat(),
@@ -411,7 +584,7 @@ def backtest_package(package_id: str, body: PackageBacktestIn | None = None, use
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO backtests (user_id, strategy, market, from_date, to_date, status, result, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"], row["name"], body.market, start.isoformat(), end.isoformat(), "完成",
+            (user["id"], package.name, market, start.isoformat(), end.isoformat(), "完成",
              json.dumps(result, ensure_ascii=False), _now()),
         )
         bid = cur.lastrowid

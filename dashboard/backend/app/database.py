@@ -15,6 +15,7 @@
 - redeem_codes / redeem_uses 兑换码和谁用过
 - point_checkins 每日打卡（每人每天一行，含补签）
 - point_makeup_cards 补签卡
+- screen_briefs 条件选股的 AI 解读（同一组条件、同一天再看不重复扣次数）
 
 使用 Python 标准库 sqlite3，无需额外依赖。
 数据库文件：backend/data/app.db
@@ -275,6 +276,17 @@ def init_db() -> None:
                 makeup     INTEGER NOT NULL DEFAULT 0,      -- 1：用补签卡补的
                 created_at TEXT    NOT NULL,
                 PRIMARY KEY (user_id, day),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            -- 条件选股的 AI 解读：同一个人、同一组条件和范围、同一个交易日只解读一次
+            CREATE TABLE IF NOT EXISTS screen_briefs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                cache_key  TEXT    NOT NULL,
+                trade_date TEXT    NOT NULL,
+                result     TEXT    NOT NULL,                -- JSON：解读、引用的数据、模型
+                created_at TEXT    NOT NULL,
+                UNIQUE (user_id, cache_key),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             -- 补签卡：累计打卡送的，不过期；用掉以后记下补的是哪一天

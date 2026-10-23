@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import { createPackage, nlGenerate, nlStatus, preflightPackage, studioOptions } from '../../api.js'
 import { remainingText } from '../aiPresentation.js'
 import { openResearch } from '../researchNavigation.js'
-import { blankForm, blankRule, chooseIndicator, formFromDefinition, packagePayload } from '../ruleForm.js'
+import { blankForm, definitionFromForm, formFromDefinition, packagePayload } from '../ruleForm.js'
+import { handOffRules, takeHandedRules } from '../ruleHandoff.js'
 import FormField from '../ui/FormField.vue'
+import RuleConditions from '../ui/RuleConditions.vue'
 import SectionCard from '../ui/SectionCard.vue'
 import StrategySaved from '../ui/StrategySaved.vue'
 
@@ -14,17 +16,13 @@ const props = defineProps({
   notify: { type: Function, default: () => {} },
 })
 
-const MAX_RULES = 10
 const STARTS = [
   { key: 'template', label: '从模板开始', hint: '选一个现成的思路，规则会填进下面的表单' },
   { key: 'describe', label: '用一句话描述', hint: '写下想法，由大模型转成规则' },
   { key: 'blank', label: '自己填', hint: '从一条空白条件开始' },
 ]
 const freqOptions = [{ value: 'daily', label: '每日' }, { value: 'weekly', label: '每周' }, { value: 'monthly', label: '每月' }]
-const dirOptions = [{ value: 'descending', label: '从高到低' }, { value: 'ascending', label: '从低到高' }]
 const styleOptions = [{ value: 'conservative', label: '保守' }, { value: 'balanced', label: '均衡' }, { value: 'aggressive', label: '激进' }]
-const logicOptions = [{ value: 'all', label: '全部满足' }, { value: 'any', label: '满足任意一条' }]
-const compareOptions = [{ value: 'value', label: '一个数值' }, { value: 'indicator', label: '另一个指标' }]
 
 const options = ref(null)
 const loadError = ref('')
@@ -34,10 +32,6 @@ const origin = ref(null)
 const savedAsset = ref(null)
 const saving = ref(false)
 
-const select = (mapping) => Object.entries(mapping || {}).map(([value, label]) => ({ value, label }))
-const indicatorOptions = computed(() => select(options.value?.indicators))
-const operatorOptions = computed(() => select(options.value?.operators))
-const windowLimits = (name) => options.value.indicator_windows[name]
 
 // ---------- 三种开始方式 ----------
 // 旧链接里的 mode=builder 对应现在的“自己填”。
@@ -56,6 +50,7 @@ function applyTemplate() {
 }
 function chooseStart(key) {
   start.value = key
+  handed.value = false
   if (key === 'template') applyTemplate()
   else if (key === 'blank') {
     form.value = blankForm(options.value)
@@ -99,12 +94,21 @@ async function generate() {
   }
 }
 
-// ---------- 表单 ----------
-function addRule() {
-  if (form.value.rules.length < MAX_RULES) form.value.rules.push(blankRule(options.value))
+// ---------- 和条件选股互相带条件 ----------
+// 从条件选股带过来的条件：换成“自己填”，表单用这组条件，持股数量和调仓频率用默认值。
+const handed = ref(false)      // 表单里是从条件选股带过来的条件
+function applyHandOff() {
+  const definition = options.value && takeHandedRules()
+  if (!definition) return
+  start.value = 'blank'
+  handed.value = true
+  form.value = formFromDefinition(definition, { top_n: 5, rebalance: 'weekly' }, options.value)
+  origin.value = null
+  props.notify('已带入条件选股里的条件，设好持股数量和调仓频率就能保存、回测')
 }
-function removeRule(index) {
-  if (form.value.rules.length > 1) form.value.rules.splice(index, 1)
+function screenToday() {
+  handOffRules(definitionFromForm(form.value))
+  openResearch('stock-screen')
 }
 
 // ---------- 这个策略的意思（由后端按将要执行的规则读出来） ----------
@@ -155,11 +159,13 @@ onMounted(async () => {
     tpl.template_id = options.value.templates?.[0]?.template_id || ''
     form.value = blankForm(options.value)
     chooseStart(start.value)
+    applyHandOff()
   } catch (e) {
     loadError.value = e.message || '加载选项失败'
   }
   loadNlModel()
 })
+onActivated(applyHandOff)
 </script>
 
 <template>
@@ -214,48 +220,19 @@ onMounted(async () => {
           <p v-if="nl.explanation" class="whitespace-pre-wrap rounded-xl border border-white/10 bg-white/5 p-4 text-sm leading-relaxed text-slate-300">{{ nl.explanation }}</p>
         </div>
 
+        <p v-else-if="handed" class="mt-5 text-sm text-slate-400">下面的表单已经填好从条件选股带过来的条件，设好名称、持股数量和调仓频率就能保存。</p>
         <p v-else class="mt-5 text-sm text-slate-400">下面的表单已经重置为一条空白条件，直接填写即可。</p>
       </SectionCard>
 
       <!-- 同一张表单 -->
       <SectionCard title="策略规则" hint="每个调仓日：先用条件筛选股票，再按排序取前几只，等权持有">
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div class="grid gap-4 md:grid-cols-3">
           <FormField label="策略名称" v-model="form.name" placeholder="如 动量 + 均线策略" />
           <FormField label="持股数量" type="number" v-model="form.top_n" :min="1" :max="50" :step="1" />
           <FormField label="调仓频率" type="select" v-model="form.rebalance" :options="freqOptions" />
-          <FormField label="多条条件之间" type="select" v-model="form.entry_logic" :options="logicOptions" />
         </div>
 
-        <h3 class="mt-6 text-sm font-semibold text-white">选股条件</h3>
-        <p class="mt-1 text-xs text-slate-500">涨跌幅、回撤、波动率用小数填写：0.05 表示 5%。成交额的单位是元。</p>
-        <ol class="mt-3 space-y-3" aria-label="选股条件">
-          <li v-for="(rule, index) in form.rules" :key="index" class="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-slate-400">条件 {{ index + 1 }}</span>
-              <button type="button" class="text-xs text-rose-300 hover:underline disabled:opacity-40" :disabled="form.rules.length <= 1" @click="removeRule(index)">删除</button>
-            </div>
-            <div class="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,2fr)_minmax(0,1fr)]">
-              <FormField label="指标" type="select" :model-value="rule.left.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.left, $event, options)" />
-              <FormField v-if="rule.left.window != null" label="周期（日）" type="number" v-model="rule.left.window" :min="windowLimits(rule.left.name).minimum" :max="windowLimits(rule.left.name).maximum" :step="1" />
-              <div v-else class="hidden xl:block" />
-              <FormField label="判断" type="select" v-model="rule.operator" :options="operatorOptions" />
-              <FormField label="和什么比较" type="select" v-model="rule.compare" :options="compareOptions" />
-              <template v-if="rule.compare === 'indicator'">
-                <FormField label="另一个指标" type="select" :model-value="rule.right.name" :options="indicatorOptions" @update:model-value="chooseIndicator(rule.right, $event, options)" />
-                <FormField v-if="rule.right.window != null" label="周期（日）" type="number" v-model="rule.right.window" :min="windowLimits(rule.right.name).minimum" :max="windowLimits(rule.right.name).maximum" :step="1" />
-              </template>
-              <FormField v-else label="数值" type="number" v-model="rule.value" step="any" />
-            </div>
-          </li>
-        </ol>
-        <button type="button" class="mt-3 text-sm text-indigo-300 hover:underline disabled:opacity-40" :disabled="form.rules.length >= MAX_RULES" @click="addRule">+ 添加条件</button>
-
-        <h3 class="mt-6 text-sm font-semibold text-white">排序</h3>
-        <div class="mt-3 grid gap-4 md:grid-cols-3">
-          <FormField label="排序指标" type="select" :model-value="form.ranking.name" :options="indicatorOptions" @update:model-value="chooseIndicator(form.ranking, $event, options)" />
-          <FormField v-if="form.ranking.window != null" label="周期（日）" type="number" v-model="form.ranking.window" :min="windowLimits(form.ranking.name).minimum" :max="windowLimits(form.ranking.name).maximum" :step="1" />
-          <FormField label="排序方向" type="select" v-model="form.ranking.direction" :options="dirOptions" />
-        </div>
+        <RuleConditions class="mt-6" :form="form" :options="options" />
       </SectionCard>
 
       <!-- 这个策略的意思 -->
@@ -272,6 +249,7 @@ onMounted(async () => {
             {{ saving ? '保存中…' : '保存策略' }}
           </button>
           <span class="text-xs text-slate-400">保存不会运行回测。</span>
+          <button type="button" :disabled="!!check.error" class="ml-auto text-sm text-indigo-300 hover:text-indigo-200 disabled:opacity-40" @click="screenToday">用这些条件筛选今天的股票 →</button>
         </div>
       </SectionCard>
 

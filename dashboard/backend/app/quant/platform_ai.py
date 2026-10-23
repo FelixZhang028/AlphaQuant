@@ -39,6 +39,8 @@ LIMITS = {
     "decision": ("FELLOWQUANT_AI_DAILY_DECISIONS", 3, "个股判断"),
     # AI 问答：每问一次算一次（内部要调用两次模型：先选数据，再回答）。
     "chat": ("FELLOWQUANT_AI_DAILY_CHATS", 10, "AI 问答"),
+    # 条件选股：AI 一次读一整组筛出来的股票（看共同点和差别，不给股票排名）。
+    "screen": ("FELLOWQUANT_AI_DAILY_SCREENS", 3, "选股解读"),
 }
 CHINA = timezone(timedelta(hours=8))
 
