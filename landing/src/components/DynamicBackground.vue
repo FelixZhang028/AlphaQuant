@@ -201,9 +201,12 @@ onBeforeUnmount(() => {
 }
 
 .scanline {
+  /* 从页面上方 60px 开始：往下移动时顶端不会露出一条硬边 */
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 220px;
+  top: -60px;
+  left: 0;
+  right: 0;
+  height: 280px;
   background: linear-gradient(to bottom, rgba(129, 140, 248, 0.08), transparent);
   animation: scan 9s ease-in-out infinite;
   opacity: 0.6;
