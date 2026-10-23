@@ -58,7 +58,7 @@ const tone = (change) => (change > 0 ? 'text-rose-300' : change < 0 ? 'text-emer
       <label class="flex items-center gap-2 text-sm text-slate-300">
         <input v-model="excludeSt" type="checkbox" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-indigo-500" />排除 ST
       </label>
-      <button type="button" :disabled="running || disabled" class="rounded-full border border-indigo-400/40 bg-indigo-500/10 px-5 py-2 text-sm font-medium text-indigo-200 transition hover:bg-indigo-500/20 disabled:opacity-50" @click="run">
+      <button type="button" :disabled="running || disabled" class="rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-indigo-500/40 transition hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0" @click="run">
         {{ running ? (scope === 'market' ? '筛选全市场中…（几秒钟）' : '筛选中…') : '开始筛选' }}
       </button>
     </div>
